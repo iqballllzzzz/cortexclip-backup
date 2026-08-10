@@ -73,9 +73,9 @@ export function Hero() {
               />
             </div>
             <Button asChild variant="accent" size="lg">
-              <a href="/studio">
+              <Link to="/auth">
                 Buat Klip <ArrowRight className="size-4" />
-              </a>
+              </Link>
             </Button>
           </motion.div>
 
