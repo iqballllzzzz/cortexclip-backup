@@ -14,7 +14,185 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      caption_presets: {
+        Row: {
+          accent_color: string
+          base_color: string
+          created_at: string
+          font_size: number
+          id: string
+          name: string
+          position: number
+          show_overlays: boolean
+          stroke: boolean
+          user_id: string
+          words_per_line: number
+        }
+        Insert: {
+          accent_color?: string
+          base_color?: string
+          created_at?: string
+          font_size?: number
+          id?: string
+          name: string
+          position?: number
+          show_overlays?: boolean
+          stroke?: boolean
+          user_id: string
+          words_per_line?: number
+        }
+        Update: {
+          accent_color?: string
+          base_color?: string
+          created_at?: string
+          font_size?: number
+          id?: string
+          name?: string
+          position?: number
+          show_overlays?: boolean
+          stroke?: boolean
+          user_id?: string
+          words_per_line?: number
+        }
+        Relationships: []
+      }
+      clips: {
+        Row: {
+          caption_words: Json | null
+          created_at: string
+          description: string | null
+          end_time: number
+          hashtags: string[] | null
+          hook_type: string | null
+          id: string
+          project_id: string
+          srt_content: string | null
+          start_time: number
+          status: string
+          title: string
+          updated_at: string
+          user_id: string
+          virality_score: number
+        }
+        Insert: {
+          caption_words?: Json | null
+          created_at?: string
+          description?: string | null
+          end_time: number
+          hashtags?: string[] | null
+          hook_type?: string | null
+          id?: string
+          project_id: string
+          srt_content?: string | null
+          start_time: number
+          status?: string
+          title: string
+          updated_at?: string
+          user_id: string
+          virality_score?: number
+        }
+        Update: {
+          caption_words?: Json | null
+          created_at?: string
+          description?: string | null
+          end_time?: number
+          hashtags?: string[] | null
+          hook_type?: string | null
+          id?: string
+          project_id?: string
+          srt_content?: string | null
+          start_time?: number
+          status?: string
+          title?: string
+          updated_at?: string
+          user_id?: string
+          virality_score?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "clips_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          display_name: string | null
+          id: string
+          plan: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          plan?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          plan?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      projects: {
+        Row: {
+          created_at: string
+          duration_seconds: number | null
+          error_message: string | null
+          id: string
+          source_type: string
+          source_url: string | null
+          status: string
+          storage_path: string | null
+          title: string
+          transcript: Json | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          duration_seconds?: number | null
+          error_message?: string | null
+          id?: string
+          source_type?: string
+          source_url?: string | null
+          status?: string
+          storage_path?: string | null
+          title: string
+          transcript?: Json | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          duration_seconds?: number | null
+          error_message?: string | null
+          id?: string
+          source_type?: string
+          source_url?: string | null
+          status?: string
+          storage_path?: string | null
+          title?: string
+          transcript?: Json | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
