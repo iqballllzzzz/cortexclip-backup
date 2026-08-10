@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { motion } from "motion/react";
 import { ArrowRight, Link2, Play, Sparkles, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";

@@ -219,7 +219,7 @@ function Dashboard() {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; className: string }> = {
+  const styles: Record<string, { label: string; className: string }> = {
     pending: { label: "Menunggu", className: "bg-secondary text-muted-foreground" },
     uploading: { label: "Mengunggah", className: "bg-blue-500/15 text-blue-500" },
     transcribing: { label: "Transkripsi", className: "bg-amber-500/15 text-amber-500" },
@@ -227,11 +227,9 @@ function StatusBadge({ status }: { status: string }) {
     completed: { label: "Selesai", className: "bg-green-500/15 text-green-500" },
     failed: { label: "Gagal", className: "bg-red-500/15 text-red-500" },
   };
-  const s = map[status] ?? map.pending;
+  const s = styles[status] ?? { label: "Menunggu", className: "bg-secondary text-muted-foreground" };
   return (
-    <span
-      className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${s.className}`}
-    >
+    <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${s.className}`}>
       {s.label}
     </span>
   );
