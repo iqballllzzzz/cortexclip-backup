@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { motion } from "motion/react";
 import { ArrowRight, Link2, Play, Sparkles, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -73,9 +74,9 @@ export function Hero() {
               />
             </div>
             <Button asChild variant="accent" size="lg">
-              <a href="/studio">
+              <Link to="/auth">
                 Buat Klip <ArrowRight className="size-4" />
-              </a>
+              </Link>
             </Button>
           </motion.div>
 
