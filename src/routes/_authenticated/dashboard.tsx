@@ -1,7 +1,17 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Film, LogOut, Plus, Sparkles, Clock, TrendingUp, Upload, Link2 } from "lucide-react";
+import {
+  Film,
+  LogOut,
+  Plus,
+  Sparkles,
+  Clock,
+  TrendingUp,
+  Upload,
+  Link2,
+  Loader2,
+} from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { SiteHeader } from "@/components/site-header";
@@ -12,6 +22,7 @@ import type { Database } from "@/integrations/supabase/types";
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
 type Project = Database["public"]["Tables"]["projects"]["Row"];
+
 
 const title = "Dashboard — CortexClip";
 const description = "Kelola proyek klip video kamu dan mulai ubah video panjang jadi klip viral.";
@@ -36,6 +47,73 @@ function Dashboard() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  async function createFromFile(file: File) {
+    setCreating(true);
+    try {
+      const ext = file.name.split(".").pop() ?? "mp4";
+      const { data: project, error } = await supabase
+        .from("projects")
+        .insert({
+          user_id: user.id,
+          title: file.name.replace(/\.[^.]+$/, ""),
+          source_type: "upload",
+          status: "uploading",
+        })
+        .select()
+        .single();
+      if (error || !project) throw new Error(error?.message ?? "Gagal membuat proyek.");
+
+      const path = `${user.id}/${project.id}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from("video-uploads")
+        .upload(path, file, { upsert: true, contentType: file.type || "video/mp4" });
+      if (uploadError) throw new Error(uploadError.message);
+
+      await supabase
+        .from("projects")
+        .update({ storage_path: path, status: "pending" })
+        .eq("id", project.id);
+
+      toast.success("Video terunggah. Lanjut ke proses AI.");
+      navigate({ to: "/projects/$projectId", params: { projectId: project.id } });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Gagal mengunggah video.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function createFromYoutube() {
+    const url = youtubeUrl.trim();
+    if (!/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(url)) {
+      toast.error("Masukkan link YouTube yang valid.");
+      return;
+    }
+    setCreating(true);
+    const { data: project, error } = await supabase
+      .from("projects")
+      .insert({
+        user_id: user.id,
+        title: "Proyek YouTube",
+        source_type: "youtube",
+        source_url: url,
+        status: "pending",
+      })
+      .select()
+      .single();
+    setCreating(false);
+    if (error || !project) {
+      toast.error(error?.message ?? "Gagal membuat proyek.");
+      return;
+    }
+    setYoutubeUrl("");
+    navigate({ to: "/projects/$projectId", params: { projectId: project.id } });
+  }
+
 
   useEffect(() => {
     async function loadData() {
@@ -138,26 +216,64 @@ function Dashboard() {
           transition={{ duration: 0.4, delay: 0.1 }}
           className="mt-8 rounded-2xl border-2 border-dashed border-accent/40 bg-accent/5 p-6"
         >
-          <div className="flex flex-col items-center text-center sm:flex-row sm:text-left">
-            <div className="flex size-12 items-center justify-center rounded-xl bg-accent/15">
+          <div className="flex items-start gap-4">
+            <div className="hidden size-12 shrink-0 items-center justify-center rounded-xl bg-accent/15 sm:flex">
               <Sparkles className="size-6 text-accent" />
             </div>
-            <div className="mt-3 sm:ml-4 sm:mt-0">
+            <div className="min-w-0 flex-1">
               <h2 className="text-lg font-semibold">Mulai Proyek Baru</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Unggah video atau tempel link YouTube. AI akan otomatis mencari momen terbaik.
+                Unggah video atau tempel link YouTube. AI akan mentranskrip, mencari momen terbaik,
+                lalu menulis judul, deskripsi, hashtag, dan skor viralitas.
               </p>
-            </div>
-            <div className="mt-4 flex w-full gap-2 sm:ml-auto sm:mt-0 sm:w-auto">
-              <Button variant="accent" size="sm" className="flex-1 sm:flex-none">
-                <Upload className="size-4" /> Unggah Video
-              </Button>
-              <Button variant="secondary" size="sm" className="flex-1 sm:flex-none">
-                <Link2 className="size-4" /> Link YouTube
-              </Button>
+
+              <input
+                ref={fileInput}
+                type="file"
+                accept="video/*,audio/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void createFromFile(file);
+                  e.target.value = "";
+                }}
+              />
+
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                <Button
+                  variant="accent"
+                  size="sm"
+                  disabled={creating}
+                  onClick={() => fileInput.current?.click()}
+                >
+                  {creating ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Upload className="size-4" />
+                  )}
+                  Unggah Video
+                </Button>
+                <div className="flex flex-1 gap-2">
+                  <input
+                    value={youtubeUrl}
+                    onChange={(e) => setYoutubeUrl(e.target.value)}
+                    placeholder="https://youtube.com/watch?v=…"
+                    className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+                  />
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={creating}
+                    onClick={() => void createFromYoutube()}
+                  >
+                    <Link2 className="size-4" /> Buat
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
         </motion.div>
+
 
         {/* Projects List */}
         <section className="mt-10">
@@ -181,16 +297,23 @@ function Dashboard() {
               <p className="mt-1 text-sm text-muted-foreground">
                 Mulai unggah video atau tempel link YouTube untuk membuat klip pertama kamu.
               </p>
-              <Button variant="accent" size="sm" className="mt-5">
+              <Button
+                variant="accent"
+                size="sm"
+                className="mt-5"
+                onClick={() => fileInput.current?.click()}
+              >
                 <Plus className="size-4" /> Buat Proyek Pertama
               </Button>
             </div>
           ) : (
             <div className="mt-4 space-y-3">
               {projects.map((p) => (
-                <div
+                <Link
                   key={p.id}
-                  className="flex items-center gap-4 rounded-2xl border border-border bg-card p-4"
+                  to="/projects/$projectId"
+                  params={{ projectId: p.id }}
+                  className="flex items-center gap-4 rounded-2xl border border-border bg-card p-4 transition-colors hover:border-accent/50"
                 >
                   <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-secondary">
                     <Film className="size-5 text-muted-foreground" />
@@ -207,9 +330,10 @@ function Dashboard() {
                     </p>
                   </div>
                   <StatusBadge status={p.status} />
-                </div>
+                </Link>
               ))}
             </div>
+
           )}
         </section>
       </main>
