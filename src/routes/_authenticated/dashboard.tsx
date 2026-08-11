@@ -47,6 +47,73 @@ function Dashboard() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  async function createFromFile(file: File) {
+    setCreating(true);
+    try {
+      const ext = file.name.split(".").pop() ?? "mp4";
+      const { data: project, error } = await supabase
+        .from("projects")
+        .insert({
+          user_id: user.id,
+          title: file.name.replace(/\.[^.]+$/, ""),
+          source_type: "upload",
+          status: "uploading",
+        })
+        .select()
+        .single();
+      if (error || !project) throw new Error(error?.message ?? "Gagal membuat proyek.");
+
+      const path = `${user.id}/${project.id}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from("video-uploads")
+        .upload(path, file, { upsert: true, contentType: file.type || "video/mp4" });
+      if (uploadError) throw new Error(uploadError.message);
+
+      await supabase
+        .from("projects")
+        .update({ storage_path: path, status: "pending" })
+        .eq("id", project.id);
+
+      toast.success("Video terunggah. Lanjut ke proses AI.");
+      navigate({ to: "/projects/$projectId", params: { projectId: project.id } });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Gagal mengunggah video.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function createFromYoutube() {
+    const url = youtubeUrl.trim();
+    if (!/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(url)) {
+      toast.error("Masukkan link YouTube yang valid.");
+      return;
+    }
+    setCreating(true);
+    const { data: project, error } = await supabase
+      .from("projects")
+      .insert({
+        user_id: user.id,
+        title: "Proyek YouTube",
+        source_type: "youtube",
+        source_url: url,
+        status: "pending",
+      })
+      .select()
+      .single();
+    setCreating(false);
+    if (error || !project) {
+      toast.error(error?.message ?? "Gagal membuat proyek.");
+      return;
+    }
+    setYoutubeUrl("");
+    navigate({ to: "/projects/$projectId", params: { projectId: project.id } });
+  }
+
 
   useEffect(() => {
     async function loadData() {
