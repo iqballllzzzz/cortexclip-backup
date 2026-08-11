@@ -1,7 +1,17 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Film, LogOut, Plus, Sparkles, Clock, TrendingUp, Upload, Link2 } from "lucide-react";
+import {
+  Film,
+  LogOut,
+  Plus,
+  Sparkles,
+  Clock,
+  TrendingUp,
+  Upload,
+  Link2,
+  Loader2,
+} from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { SiteHeader } from "@/components/site-header";
@@ -12,6 +22,7 @@ import type { Database } from "@/integrations/supabase/types";
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
 type Project = Database["public"]["Tables"]["projects"]["Row"];
+
 
 const title = "Dashboard — CortexClip";
 const description = "Kelola proyek klip video kamu dan mulai ubah video panjang jadi klip viral.";
