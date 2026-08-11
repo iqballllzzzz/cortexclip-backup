@@ -297,16 +297,23 @@ function Dashboard() {
               <p className="mt-1 text-sm text-muted-foreground">
                 Mulai unggah video atau tempel link YouTube untuk membuat klip pertama kamu.
               </p>
-              <Button variant="accent" size="sm" className="mt-5">
+              <Button
+                variant="accent"
+                size="sm"
+                className="mt-5"
+                onClick={() => fileInput.current?.click()}
+              >
                 <Plus className="size-4" /> Buat Proyek Pertama
               </Button>
             </div>
           ) : (
             <div className="mt-4 space-y-3">
               {projects.map((p) => (
-                <div
+                <Link
                   key={p.id}
-                  className="flex items-center gap-4 rounded-2xl border border-border bg-card p-4"
+                  to="/projects/$projectId"
+                  params={{ projectId: p.id }}
+                  className="flex items-center gap-4 rounded-2xl border border-border bg-card p-4 transition-colors hover:border-accent/50"
                 >
                   <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-secondary">
                     <Film className="size-5 text-muted-foreground" />
@@ -323,9 +330,10 @@ function Dashboard() {
                     </p>
                   </div>
                   <StatusBadge status={p.status} />
-                </div>
+                </Link>
               ))}
             </div>
+
           )}
         </section>
       </main>
