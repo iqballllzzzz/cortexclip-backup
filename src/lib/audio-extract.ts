@@ -21,7 +21,7 @@ function toMono(buffer: AudioBuffer): Float32Array {
   const out = new Float32Array(length);
   for (let c = 0; c < buffer.numberOfChannels; c += 1) {
     const data = buffer.getChannelData(c);
-    for (let i = 0; i < length; i += 1) out[i] += data[i]! / buffer.numberOfChannels;
+    for (let i = 0; i < length; i += 1) out[i] = (out[i] ?? 0) + (data[i] ?? 0) / buffer.numberOfChannels;
   }
   return out;
 }
