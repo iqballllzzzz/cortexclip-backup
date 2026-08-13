@@ -1,8 +1,14 @@
 /**
  * Browser-side audio extraction.
  * Decodes any media file the browser can decode (mp4/mov/webm/mp3/wav),
- * downmixes to 16 kHz mono and slices it into WAV chunks that can be sent
+ * downmixes to 16 kHz mono and exposes it as WAV chunks that can be sent
  * to the speech-to-text model. Runs fully client-side — no server compute.
+ *
+ * Memory notes (penting untuk ponsel):
+ * - Decode dilakukan lewat OfflineAudioContext 16 kHz supaya browser
+ *   me-resample saat decode (hemat ~3x dibanding 48 kHz).
+ * - Sampel disimpan sebagai Int16Array (2 byte/sample ≈ 115 MB per jam),
+ *   dan base64 hanya dibuat per potongan saat dibutuhkan lalu dibuang.
  */
 
 export interface AudioChunk {
@@ -14,35 +20,62 @@ export interface AudioChunk {
   base64: string;
 }
 
-const TARGET_RATE = 16000;
-
-function toMono(buffer: AudioBuffer): Float32Array {
-  const length = buffer.length;
-  const out = new Float32Array(length);
-  for (let c = 0; c < buffer.numberOfChannels; c += 1) {
-    const data = buffer.getChannelData(c);
-    for (let i = 0; i < length; i += 1) out[i] = (out[i] ?? 0) + (data[i] ?? 0) / buffer.numberOfChannels;
-  }
-  return out;
+export interface ExtractedAudio {
+  duration: number;
+  count: number;
+  chunkSeconds: number;
+  getChunk: (index: number) => AudioChunk;
 }
 
-function resample(input: Float32Array, from: number, to: number): Float32Array {
-  if (from === to) return input;
-  const ratio = from / to;
-  const outLength = Math.floor(input.length / ratio);
-  const out = new Float32Array(outLength);
+const TARGET_RATE = 16000;
+/** Batas aman payload per request (~45 detik ≈ 1,4 MB WAV ≈ 1,9 MB base64). */
+export const DEFAULT_CHUNK_SECONDS = 45;
+
+function createDecodeContext(): BaseAudioContext {
+  const Offline =
+    window.OfflineAudioContext ??
+    (window as unknown as { webkitOfflineAudioContext?: typeof OfflineAudioContext })
+      .webkitOfflineAudioContext;
+  if (Offline) {
+    try {
+      return new Offline(1, TARGET_RATE, TARGET_RATE);
+    } catch {
+      /* beberapa browser menolak 16 kHz — jatuh ke AudioContext biasa */
+    }
+  }
+  const Ctx =
+    window.AudioContext ??
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!Ctx) throw new Error("Browser ini tidak mendukung Web Audio API.");
+  return new Ctx();
+}
+
+/** Downmix + resample langsung ke Int16 mono agar hemat memori. */
+function toMono16k(buffer: AudioBuffer): Int16Array {
+  const ratio = buffer.sampleRate / TARGET_RATE;
+  const outLength = Math.max(1, Math.floor(buffer.length / ratio));
+  const out = new Int16Array(outLength);
+  const channels: Float32Array[] = [];
+  for (let c = 0; c < buffer.numberOfChannels; c += 1) channels.push(buffer.getChannelData(c));
+
   for (let i = 0; i < outLength; i += 1) {
     const pos = i * ratio;
     const idx = Math.floor(pos);
     const frac = pos - idx;
-    const a = input[idx] ?? 0;
-    const b = input[idx + 1] ?? a;
-    out[i] = a + (b - a) * frac;
+    let sample = 0;
+    for (const data of channels) {
+      const a = data[idx] ?? 0;
+      const b = data[idx + 1] ?? a;
+      sample += a + (b - a) * frac;
+    }
+    sample /= channels.length || 1;
+    const clamped = Math.max(-1, Math.min(1, sample));
+    out[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
   }
   return out;
 }
 
-function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffer {
+function encodeWav(samples: Int16Array, sampleRate: number): ArrayBuffer {
   const buffer = new ArrayBuffer(44 + samples.length * 2);
   const view = new DataView(buffer);
   const writeString = (offset: number, value: string) => {
@@ -63,12 +96,7 @@ function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffer {
   writeString(36, "data");
   view.setUint32(40, samples.length * 2, true);
 
-  let offset = 44;
-  for (let i = 0; i < samples.length; i += 1) {
-    const s = Math.max(-1, Math.min(1, samples[i]!));
-    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-    offset += 2;
-  }
+  new Int16Array(buffer, 44).set(samples);
   return buffer;
 }
 
@@ -83,43 +111,67 @@ function toBase64(buffer: ArrayBuffer): string {
 }
 
 /**
- * Decode a media file and return WAV chunks ready for transcription.
- * @param chunkSeconds length of each chunk (default 90s keeps payloads ~3 MB)
+ * Decode a media file once, then hand out WAV chunks lazily.
+ * Chunk base64 dibuat saat diminta sehingga tidak semua potongan
+ * menumpuk di memori pada video panjang.
  */
-export async function extractAudioChunks(
+export async function extractAudio(
   file: Blob,
-  chunkSeconds = 90,
+  chunkSeconds = DEFAULT_CHUNK_SECONDS,
   onProgress?: (ratio: number) => void,
-): Promise<{ chunks: AudioChunk[]; duration: number }> {
-  const AudioCtx =
-    window.AudioContext ??
-    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  if (!AudioCtx) throw new Error("Browser ini tidak mendukung Web Audio API.");
+): Promise<ExtractedAudio> {
+  if (file.size > 1024 * 1024 * 1024) {
+    throw new Error("File di atas 1 GB tidak bisa diproses di browser. Kompres dulu videonya.");
+  }
 
-  const ctx = new AudioCtx();
+  const ctx = createDecodeContext();
+  onProgress?.(0.1);
+  const arrayBuffer = await file.arrayBuffer();
+  onProgress?.(0.4);
+
+  let decoded: AudioBuffer;
   try {
-    const arrayBuffer = await file.arrayBuffer();
-    const decoded = await ctx.decodeAudioData(arrayBuffer.slice(0));
-    const mono = resample(toMono(decoded), decoded.sampleRate, TARGET_RATE);
-    const duration = mono.length / TARGET_RATE;
+    decoded = await ctx.decodeAudioData(arrayBuffer);
+  } catch {
+    throw new Error(
+      "Browser tidak bisa membaca audio dari file ini (format tidak didukung atau memori tidak cukup). Coba MP4/H.264 atau file lebih kecil.",
+    );
+  }
+  onProgress?.(0.8);
 
-    const chunks: AudioChunk[] = [];
-    const samplesPerChunk = chunkSeconds * TARGET_RATE;
-    const total = Math.max(1, Math.ceil(mono.length / samplesPerChunk));
+  const mono = toMono16k(decoded);
+  onProgress?.(1);
+  if (ctx instanceof AudioContext) void ctx.close();
 
-    for (let i = 0; i < total; i += 1) {
-      const slice = mono.subarray(i * samplesPerChunk, (i + 1) * samplesPerChunk);
-      if (slice.length === 0) break;
-      chunks.push({
-        offset: (i * samplesPerChunk) / TARGET_RATE,
+  const duration = mono.length / TARGET_RATE;
+  if (duration < 1) throw new Error("Audio terlalu pendek atau tidak ada suara di file ini.");
+
+  const samplesPerChunk = Math.max(1, Math.round(chunkSeconds * TARGET_RATE));
+  const count = Math.max(1, Math.ceil(mono.length / samplesPerChunk));
+
+  return {
+    duration,
+    count,
+    chunkSeconds,
+    getChunk: (index: number) => {
+      const slice = mono.subarray(index * samplesPerChunk, (index + 1) * samplesPerChunk);
+      return {
+        offset: (index * samplesPerChunk) / TARGET_RATE,
         duration: slice.length / TARGET_RATE,
         base64: toBase64(encodeWav(slice, TARGET_RATE)),
-      });
-      onProgress?.((i + 1) / total);
-    }
+      };
+    },
+  };
+}
 
-    return { chunks, duration };
-  } finally {
-    void ctx.close();
-  }
+/** Kompatibilitas lama: kembalikan semua potongan sekaligus. */
+export async function extractAudioChunks(
+  file: Blob,
+  chunkSeconds = DEFAULT_CHUNK_SECONDS,
+  onProgress?: (ratio: number) => void,
+): Promise<{ chunks: AudioChunk[]; duration: number }> {
+  const audio = await extractAudio(file, chunkSeconds, onProgress);
+  const chunks: AudioChunk[] = [];
+  for (let i = 0; i < audio.count; i += 1) chunks.push(audio.getChunk(i));
+  return { chunks, duration: audio.duration };
 }
