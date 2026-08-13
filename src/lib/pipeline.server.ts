@@ -101,9 +101,17 @@ export async function transcribeChunk(input: {
     ],
   });
 
-  const raw = parseJsonBlock<{ start: number; end: number; text: string }[]>(content);
+  let raw: { start: number; end: number; text: string }[] = [];
+  try {
+    raw = parseJsonBlock<{ start: number; end: number; text: string }[]>(content);
+  } catch {
+    // Bagian tanpa ucapan sering dijawab bebas-teks — perlakukan sebagai hening.
+    return [];
+  }
+  if (!Array.isArray(raw)) return [];
   return raw
-    .filter((s) => typeof s.text === "string" && s.text.trim().length > 0)
+    .filter((s) => typeof s?.text === "string" && s.text.trim().length > 0)
+
     .map((s) => {
       const start = +(Number(s.start ?? 0) + input.offset).toFixed(2);
       const end = +(Math.max(Number(s.end ?? 0), Number(s.start ?? 0) + 0.4) + input.offset).toFixed(2);
