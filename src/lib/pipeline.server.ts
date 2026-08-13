@@ -10,29 +10,39 @@ function apiKey(): string {
   return key;
 }
 
-async function callGateway(body: unknown): Promise<string> {
+async function callGateway(body: unknown, attempt = 0): Promise<string> {
   const res = await fetch(GATEWAY, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey()}`,
+      // Lovable AI Gateway authenticates with this header, not `Authorization`.
+      "Lovable-API-Key": apiKey(),
     },
     body: JSON.stringify(body),
   });
 
   if (!res.ok) {
     const detail = await res.text();
-    if (res.status === 429) throw new Error("Kuota AI sedang penuh. Coba lagi sebentar lagi.");
     if (res.status === 402) throw new Error("Kredit AI habis. Tambahkan kredit di workspace kamu.");
-    console.error("[ai-gateway]", res.status, detail);
+    if ((res.status === 429 || res.status >= 500) && attempt < 2) {
+      await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+      return callGateway(body, attempt + 1);
+    }
+    if (res.status === 429) throw new Error("Kuota AI sedang penuh. Coba lagi sebentar lagi.");
+    if (res.status === 413) throw new Error("Potongan audio terlalu besar. Coba video lebih pendek.");
+    console.error("[ai-gateway]", res.status, detail.slice(0, 500));
+    if (res.status === 400) throw new Error(`Permintaan AI ditolak (400): ${detail.slice(0, 160)}`);
     throw new Error(`Permintaan AI gagal (${res.status}).`);
   }
 
   const json = (await res.json()) as {
     choices?: { message?: { content?: string } }[];
   };
-  return json.choices?.[0]?.message?.content ?? "";
+  const content = json.choices?.[0]?.message?.content ?? "";
+  if (!content.trim()) throw new Error("AI mengembalikan respons kosong.");
+  return content;
 }
+
 
 function parseJsonBlock<T>(raw: string): T {
   const cleaned = raw
