@@ -309,6 +309,27 @@ function Dashboard() {
                   </Button>
                 </div>
               </div>
+
+              {uploadPct !== null ? (
+                <div className="mt-4 space-y-2">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Mengunggah… {Math.round(uploadPct * 100)}%</span>
+                    <button
+                      type="button"
+                      onClick={() => uploadRef.current?.abort()}
+                      className="font-medium text-foreground underline"
+                    >
+                      Batalkan
+                    </button>
+                  </div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-border">
+                    <div
+                      className="h-full rounded-full bg-accent transition-[width]"
+                      style={{ width: `${Math.round(uploadPct * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         </motion.div>
