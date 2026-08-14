@@ -557,6 +557,15 @@ function ClipCard({
               />
             </div>
             <div className="flex flex-wrap gap-2">
+              <Button variant="accent" size="sm" onClick={renderWebm} disabled={rendering || !mediaUrl}>
+                {rendering ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+                {rendering ? `Merender ${Math.round(renderProgress * 100)}%` : "Render video (WebM)"}
+              </Button>
+              {rendering ? (
+                <Button variant="ghost" size="sm" onClick={() => abortRef.current?.abort()}>
+                  Batalkan
+                </Button>
+              ) : null}
               <Button variant="secondary" size="sm" onClick={() => onExport(clip, "srt")}>
                 <FileText className="size-4" /> .srt
               </Button>
