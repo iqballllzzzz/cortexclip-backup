@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import {
   ArrowLeft,
@@ -19,7 +19,9 @@ import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { Button } from "@/components/ui/button";
 import { CaptionPreview, defaultCaptionStyle } from "@/components/caption-preview";
-import { extractAudioChunks } from "@/lib/audio-extract";
+import { extractAudio } from "@/lib/audio-extract";
+import { ClipVideoPreview } from "@/components/clip-video-preview";
+import { exportClipWebm, isWebmExportSupported } from "@/lib/webm-export";
 import { transcribeChunkFn, detectClipsFn } from "@/lib/pipeline.functions";
 import { buildAss, buildFfmpegCommand, buildSrt, download, toCaptionWords } from "@/lib/srt";
 import type { Transcript, TranscriptSegment } from "@/lib/pipeline-types";
@@ -60,6 +62,31 @@ function ProjectPage() {
   const [resolution, setResolution] = useState<(typeof RESOLUTIONS)[number]>("1080x1920");
   const [faceTracking, setFaceTracking] = useState(true);
   const [activeClip, setActiveClip] = useState<string | null>(null);
+  const [mediaUrl, setMediaUrl] = useState<string | null>(null);
+
+  // URL preview: pakai file lokal bila ada, kalau tidak ambil signed URL storage.
+  useEffect(() => {
+    if (localFile) {
+      const url = URL.createObjectURL(localFile);
+      setMediaUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+    let cancelled = false;
+    const path = project?.storage_path;
+    if (!path) {
+      setMediaUrl(null);
+      return;
+    }
+    void supabase.storage
+      .from("video-uploads")
+      .createSignedUrl(path, 60 * 60)
+      .then(({ data }) => {
+        if (!cancelled) setMediaUrl(data?.signedUrl ?? null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [localFile, project?.storage_path]);
 
   const load = useCallback(async () => {
     const [p, c] = await Promise.all([
@@ -98,14 +125,17 @@ function ProjectPage() {
       const blob = await getMediaBlob();
       await supabase.from("projects").update({ status: "transcribing" }).eq("id", projectId);
 
-      const { chunks, duration } = await extractAudioChunks(blob, 90, (r) =>
+      const audio = await extractAudio(blob, 45, (r: number) =>
         setProgress(`Mengekstrak audio… ${Math.round(r * 100)}%`),
       );
+      const duration = audio.duration;
 
       const segments: TranscriptSegment[] = [];
-      for (let i = 0; i < chunks.length; i += 1) {
-        setProgress(`Transkripsi bagian ${i + 1}/${chunks.length}…`);
-        const chunk = chunks[i]!;
+      for (let i = 0; i < audio.count; i += 1) {
+        setProgress(
+          `Transkripsi bagian ${i + 1}/${audio.count} (${Math.round(((i + 1) / audio.count) * 100)}%)…`,
+        );
+        const chunk = audio.getChunk(i);
         const res = await transcribeChunkFn({
           data: {
             audioBase64: chunk.base64,
@@ -284,28 +314,28 @@ function ProjectPage() {
         ) : null}
 
         {/* Media source */}
-        {!project.storage_path ? (
-          <section className="mt-6 rounded-2xl border border-border bg-card p-5">
-            <h2 className="flex items-center gap-2 text-sm font-semibold">
-              <Upload className="size-4 text-accent" /> Pilih file media
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Untuk sumber YouTube, unduh videonya lalu pilih filenya di sini. Audio diekstrak
-              langsung di browser kamu — tidak ada file besar yang dikirim ke server.
+        <section className="mt-6 rounded-2xl border border-border bg-card p-5">
+          <h2 className="flex items-center gap-2 text-sm font-semibold">
+            <Upload className="size-4 text-accent" /> File media
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {project.storage_path
+              ? "Pilih ulang file dari perangkat agar preview & ekspor berjalan tanpa mengunduh ulang video dari server."
+              : "Untuk sumber YouTube, unduh videonya lalu pilih filenya di sini. Audio diekstrak langsung di browser kamu — tidak ada file besar yang dikirim ke server."}
+          </p>
+          <input
+            type="file"
+            accept="video/*,audio/*"
+            onChange={(e) => setLocalFile(e.target.files?.[0] ?? null)}
+            className="mt-3 block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-accent file:px-4 file:py-2 file:text-sm file:font-medium file:text-accent-foreground"
+          />
+          {localFile ? (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {localFile.name} · {(localFile.size / 1024 / 1024).toFixed(1)} MB
             </p>
-            <input
-              type="file"
-              accept="video/*,audio/*"
-              onChange={(e) => setLocalFile(e.target.files?.[0] ?? null)}
-              className="mt-3 block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-accent file:px-4 file:py-2 file:text-sm file:font-medium file:text-accent-foreground"
-            />
-            {localFile ? (
-              <p className="mt-2 text-xs text-muted-foreground">
-                {localFile.name} · {(localFile.size / 1024 / 1024).toFixed(1)} MB
-              </p>
-            ) : null}
-          </section>
-        ) : null}
+          ) : null}
+        </section>
+
 
         {/* Render settings */}
         <section className="mt-6 rounded-2xl border border-border bg-card p-5">
@@ -366,6 +396,7 @@ function ProjectPage() {
                 <ClipCard
                   key={clip.id}
                   clip={clip}
+                  mediaUrl={mediaUrl}
                   expanded={activeClip === clip.id}
                   onToggle={() => setActiveClip(activeClip === clip.id ? null : clip.id)}
                   onSave={saveClip}
@@ -383,12 +414,14 @@ function ProjectPage() {
 
 function ClipCard({
   clip,
+  mediaUrl,
   expanded,
   onToggle,
   onSave,
   onExport,
 }: {
   clip: Clip;
+  mediaUrl: string | null;
   expanded: boolean;
   onToggle: () => void;
   onSave: (clip: Clip, patch: Partial<Clip>) => void;
@@ -396,6 +429,52 @@ function ClipCard({
 }) {
   const words = (clip.caption_words as unknown as { word: string; start: number; end: number }[]) ?? [];
   const duration = clip.end_time - clip.start_time;
+  const [rendering, setRendering] = useState(false);
+  const [renderProgress, setRenderProgress] = useState(0);
+  const abortRef = useRef<AbortController | null>(null);
+
+  async function renderWebm() {
+    if (!mediaUrl) {
+      toast.error("Pilih file video dulu supaya bisa merender di browser.");
+      return;
+    }
+    if (!isWebmExportSupported()) {
+      toast.error("Browser ini belum mendukung ekspor otomatis. Gunakan ekspor FFmpeg.");
+      return;
+    }
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setRendering(true);
+    setRenderProgress(0);
+    try {
+      const blob = await exportClipWebm({
+        src: mediaUrl,
+        start: clip.start_time,
+        end: clip.end_time,
+        words,
+        accent: defaultCaptionStyle.accent,
+        base: defaultCaptionStyle.base,
+        wordsPerLine: defaultCaptionStyle.wordsPerLine,
+        position: defaultCaptionStyle.position,
+        onProgress: setRenderProgress,
+        signal: controller.signal,
+      });
+      const slug = clip.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40) || "clip";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${slug}.webm`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Klip berhasil dirender.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Render gagal.");
+    } finally {
+      abortRef.current = null;
+      setRendering(false);
+      setRenderProgress(0);
+    }
+  }
 
   return (
     <div className="rounded-2xl border border-border bg-card p-5">
@@ -423,7 +502,15 @@ function ClipCard({
       {expanded ? (
         <div className="mt-5 grid gap-6 md:grid-cols-[220px_1fr]">
           <div className="mx-auto w-[200px]">
-            {words.length > 0 ? (
+            {mediaUrl ? (
+              <ClipVideoPreview
+                src={mediaUrl}
+                start={clip.start_time}
+                end={clip.end_time}
+                words={words}
+                style={defaultCaptionStyle}
+              />
+            ) : words.length > 0 ? (
               <CaptionPreview
                 clip={{
                   id: clip.id,
@@ -443,6 +530,7 @@ function ClipCard({
               <p className="text-xs text-muted-foreground">Belum ada caption.</p>
             )}
           </div>
+
 
           <div className="space-y-4">
             <div>
@@ -469,6 +557,15 @@ function ClipCard({
               />
             </div>
             <div className="flex flex-wrap gap-2">
+              <Button variant="accent" size="sm" onClick={renderWebm} disabled={rendering || !mediaUrl}>
+                {rendering ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+                {rendering ? `Merender ${Math.round(renderProgress * 100)}%` : "Render video (WebM)"}
+              </Button>
+              {rendering ? (
+                <Button variant="ghost" size="sm" onClick={() => abortRef.current?.abort()}>
+                  Batalkan
+                </Button>
+              ) : null}
               <Button variant="secondary" size="sm" onClick={() => onExport(clip, "srt")}>
                 <FileText className="size-4" /> .srt
               </Button>

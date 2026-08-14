@@ -48,11 +48,36 @@ function Dashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
+  const uploadRef = useRef<XMLHttpRequest | null>(null);
+
+  /** Unggah via signed URL + XHR supaya progres byte-per-byte terlihat dan bisa dibatalkan. */
+  function putWithProgress(url: string, file: File, onProgress: (ratio: number) => void) {
+    return new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      uploadRef.current = xhr;
+      xhr.open("PUT", url, true);
+      xhr.setRequestHeader("content-type", file.type || "video/mp4");
+      xhr.setRequestHeader("x-upsert", "true");
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(e.loaded / e.total);
+      };
+      xhr.onload = () =>
+        xhr.status >= 200 && xhr.status < 300
+          ? resolve()
+          : reject(new Error(`Unggahan gagal (${xhr.status}). Coba lagi.`));
+      xhr.onerror = () => reject(new Error("Koneksi terputus saat mengunggah."));
+      xhr.onabort = () => reject(new Error("Unggahan dibatalkan."));
+      xhr.send(file);
+    });
+  }
 
   async function createFromFile(file: File) {
     setCreating(true);
+    setUploadPct(0);
+    let projectId: string | null = null;
     try {
       const ext = file.name.split(".").pop() ?? "mp4";
       const { data: project, error } = await supabase
@@ -66,12 +91,15 @@ function Dashboard() {
         .select()
         .single();
       if (error || !project) throw new Error(error?.message ?? "Gagal membuat proyek.");
+      projectId = project.id;
 
       const path = `${user.id}/${project.id}.${ext}`;
-      const { error: uploadError } = await supabase.storage
+      const { data: signed, error: signError } = await supabase.storage
         .from("video-uploads")
-        .upload(path, file, { upsert: true, contentType: file.type || "video/mp4" });
-      if (uploadError) throw new Error(uploadError.message);
+        .createSignedUploadUrl(path, { upsert: true });
+      if (signError || !signed) throw new Error(signError?.message ?? "Gagal menyiapkan unggahan.");
+
+      await putWithProgress(signed.signedUrl, file, setUploadPct);
 
       await supabase
         .from("projects")
@@ -81,11 +109,22 @@ function Dashboard() {
       toast.success("Video terunggah. Lanjut ke proses AI.");
       navigate({ to: "/projects/$projectId", params: { projectId: project.id } });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gagal mengunggah video.");
+      const message = e instanceof Error ? e.message : "Gagal mengunggah video.";
+      if (projectId) {
+        await supabase
+          .from("projects")
+          .update({ status: "failed", error_message: message })
+          .eq("id", projectId);
+      }
+      toast.error(message);
+      /* biarkan daftar proyek menampilkan status gagal saat dimuat ulang */
     } finally {
+      uploadRef.current = null;
+      setUploadPct(null);
       setCreating(false);
     }
   }
+
 
   async function createFromYoutube() {
     const url = youtubeUrl.trim();
@@ -270,6 +309,27 @@ function Dashboard() {
                   </Button>
                 </div>
               </div>
+
+              {uploadPct !== null ? (
+                <div className="mt-4 space-y-2">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Mengunggah… {Math.round(uploadPct * 100)}%</span>
+                    <button
+                      type="button"
+                      onClick={() => uploadRef.current?.abort()}
+                      className="font-medium text-foreground underline"
+                    >
+                      Batalkan
+                    </button>
+                  </div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-border">
+                    <div
+                      className="h-full rounded-full bg-accent transition-[width]"
+                      style={{ width: `${Math.round(uploadPct * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         </motion.div>
