@@ -396,6 +396,7 @@ function ProjectPage() {
                 <ClipCard
                   key={clip.id}
                   clip={clip}
+                  mediaUrl={mediaUrl}
                   expanded={activeClip === clip.id}
                   onToggle={() => setActiveClip(activeClip === clip.id ? null : clip.id)}
                   onSave={saveClip}
