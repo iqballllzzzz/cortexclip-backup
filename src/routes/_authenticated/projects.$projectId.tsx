@@ -314,28 +314,28 @@ function ProjectPage() {
         ) : null}
 
         {/* Media source */}
-        {!project.storage_path ? (
-          <section className="mt-6 rounded-2xl border border-border bg-card p-5">
-            <h2 className="flex items-center gap-2 text-sm font-semibold">
-              <Upload className="size-4 text-accent" /> Pilih file media
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Untuk sumber YouTube, unduh videonya lalu pilih filenya di sini. Audio diekstrak
-              langsung di browser kamu — tidak ada file besar yang dikirim ke server.
+        <section className="mt-6 rounded-2xl border border-border bg-card p-5">
+          <h2 className="flex items-center gap-2 text-sm font-semibold">
+            <Upload className="size-4 text-accent" /> File media
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {project.storage_path
+              ? "Pilih ulang file dari perangkat agar preview & ekspor berjalan tanpa mengunduh ulang video dari server."
+              : "Untuk sumber YouTube, unduh videonya lalu pilih filenya di sini. Audio diekstrak langsung di browser kamu — tidak ada file besar yang dikirim ke server."}
+          </p>
+          <input
+            type="file"
+            accept="video/*,audio/*"
+            onChange={(e) => setLocalFile(e.target.files?.[0] ?? null)}
+            className="mt-3 block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-accent file:px-4 file:py-2 file:text-sm file:font-medium file:text-accent-foreground"
+          />
+          {localFile ? (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {localFile.name} · {(localFile.size / 1024 / 1024).toFixed(1)} MB
             </p>
-            <input
-              type="file"
-              accept="video/*,audio/*"
-              onChange={(e) => setLocalFile(e.target.files?.[0] ?? null)}
-              className="mt-3 block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-accent file:px-4 file:py-2 file:text-sm file:font-medium file:text-accent-foreground"
-            />
-            {localFile ? (
-              <p className="mt-2 text-xs text-muted-foreground">
-                {localFile.name} · {(localFile.size / 1024 / 1024).toFixed(1)} MB
-              </p>
-            ) : null}
-          </section>
-        ) : null}
+          ) : null}
+        </section>
+
 
         {/* Render settings */}
         <section className="mt-6 rounded-2xl border border-border bg-card p-5">
