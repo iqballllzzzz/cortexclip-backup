@@ -117,7 +117,7 @@ function Dashboard() {
           .eq("id", projectId);
       }
       toast.error(message);
-      void load();
+      /* biarkan daftar proyek menampilkan status gagal saat dimuat ulang */
     } finally {
       uploadRef.current = null;
       setUploadPct(null);
