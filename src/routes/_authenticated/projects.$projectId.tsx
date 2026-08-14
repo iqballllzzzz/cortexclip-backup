@@ -62,6 +62,31 @@ function ProjectPage() {
   const [resolution, setResolution] = useState<(typeof RESOLUTIONS)[number]>("1080x1920");
   const [faceTracking, setFaceTracking] = useState(true);
   const [activeClip, setActiveClip] = useState<string | null>(null);
+  const [mediaUrl, setMediaUrl] = useState<string | null>(null);
+
+  // URL preview: pakai file lokal bila ada, kalau tidak ambil signed URL storage.
+  useEffect(() => {
+    if (localFile) {
+      const url = URL.createObjectURL(localFile);
+      setMediaUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+    let cancelled = false;
+    const path = project?.storage_path;
+    if (!path) {
+      setMediaUrl(null);
+      return;
+    }
+    void supabase.storage
+      .from("video-uploads")
+      .createSignedUrl(path, 60 * 60)
+      .then(({ data }) => {
+        if (!cancelled) setMediaUrl(data?.signedUrl ?? null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [localFile, project?.storage_path]);
 
   const load = useCallback(async () => {
     const [p, c] = await Promise.all([
