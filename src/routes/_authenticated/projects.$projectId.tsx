@@ -414,12 +414,14 @@ function ProjectPage() {
 
 function ClipCard({
   clip,
+  mediaUrl,
   expanded,
   onToggle,
   onSave,
   onExport,
 }: {
   clip: Clip;
+  mediaUrl: string | null;
   expanded: boolean;
   onToggle: () => void;
   onSave: (clip: Clip, patch: Partial<Clip>) => void;
@@ -427,6 +429,52 @@ function ClipCard({
 }) {
   const words = (clip.caption_words as unknown as { word: string; start: number; end: number }[]) ?? [];
   const duration = clip.end_time - clip.start_time;
+  const [rendering, setRendering] = useState(false);
+  const [renderProgress, setRenderProgress] = useState(0);
+  const abortRef = useRef<AbortController | null>(null);
+
+  async function renderWebm() {
+    if (!mediaUrl) {
+      toast.error("Pilih file video dulu supaya bisa merender di browser.");
+      return;
+    }
+    if (!isWebmExportSupported()) {
+      toast.error("Browser ini belum mendukung ekspor otomatis. Gunakan ekspor FFmpeg.");
+      return;
+    }
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setRendering(true);
+    setRenderProgress(0);
+    try {
+      const blob = await exportClipWebm({
+        src: mediaUrl,
+        start: clip.start_time,
+        end: clip.end_time,
+        words,
+        accent: defaultCaptionStyle.accent,
+        base: defaultCaptionStyle.base,
+        wordsPerLine: defaultCaptionStyle.wordsPerLine,
+        position: defaultCaptionStyle.position,
+        onProgress: setRenderProgress,
+        signal: controller.signal,
+      });
+      const slug = clip.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40) || "clip";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${slug}.webm`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Klip berhasil dirender.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Render gagal.");
+    } finally {
+      abortRef.current = null;
+      setRendering(false);
+      setRenderProgress(0);
+    }
+  }
 
   return (
     <div className="rounded-2xl border border-border bg-card p-5">
@@ -454,7 +502,15 @@ function ClipCard({
       {expanded ? (
         <div className="mt-5 grid gap-6 md:grid-cols-[220px_1fr]">
           <div className="mx-auto w-[200px]">
-            {words.length > 0 ? (
+            {mediaUrl ? (
+              <ClipVideoPreview
+                src={mediaUrl}
+                start={clip.start_time}
+                end={clip.end_time}
+                words={words}
+                style={defaultCaptionStyle}
+              />
+            ) : words.length > 0 ? (
               <CaptionPreview
                 clip={{
                   id: clip.id,
@@ -474,6 +530,7 @@ function ClipCard({
               <p className="text-xs text-muted-foreground">Belum ada caption.</p>
             )}
           </div>
+
 
           <div className="space-y-4">
             <div>
