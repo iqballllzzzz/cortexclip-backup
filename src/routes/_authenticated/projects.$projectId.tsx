@@ -125,14 +125,17 @@ function ProjectPage() {
       const blob = await getMediaBlob();
       await supabase.from("projects").update({ status: "transcribing" }).eq("id", projectId);
 
-      const { chunks, duration } = await extractAudioChunks(blob, 90, (r) =>
+      const audio = await extractAudio(blob, 45, (r: number) =>
         setProgress(`Mengekstrak audio… ${Math.round(r * 100)}%`),
       );
+      const duration = audio.duration;
 
       const segments: TranscriptSegment[] = [];
-      for (let i = 0; i < chunks.length; i += 1) {
-        setProgress(`Transkripsi bagian ${i + 1}/${chunks.length}…`);
-        const chunk = chunks[i]!;
+      for (let i = 0; i < audio.count; i += 1) {
+        setProgress(
+          `Transkripsi bagian ${i + 1}/${audio.count} (${Math.round(((i + 1) / audio.count) * 100)}%)…`,
+        );
+        const chunk = audio.getChunk(i);
         const res = await transcribeChunkFn({
           data: {
             audioBase64: chunk.base64,
