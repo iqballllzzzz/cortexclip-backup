@@ -1,59 +1,5 @@
 import type { DetectedClip, Transcript, TranscriptSegment, TranscriptWord } from "./pipeline-types";
-
-const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const STT_MODEL = "google/gemini-3.6-flash";
-const TEXT_MODEL = "openai/gpt-5.6-sol";
-
-function apiKey(): string {
-  const key = process.env["LOVABLE_API_KEY"];
-  if (!key) throw new Error("LOVABLE_API_KEY tidak tersedia.");
-  return key;
-}
-
-async function callGateway(body: unknown, attempt = 0): Promise<string> {
-  const res = await fetch(GATEWAY, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      // Lovable AI Gateway authenticates with this header, not `Authorization`.
-      "Lovable-API-Key": apiKey(),
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const detail = await res.text();
-    if (res.status === 402) throw new Error("Kredit AI habis. Tambahkan kredit di workspace kamu.");
-    if ((res.status === 429 || res.status >= 500) && attempt < 2) {
-      await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
-      return callGateway(body, attempt + 1);
-    }
-    if (res.status === 429) throw new Error("Kuota AI sedang penuh. Coba lagi sebentar lagi.");
-    if (res.status === 413) throw new Error("Potongan audio terlalu besar. Coba video lebih pendek.");
-    console.error("[ai-gateway]", res.status, detail.slice(0, 500));
-    if (res.status === 400) throw new Error(`Permintaan AI ditolak (400): ${detail.slice(0, 160)}`);
-    throw new Error(`Permintaan AI gagal (${res.status}).`);
-  }
-
-  const json = (await res.json()) as {
-    choices?: { message?: { content?: string } }[];
-  };
-  const content = json.choices?.[0]?.message?.content ?? "";
-  if (!content.trim()) throw new Error("AI mengembalikan respons kosong.");
-  return content;
-}
-
-
-function parseJsonBlock<T>(raw: string): T {
-  const cleaned = raw
-    .replace(/^```(?:json)?/i, "")
-    .replace(/```$/, "")
-    .trim();
-  const start = cleaned.search(/[[{]/);
-  const end = Math.max(cleaned.lastIndexOf("]"), cleaned.lastIndexOf("}"));
-  if (start === -1 || end === -1) throw new Error("Respons AI tidak berformat JSON.");
-  return JSON.parse(cleaned.slice(start, end + 1)) as T;
-}
+import { callHydraGateway, parseJsonBlock } from "./hydra-api";
 
 /** Split segment text into evenly-timed words so karaoke captions have word timings. */
 export function wordsFromSegment(segment: {
@@ -77,8 +23,7 @@ export async function transcribeChunk(input: {
   offset: number;
   duration: number;
 }): Promise<TranscriptSegment[]> {
-  const content = await callGateway({
-    model: STT_MODEL,
+  const content = await callHydraGateway({
     messages: [
       {
         role: "system",
@@ -105,13 +50,11 @@ export async function transcribeChunk(input: {
   try {
     raw = parseJsonBlock<{ start: number; end: number; text: string }[]>(content);
   } catch {
-    // Bagian tanpa ucapan sering dijawab bebas-teks — perlakukan sebagai hening.
     return [];
   }
   if (!Array.isArray(raw)) return [];
   return raw
     .filter((s) => typeof s?.text === "string" && s.text.trim().length > 0)
-
     .map((s) => {
       const start = +(Number(s.start ?? 0) + input.offset).toFixed(2);
       const end = +(Math.max(Number(s.end ?? 0), Number(s.start ?? 0) + 0.4) + input.offset).toFixed(2);
@@ -130,8 +73,7 @@ export async function detectClips(
   transcript: Transcript,
   targetCount: number,
 ): Promise<DetectedClip[]> {
-  const content = await callGateway({
-    model: TEXT_MODEL,
+  const content = await callHydraGateway({
     messages: [
       {
         role: "system",
