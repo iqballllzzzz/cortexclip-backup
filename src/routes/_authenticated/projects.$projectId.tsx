@@ -11,6 +11,8 @@ import {
   Terminal,
   Upload,
   Wand2,
+  Eye,
+  Type,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -18,7 +20,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { Button } from "@/components/ui/button";
-import { CaptionPreview, defaultCaptionStyle } from "@/components/caption-preview";
+import { CaptionPreview, defaultCaptionStyle, type CaptionStyle } from "@/components/caption-preview";
 import { extractAudio } from "@/lib/audio-extract";
 import { ClipVideoPreview } from "@/components/clip-video-preview";
 import { exportClipWebm, isWebmExportSupported } from "@/lib/webm-export";
@@ -26,6 +28,8 @@ import { transcribeChunkFn, detectClipsFn } from "@/lib/pipeline.functions";
 import { buildAss, buildFfmpegCommand, buildSrt, download, toCaptionWords } from "@/lib/srt";
 import type { Transcript, TranscriptSegment } from "@/lib/pipeline-types";
 import type { Database } from "@/integrations/supabase/types";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 
 type Project = Database["public"]["Tables"]["projects"]["Row"];
 type Clip = Database["public"]["Tables"]["clips"]["Row"];
@@ -57,12 +61,15 @@ function ProjectPage() {
   const [clips, setClips] = useState<Clip[]>([]);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
-  const [progress, setProgress] = useState<string>("");
+  const [progress, setProgress] = useState("");
   const [localFile, setLocalFile] = useState<File | null>(null);
   const [resolution, setResolution] = useState<(typeof RESOLUTIONS)[number]>("1080x1920");
   const [faceTracking, setFaceTracking] = useState(true);
   const [activeClip, setActiveClip] = useState<string | null>(null);
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
+  
+  // New caption style state
+  const [captionStyle, setCaptionStyle] = useState<CaptionStyle>(defaultCaptionStyle);
 
   // URL preview: pakai file lokal bila ada, kalau tidak ambil signed URL storage.
   useEffect(() => {
@@ -196,12 +203,12 @@ function ProjectPage() {
       download(
         `${slug}.ass`,
         buildAss(words, {
-          accent: defaultCaptionStyle.accent,
-          base: defaultCaptionStyle.base,
-          fontSize: defaultCaptionStyle.fontSize,
-          wordsPerLine: defaultCaptionStyle.wordsPerLine,
-          position: defaultCaptionStyle.position,
-          stroke: defaultCaptionStyle.stroke,
+          accent: captionStyle.accent,
+          base: captionStyle.base,
+          fontSize: captionStyle.fontSize,
+          wordsPerLine: captionStyle.wordsPerLine,
+          position: captionStyle.position,
+          stroke: captionStyle.stroke,
         }),
       );
       return;
@@ -336,7 +343,6 @@ function ProjectPage() {
           ) : null}
         </section>
 
-
         {/* Render settings */}
         <section className="mt-6 rounded-2xl border border-border bg-card p-5">
           <h2 className="flex items-center gap-2 text-sm font-semibold">
@@ -365,13 +371,85 @@ function ProjectPage() {
                 onChange={(e) => setFaceTracking(e.target.checked)}
                 className="size-4 accent-[var(--color-accent)]"
               />
-              Auto-framing wajah (crop tengah dinamis)
+              <Eye className="size-3.5" /> Auto-framing wajah
             </label>
             {clips.length > 0 ? (
               <Button variant="secondary" size="sm" className="ml-auto" onClick={exportAll}>
                 <Download className="size-4" /> Unduh script render semua klip
               </Button>
             ) : null}
+          </div>
+        </section>
+
+        {/* Caption Style Settings */}
+        <section className="mt-6 rounded-2xl border border-border bg-card p-5">
+          <h2 className="flex items-center gap-2 text-sm font-semibold mb-4">
+            <Type className="size-4 text-accent" /> Pengaturan Caption
+          </h2>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="space-y-2">
+              <Label className="text-xs">Warna Aktif</Label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={captionStyle.accent}
+                  onChange={(e) => setCaptionStyle(s => ({ ...s, accent: e.target.value }))}
+                  className="size-8 rounded border border-border"
+                />
+                <span className="text-xs text-muted-foreground">{captionStyle.accent}</span>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">Efek Subtitle</Label>
+              <select
+                value={captionStyle.effect}
+                onChange={(e) => setCaptionStyle(s => ({ ...s, effect: e.target.value as CaptionStyle["effect"] }))}
+                className="w-full rounded-xl border border-border bg-background p-2 text-xs"
+              >
+                <option value="none">Tanpa Efek</option>
+                <option value="glow">Glow</option>
+                <option value="pop">Pop</option>
+                <option value="box">Box</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">Kata per Baris · {captionStyle.wordsPerLine}</Label>
+              <input
+                type="range"
+                min={1}
+                max={5}
+                value={captionStyle.wordsPerLine}
+                onChange={(e) => setCaptionStyle(s => ({ ...s, wordsPerLine: parseInt(e.target.value) }))}
+                className="w-full"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs">Ukuran Font · {captionStyle.fontSize}px</Label>
+              <input
+                type="range"
+                min={18}
+                max={48}
+                value={captionStyle.fontSize}
+                onChange={(e) => setCaptionStyle(s => ({ ...s, fontSize: parseInt(e.target.value) }))}
+                className="w-full"
+              />
+            </div>
+          </div>
+          <div className="mt-4 flex gap-4">
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Switch
+                checked={captionStyle.uppercase}
+                onCheckedChange={(v) => setCaptionStyle(s => ({ ...s, uppercase: v }))}
+              />
+              Huruf Kapital
+            </label>
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Switch
+                checked={captionStyle.stroke}
+                onCheckedChange={(v) => setCaptionStyle(s => ({ ...s, stroke: v }))}
+              />
+              Garis Tepi
+            </label>
           </div>
         </section>
 
@@ -386,7 +464,7 @@ function ProjectPage() {
               <Sparkles className="size-10 text-muted-foreground/50" />
               <p className="mt-4 font-medium">Belum ada klip</p>
               <p className="mt-1 max-w-md text-sm text-muted-foreground">
-                Klik “Mulai Proses AI” — CortexClip akan mentranskrip audio, mencari momen paling
+                Klik "Mulai Proses AI" — CortexClip akan mentranskrip audio, mencari momen paling
                 kuat, lalu menulis judul, deskripsi, hashtag, dan skor viralitas untuk tiap klip.
               </p>
             </div>
@@ -401,6 +479,8 @@ function ProjectPage() {
                   onToggle={() => setActiveClip(activeClip === clip.id ? null : clip.id)}
                   onSave={saveClip}
                   onExport={exportClip}
+                  captionStyle={captionStyle}
+                  faceTracking={faceTracking}
                 />
               ))}
             </div>
@@ -419,6 +499,8 @@ function ClipCard({
   onToggle,
   onSave,
   onExport,
+  captionStyle,
+  faceTracking,
 }: {
   clip: Clip;
   mediaUrl: string | null;
@@ -426,6 +508,8 @@ function ClipCard({
   onToggle: () => void;
   onSave: (clip: Clip, patch: Partial<Clip>) => void;
   onExport: (clip: Clip, kind: "srt" | "ass" | "ffmpeg") => void;
+  captionStyle: CaptionStyle;
+  faceTracking: boolean;
 }) {
   const words = (clip.caption_words as unknown as { word: string; start: number; end: number }[]) ?? [];
   const duration = clip.end_time - clip.start_time;
@@ -452,10 +536,13 @@ function ClipCard({
         start: clip.start_time,
         end: clip.end_time,
         words,
-        accent: defaultCaptionStyle.accent,
-        base: defaultCaptionStyle.base,
-        wordsPerLine: defaultCaptionStyle.wordsPerLine,
-        position: defaultCaptionStyle.position,
+        accent: captionStyle.accent,
+        base: captionStyle.base,
+        wordsPerLine: captionStyle.wordsPerLine,
+        position: captionStyle.position,
+        enableFaceTracking: faceTracking,
+        subtitleEffect: captionStyle.effect,
+        uppercase: captionStyle.uppercase,
         onProgress: setRenderProgress,
         signal: controller.signal,
       });
@@ -466,7 +553,7 @@ function ClipCard({
       a.download = `${slug}.webm`;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success("Klip berhasil dirender.");
+      toast.success("Klip berhasil dirender dengan efek subtitle & face tracking!");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Render gagal.");
     } finally {
@@ -508,7 +595,7 @@ function ClipCard({
                 start={clip.start_time}
                 end={clip.end_time}
                 words={words}
-                style={defaultCaptionStyle}
+                style={captionStyle}
               />
             ) : words.length > 0 ? (
               <CaptionPreview
@@ -524,13 +611,12 @@ function ClipCard({
                   captions: toCaptionWords(words),
                   overlays: [],
                 }}
-                style={defaultCaptionStyle}
+                style={captionStyle}
               />
             ) : (
               <p className="text-xs text-muted-foreground">Belum ada caption.</p>
             )}
           </div>
-
 
           <div className="space-y-4">
             <div>

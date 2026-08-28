@@ -20,6 +20,12 @@ export interface CaptionStyle {
   position: number;
   stroke: boolean;
   showOverlays: boolean;
+  /** Subtitle effect style */
+  effect: "none" | "glow" | "pop" | "box";
+  /** Uppercase all captions */
+  uppercase: boolean;
+  /** Enable face tracking visualization */
+  showFaceTracking: boolean;
 }
 
 export const defaultCaptionStyle: CaptionStyle = {
@@ -30,6 +36,9 @@ export const defaultCaptionStyle: CaptionStyle = {
   position: 62,
   stroke: true,
   showOverlays: true,
+  effect: "glow",
+  uppercase: false,
+  showFaceTracking: true,
 };
 
 function chunk(words: CaptionWord[], size: number) {
@@ -83,6 +92,9 @@ export function CaptionPreview({
   const OverlayIcon = overlay ? icons[overlay.icon] : null;
   const progress = Math.min(100, (time / clip.duration) * 100);
 
+  // Simulate face tracking movement
+  const faceOffset = Math.sin(time * 0.5) * 8;
+
   return (
     <div
       className={cn(
@@ -93,17 +105,31 @@ export function CaptionPreview({
       {/* Stand-in for the rendered speaker frame (AI face tracking keeps it centered) */}
       <div className="absolute inset-0 aurora bg-primary" aria-hidden="true" />
       <div className="absolute inset-0 grid-lines opacity-30" aria-hidden="true" />
-      <motion.div
-        aria-hidden="true"
-        animate={{ scale: [1, 1.04, 1], x: [0, 6, 0] }}
-        transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
-        className="absolute left-1/2 top-[26%] size-32 -translate-x-1/2 rounded-full bg-accent/25 blur-2xl"
-      />
-      <div className="absolute left-1/2 top-[24%] flex size-24 -translate-x-1/2 items-center justify-center rounded-full border-2 border-dashed border-accent/70">
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-accent">
-          face lock
-        </span>
-      </div>
+      
+      {/* Face tracking visualization */}
+      {style.showFaceTracking && (
+        <>
+          <motion.div
+            aria-hidden="true"
+            animate={{ 
+              scale: [1, 1.04, 1], 
+              x: [faceOffset - 6, faceOffset + 6, faceOffset - 6],
+              y: [0, 4, 0]
+            }}
+            transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+            className="absolute left-1/2 top-[26%] size-32 -translate-x-1/2 rounded-full bg-accent/25 blur-2xl"
+          />
+          <motion.div
+            className="absolute left-1/2 top-[24%] flex size-24 -translate-x-1/2 items-center justify-center rounded-full border-2 border-dashed border-accent/70"
+            animate={{ x: faceOffset }}
+            transition={{ type: "spring", stiffness: 100, damping: 20 }}
+          >
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-accent">
+              face lock
+            </span>
+          </motion.div>
+        </>
+      )}
 
       <div className="absolute left-3 top-3 rounded-full bg-background/85 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider">
         9:16 · 1080p
@@ -125,14 +151,75 @@ export function CaptionPreview({
         )}
       </AnimatePresence>
 
+      {/* Caption area with effects */}
       <div
         className="absolute inset-x-0 flex flex-wrap justify-center gap-x-2 gap-y-1 px-4 text-center"
         style={{ top: `${style.position}%` }}
       >
         {activeLine.map((w, i) => {
           const state = time > w.end ? "past" : time >= w.start ? "active" : "future";
+          const isActive = state === "active";
+          const wordText = style.uppercase ? w.word.toUpperCase() : w.word;
+          
+          // Apply effects
+          let effectStyles: React.CSSProperties = {};
+          let effectClasses = "";
+          
+          switch (style.effect) {
+            case "glow":
+              effectStyles = {
+                color: isActive ? style.accent : style.base,
+                WebkitTextStroke: style.stroke
+                  ? `2px ${isActive ? style.accent : "rgba(0,0,0,0.85)"}`
+                  : undefined,
+                textShadow: isActive
+                  ? `0 0 12px ${style.accent}, 0 0 24px ${style.accent}80, 0 3px 0 rgba(0,0,0,0.55)`
+                  : style.stroke
+                  ? "0 3px 0 rgba(0,0,0,0.55)"
+                  : undefined,
+                filter: isActive ? "brightness(1.1)" : undefined,
+              };
+              break;
+              
+            case "box":
+              effectStyles = {
+                color: isActive ? "#000000" : style.base,
+                backgroundColor: isActive ? style.accent : "transparent",
+                padding: isActive ? "2px 8px" : "0",
+                borderRadius: isActive ? "4px" : "0",
+                WebkitTextStroke: style.stroke
+                  ? `1.5px ${isActive ? style.accent : "rgba(0,0,0,0.85)"}`
+                  : undefined,
+                textShadow: !isActive && style.stroke
+                  ? "0 3px 0 rgba(0,0,0,0.55)"
+                  : undefined,
+              };
+              break;
+              
+            case "pop":
+              effectStyles = {
+                color: isActive ? style.accent : style.base,
+                WebkitTextStroke: style.stroke
+                  ? `1.5px ${isActive ? style.accent : "rgba(0,0,0,0.85)"}`
+                  : undefined,
+                textShadow: style.stroke ? "0 3px 0 rgba(0,0,0,0.55)" : undefined,
+                transform: isActive ? "scale(1.15)" : "scale(1)",
+                transition: "transform 0.15s ease-out",
+              };
+              break;
+              
+            default: // none
+              effectStyles = {
+                color: isActive ? style.accent : style.base,
+                WebkitTextStroke: style.stroke
+                  ? "1.5px rgba(0,0,0,0.85)"
+                  : undefined,
+                textShadow: style.stroke ? "0 3px 0 rgba(0,0,0,0.55)" : undefined,
+              };
+          }
+          
           return (
-            <span
+            <motion.span
               key={`${w.word}-${i}`}
               data-state={state}
               className="caption-word"
@@ -140,13 +227,18 @@ export function CaptionPreview({
                 fontFamily: "var(--font-display)",
                 fontSize: `${style.fontSize}px`,
                 lineHeight: 1.1,
-                color: state === "active" ? style.accent : style.base,
-                WebkitTextStroke: style.stroke ? "1.5px rgba(0,0,0,0.85)" : undefined,
-                textShadow: style.stroke ? "0 3px 0 rgba(0,0,0,0.55)" : undefined,
+                ...effectStyles,
               }}
+              animate={isActive && style.effect === "pop" ? {
+                scale: [1, 1.15, 1.05],
+              } : undefined}
+              transition={isActive ? {
+                duration: 0.2,
+                ease: "easeOut",
+              } : undefined}
             >
-              {w.word}
-            </span>
+              {wordText}
+            </motion.span>
           );
         })}
       </div>
