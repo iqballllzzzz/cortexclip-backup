@@ -34,11 +34,11 @@ export async function renderClipServerSide(params: {
 }): Promise<RenderResult> {
   const token = await getAccessToken();
   const res = await fetch(`${BACKEND_URL}/api/render-clip`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
     body: JSON.stringify({
       project_id: params.projectId,
       clip_id: params.clipId,
@@ -51,6 +51,33 @@ export async function renderClipServerSide(params: {
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text.slice(0, 300) || "Render server gagal.");
+  }
+  return (await res.json()) as RenderResult;
+}
+
+/**
+ * Render preview klip resolusi rendah (360x640, potong cepat) di VPS.
+ * Hasilnya file kecil (~100-500KB) yang diputar browser di editor → instan.
+ */
+export async function renderClipPreview(params: {
+  projectId: string;
+  clipId: string;
+}): Promise<RenderResult> {
+  const token = await getAccessToken();
+  const res = await fetch(`${BACKEND_URL}/api/preview-clip`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      project_id: params.projectId,
+      clip_id: params.clipId,
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text.slice(0, 300) || "Render preview gagal.");
   }
   return (await res.json()) as RenderResult;
 }

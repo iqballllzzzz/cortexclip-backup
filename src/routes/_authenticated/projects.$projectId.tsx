@@ -36,7 +36,11 @@ import type { Database } from "@/integrations/supabase/types";
 import { Label } from "@/components/ui/label";
 
 type Project = Database["public"]["Tables"]["projects"]["Row"];
-type Clip = Database["public"]["Tables"]["clips"]["Row"];
+type ClipBase = Database["public"]["Tables"]["clips"]["Row"];
+type Clip = ClipBase & {
+  preview_url?: string | null;
+  preview_ready?: boolean;
+};
 
 const title = "Proyek Klip — CortexClip";
 const description =
@@ -535,7 +539,36 @@ function ClipCard({
   const duration = clip.end_time - clip.start_time;
   const [rendering, setRendering] = useState(false);
   const [renderProgress, setRenderProgress] = useState(0);
+  const [previewBusy, setPreviewBusy] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Preview VPS instan: kalau klip belum punya preview_url, minta server bikin
+  // (potong 12 detik resolusi kecil) lalu simpan. Browser mainkan file kecil.
+  async function ensurePreview() {
+    if (previewBusy || clip.preview_ready) return;
+    setPreviewBusy(true);
+    try {
+      const { renderClipPreview } = await import("@/lib/backend-api");
+      const result = await renderClipPreview({
+        projectId: clip.project_id,
+        clipId: clip.id,
+      });
+      onSave(clip, { preview_url: result.url, preview_ready: true });
+    } catch (error) {
+      console.warn("Preview gagal dibuat:", error);
+      // preview gagal → fallback ke video sumber (lambat tapi tetap jalan)
+    } finally {
+      setPreviewBusy(false);
+    }
+  }
+
+  // Saat kartu dibuka (expanded) dan klip punya video tapi preview belum ada → bikin instan
+  useEffect(() => {
+    if (expanded && mediaUrl && !clip.preview_ready && !previewBusy) {
+      void ensurePreview();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded, mediaUrl]);
 
   async function renderServerMp4() {
     if (rendering) return;
@@ -629,6 +662,7 @@ function ClipCard({
             {mediaUrl ? (
               <ClipVideoPreview
                 src={mediaUrl}
+                previewUrl={clip.preview_url}
                 start={clip.start_time}
                 end={clip.end_time}
                 words={words}

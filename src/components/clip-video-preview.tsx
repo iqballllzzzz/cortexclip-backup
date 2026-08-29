@@ -28,6 +28,7 @@ function clock(seconds: number) {
  */
 export function ClipVideoPreview({
   src,
+  previewUrl,
   start,
   end,
   words,
@@ -35,6 +36,7 @@ export function ClipVideoPreview({
   className,
 }: {
   src: string | null;
+  previewUrl?: string | null;
   start: number;
   end: number;
   words: PreviewWord[];
@@ -44,7 +46,16 @@ export function ClipVideoPreview({
   const videoRef = useRef<HTMLVideoElement>(null);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const duration = Math.max(0.1, end - start);
+
+  // Preview VPS terpotong: video dimulai dari 0, durasi = panjang file preview.
+  // Caption tetap pakai jendela klip asli [start, end].
+  const usingPreview = Boolean(previewUrl);
+  const videoSrc = usingPreview ? previewUrl : src;
+  const videoDuration = usingPreview ? Math.min(end - start, 12) : Math.max(0.1, end - start);
+  // offset: waktu caption asli = offset + waktu video preview
+  const captionOffset = usingPreview ? start : start;
+  const duration = videoDuration;
+
   const lines = chunk(words, style.wordsPerLine);
 
   const seek = useCallback(
@@ -52,21 +63,31 @@ export function ClipVideoPreview({
       const video = videoRef.current;
       const clamped = Math.max(0, Math.min(duration, relative));
       setTime(clamped);
-      if (video) video.currentTime = start + clamped;
+      if (video) {
+        if (usingPreview) video.currentTime = clamped;
+        else video.currentTime = start + clamped;
+      }
     },
-    [duration, start],
+    [duration, start, usingPreview],
   );
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !src) return;
+    if (!video || !videoSrc) return;
     const onLoaded = () => {
-      video.currentTime = start;
+      if (usingPreview) video.currentTime = 0;
+      else video.currentTime = start;
     };
     const onTime = () => {
-      const relative = video.currentTime - start;
-      if (relative >= duration) {
+      const vtime = video.currentTime;
+      const relative = usingPreview ? vtime : vtime - start;
+      if (!usingPreview && relative >= duration) {
         video.currentTime = start;
+        setTime(0);
+        return;
+      }
+      if (usingPreview && vtime >= duration) {
+        video.currentTime = 0;
         setTime(0);
         return;
       }
@@ -78,13 +99,17 @@ export function ClipVideoPreview({
       video.removeEventListener("loadedmetadata", onLoaded);
       video.removeEventListener("timeupdate", onTime);
     };
-  }, [src, start, duration]);
+  }, [videoSrc, start, duration, usingPreview]);
 
   function toggle() {
     const video = videoRef.current;
     if (!video) return;
     if (video.paused) {
-      if (video.currentTime < start || video.currentTime > end) video.currentTime = start;
+      if (usingPreview) {
+        if (video.currentTime >= duration) video.currentTime = 0;
+      } else if (video.currentTime < start || video.currentTime > end) {
+        video.currentTime = start;
+      }
       void video.play();
       setPlaying(true);
     } else {
@@ -93,17 +118,20 @@ export function ClipVideoPreview({
     }
   }
 
+  // Waktu caption: preview terpotong → video 0..durasiPreview dipetakan ke start..start+durasiPreview
+  const captionTime = usingPreview ? captionOffset + time : time;
+
   const activeLine =
-    lines.find((line) => time >= line[0]!.start && time <= line[line.length - 1]!.end) ??
-    lines.find((line) => time < line[0]!.start);
+    lines.find((line) => captionTime >= line[0]!.start && captionTime <= line[line.length - 1]!.end) ??
+    lines.find((line) => captionTime < line[0]!.start);
 
   return (
     <div className={cn("space-y-2", className)}>
       <div className="relative aspect-[9/16] w-full overflow-hidden rounded-2xl border border-border bg-primary">
-        {src ? (
+        {videoSrc ? (
           <video
             ref={videoRef}
-            src={src}
+            src={videoSrc}
             playsInline
             preload="metadata"
             className="absolute inset-0 size-full object-cover"
@@ -116,7 +144,7 @@ export function ClipVideoPreview({
         )}
 
         <div className="absolute left-3 top-3 rounded-full bg-background/85 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider">
-          9:16 · crop tengah
+          {usingPreview ? "9:16 · preview instan" : "9:16 · crop tengah"}
         </div>
 
         {activeLine ? (
@@ -150,7 +178,7 @@ export function ClipVideoPreview({
         <button
           type="button"
           onClick={toggle}
-          disabled={!src}
+          disabled={!videoSrc}
           aria-label={playing ? "Jeda" : "Putar"}
           className="absolute bottom-3 left-3 flex size-9 items-center justify-center rounded-full bg-background/85 disabled:opacity-40"
         >
@@ -166,7 +194,7 @@ export function ClipVideoPreview({
           max={duration}
           step={0.05}
           value={time}
-          disabled={!src}
+          disabled={!videoSrc}
           onChange={(e) => seek(Number(e.target.value))}
           className="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-border accent-[var(--color-accent,#FFD400)]"
           aria-label="Garis waktu klip"

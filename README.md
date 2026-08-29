@@ -191,4 +191,11 @@ Tiap gaya = kombinasi font (Montserrat/Anton/Noto Serif/Inter/Impact/Courier), w
 
 ---
 
-*Terakhir diperbarui: 2026-08-29 — sesi editor terpadu: 8 gaya subtitle preset (preview animasi "Halo", backend ASS STYLE_PRESETS), auto-framing wajah selalu aktif, tombol "Unduh" tunggal, rendered_url publik (VPS IP), backup rclone 12 jam, README hidup.*
+## ⚡ Preview Instan (VPS yang nggarap)
+
+Preview klip di editor **tidak lagi streaming video sumber 43MB**. Saat kartu klip dibuka,
+backend memotong klip 12 detik resolusi rendah (360x640, {@literal ultrafast}) dan menyimpan URL kecil
+(~100-500KB) — browser memutarnya instan. Endpoint: `POST /api/preview-clip` → kolom
+`clips.preview_url` + `preview_ready`. Auto-request saat kartu di-expand, fallback ke sumber bila gagal.
+
+*Terakhir diperbarui: 2026-08-29 — sesi editor terpadu: 8 gaya subtitle preset (preview animasi "Halo", backend ASS STYLE_PRESETS), auto-framing wajah selalu aktif, tombol "Unduh" tunggal, rendered_url publik (VPS IP), preview instan (potong 12s 360x640 di VPS), backup rclone 12 jam, README hidup, perbaikan korupsi `***` di main.py & backend-api.ts.*
