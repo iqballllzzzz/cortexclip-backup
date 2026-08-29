@@ -517,6 +517,48 @@ function ClipCard({
   const [renderProgress, setRenderProgress] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
 
+  async function renderServerMp4() {
+    if (rendering) return;
+    setRendering(true);
+    setRenderProgress(0);
+    try {
+      toast.info("Mengirim klip ke server untuk render MP4…");
+      const { renderClipServerSide } = await import("@/lib/backend-api");
+      const result = await renderClipServerSide({
+        projectId: clip.project_id,
+        clipId: clip.id,
+        captionStyle: {
+          accent: captionStyle.accent,
+          base: captionStyle.base,
+          outline: "#000000",
+          fontSize: Math.round((captionStyle.fontSize / 30) * 32),
+          fontName: "Anton",
+          wordsPerLine: captionStyle.wordsPerLine,
+          position: captionStyle.position,
+          stroke: captionStyle.stroke,
+          bold: true,
+          uppercase: captionStyle.uppercase,
+          effect: captionStyle.effect === "none" ? "classic" : captionStyle.effect,
+          opacity: 0.45,
+        },
+        faceTracking,
+      });
+      setRenderProgress(1);
+      toast.success("MP4 berhasil dirender di server!");
+      // Download langsung
+      const a = document.createElement("a");
+      a.href = result.url;
+      a.download = result.file;
+      a.target = "_blank";
+      a.click();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Render server gagal.");
+    } finally {
+      setRendering(false);
+      setRenderProgress(0);
+    }
+  }
+
   async function renderWebm() {
     if (!mediaUrl) {
       toast.error("Pilih file video dulu supaya bisa merender di browser.");
@@ -646,6 +688,17 @@ function ClipCard({
               <Button variant="accent" size="sm" onClick={renderWebm} disabled={rendering || !mediaUrl}>
                 {rendering ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
                 {rendering ? `Merender ${Math.round(renderProgress * 100)}%` : "Render video (WebM)"}
+              </Button>
+              <Button
+                variant="accent"
+                size="sm"
+                onClick={renderServerMp4}
+                disabled={rendering}
+                className="bg-accent/90"
+                title="Render MP4 720x1280 di server VPS (ffmpeg + karaoke + face tracking)"
+              >
+                {rendering ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+                {rendering ? "Merender MP4…" : "Render MP4 (server)"}
               </Button>
               {rendering ? (
                 <Button variant="ghost" size="sm" onClick={() => abortRef.current?.abort()}>

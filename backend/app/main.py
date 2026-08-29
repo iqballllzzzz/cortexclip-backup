@@ -22,6 +22,9 @@ import time
 import uuid
 from typing import Any, Optional
 
+from dotenv import load_dotenv
+load_dotenv()  # ensure .env is loaded when run via uvicorn
+
 import httpx
 import jwt as pyjwt
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Header
@@ -121,6 +124,15 @@ class AdminLogin(BaseModel):
 class AssIn(BaseModel):
     words: list[dict[str, Any]]
     style: dict[str, Any] | None = None
+
+
+class RenderClipIn(BaseModel):
+    project_id: str
+    clip_id: str
+    caption_style: dict[str, Any] | None = None
+    resolution: str = "720x1280"
+    face_tracking: bool = True
+    hook_text: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +254,27 @@ async def make_ass(body: AssIn, request: Request, authorization: str = Header(No
 async def make_srt(body: AssIn, request: Request, authorization: str = Header(None)):
     await get_user(request, authorization)
     return {"srt": build_srt(body.words)}
+
+
+# ---------------------------------------------------------------------------
+# Server-side clip render (MP4 via ffmpeg on the VPS)
+# ---------------------------------------------------------------------------
+
+@app.post("/api/render-clip")
+async def api_render_clip(body: RenderClipIn, request: Request, authorization: str = Header(None)):
+    await get_user(request, authorization)
+    from .render_clip import render_clip_server
+    try:
+        result = await render_clip_server(
+            body.project_id, body.clip_id, token=authorization.split(" ", 1)[1],
+            caption_style=body.caption_style,
+            resolution=body.resolution,
+            face_tracking=body.face_tracking,
+            hook_text=body.hook_text,
+        )
+    except Exception as exc:
+        raise HTTPException(400, str(exc))
+    return result
 
 
 # ---------------------------------------------------------------------------
