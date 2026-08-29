@@ -1,0 +1,23 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Secrets — never commit
+.env
+.env.local
+
+# Runtime artifacts
+output/
+uploads/
+*.mp4
+*.wav
+*.srt
+*.ass
+*.png
