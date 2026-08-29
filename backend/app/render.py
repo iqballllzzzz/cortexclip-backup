@@ -24,12 +24,20 @@ import subprocess
 import tempfile
 from typing import Any, Optional
 
+import numpy as np
+import cv2
+import mediapipe as mp
+
 ASPECT = 9 / 16
 ANALYSIS_WIDTH = 320          # low-res analysis pass
 DETECT_STRIDE = 5             # analyze every Nth frame
 SAFE_ZONE_FRACTION = 0.22
 PAN_SPEED_FAST = 18.0
 PAN_SPEED_SLOW = 4.0
+
+# MediaPipe BlazeFace setup (OpenShorts style) - legacy API (mediapipe 0.10)
+mp_face_detection = mp.solutions.face_detection
+_face_detector = mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
 
 
 def probe_duration(path: str) -> float:
@@ -77,9 +85,8 @@ def smooth_camera(
 def analyze_face_track(src: str, start: float, end: float) -> list[float]:
     """Analyze the clip for a per-frame camera-center trajectory (x in source px).
 
-    Uses motion-difference centroid detection: frame differencing at low res,
-    weighted centroid of moving pixels = where the action (speaker) is.
-    No heavy deps (cv2/mediapipe) — works on any VPS. Falls back to center.
+    Uses MediaPipe BlazeFace (like OpenShorts TRACK mode) for robust face detection
+    at low resolution. Falls back to center if no faces detected.
     """
     import numpy as np
     try:
@@ -89,49 +96,44 @@ def analyze_face_track(src: str, start: float, end: float) -> list[float]:
     dur = min(end - start, 120)  # cap analysis length
     analysis_h = max(180, int(ANALYSIS_WIDTH * h / w / 2) * 2)
     analysis_w = int(analysis_h * w / h / 2) * 2
-    # decode at low fps, grayscale
+    # decode at low fps, RGB for MediaPipe
     fps = 5  # analysis fps
     cmd = [
         "ffmpeg", "-v", "error",
         "-ss", f"{start:.3f}", "-t", f"{dur:.3f}", "-i", src,
-        "-vf", f"scale={analysis_w}:{analysis_h},format=gray",
+        "-vf", f"scale={analysis_w}:{analysis_h}",
         "-r", str(fps),
-        "-f", "rawvideo", "-pix_fmt", "gray", "-",
+        "-f", "rawvideo", "-pix_fmt", "rgb24", "-",
     ]
     try:
         raw = subprocess.run(cmd, capture_output=True, check=True, timeout=600).stdout
     except Exception:
         return []
-    frame_bytes = analysis_w * analysis_h
+    frame_bytes = analysis_w * analysis_h * 3
     n_frames = len(raw) // frame_bytes
     if n_frames < 4:
         return []
 
     frames = np.frombuffer(raw[: n_frames * frame_bytes], dtype=np.uint8).reshape(
-        n_frames, analysis_h, analysis_w
+        n_frames, analysis_h, analysis_w, 3
     )
-    # motion energy per column, smoothing over 3 frames
+
     traj_scaled: list[float] = []
-    prev = frames[0].astype(np.int16)
-    xs = np.arange(analysis_w)
-    for i in range(1, n_frames):
-        cur = frames[i].astype(np.int16)
-        diff = np.abs(cur - prev)
-        prev = cur
-        mask = diff > 18  # motion threshold
-        if mask.sum() < analysis_w * 0.002:  # not enough motion -> keep last
-            if traj_scaled:
-                traj_scaled.append(traj_scaled[-1])
-                continue
-            traj_scaled.append(analysis_w / 2)
-            continue
-        col_energy = (mask.astype(np.float32) * (diff / 255.0)).sum(axis=0)
-        total = col_energy.sum()
-        if total <= 0:
-            traj_scaled.append(traj_scaled[-1] if traj_scaled else analysis_w / 2)
-            continue
-        center = float((col_energy * xs).sum() / total)
-        traj_scaled.append(center)
+    for i in range(n_frames):
+        frame_rgb = frames[i]
+        # MediaPipe expects RGB
+        results = _face_detector.process(frame_rgb)
+        if results.detections:
+            # take the largest face (by box area)
+            best = max(results.detections, key=lambda d: 
+                d.location_data.relative_bounding_box.width * 
+                d.location_data.relative_bounding_box.height)
+            bbox = best.location_data.relative_bounding_box
+            center_x = (bbox.xmin + bbox.width / 2) * analysis_w
+        else:
+            # no face -> use previous or center
+            center_x = traj_scaled[-1] if traj_scaled else analysis_w / 2
+        traj_scaled.append(center_x)
 
     # convert to source pixel scale and smooth with camera physics
     scale = w / analysis_w
