@@ -542,16 +542,35 @@ function ClipCard({
   const [previewBusy, setPreviewBusy] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
-  // Preview VPS instan: kalau klip belum punya preview_url, minta server bikin
-  // (potong 12 detik resolusi kecil) lalu simpan. Browser mainkan file kecil.
-  async function ensurePreview() {
-    if (previewBusy || clip.preview_ready) return;
+  // Preview VPS instan: render pipeline ASLI (ASS burn + face tracking) 360x640.
+  // caption_style dikirim supaya preview == hasil unduhan; hash style di backend
+  // bikin preview otomatis re-render saat user ganti gaya/ukuran/posisi.
+  async function ensurePreview(force = false) {
+    if (previewBusy) return;
+    if (!force && clip.preview_ready) return;
     setPreviewBusy(true);
     try {
       const { renderClipPreview } = await import("@/lib/backend-api");
+      const preset = getPreset(presetId).style;
       const result = await renderClipPreview({
         projectId: clip.project_id,
         clipId: clip.id,
+        captionStyle: {
+          preset: presetId,
+          fontSize: Math.round((captionStyle.fontSize / 30) * 40),
+          position: captionStyle.position,
+          accent: preset.accent,
+          base: preset.base,
+          outline: preset.outline,
+          fontName: preset.fontName,
+          wordsPerLine: preset.wordsPerLine,
+          stroke: preset.stroke,
+          bold: preset.bold,
+          uppercase: preset.uppercase,
+          italic: preset.italic,
+          effect: preset.effect,
+          opacity: preset.opacity,
+        },
       });
       onSave(clip, { preview_url: result.url, preview_ready: true });
     } catch (error) {
@@ -569,6 +588,15 @@ function ClipCard({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expanded, mediaUrl]);
+
+  // Ganti gaya/ukuran/posisi → re-render preview supaya selalu == hasil
+  const styleKey = `${presetId}:${captionStyle.fontSize}:${captionStyle.position}`;
+  useEffect(() => {
+    if (expanded && clip.preview_ready && !previewBusy) {
+      void ensurePreview(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [styleKey]);
 
   async function renderServerMp4() {
     if (rendering) return;
@@ -659,14 +687,12 @@ function ClipCard({
           className="mt-5 grid gap-6 md:grid-cols-[220px_1fr]"
         >
           <div className="mx-auto w-[200px]">
-            {mediaUrl ? (
+            {mediaUrl || clip.preview_url ? (
               <ClipVideoPreview
                 src={mediaUrl}
                 previewUrl={clip.preview_url}
                 start={clip.start_time}
                 end={clip.end_time}
-                words={words}
-                style={captionStyle}
               />
             ) : words.length > 0 ? (
               <CaptionPreview

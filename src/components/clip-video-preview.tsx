@@ -2,19 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Pause, Play } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import type { CaptionStyle } from "@/components/caption-preview";
-
-export interface PreviewWord {
-  word: string;
-  start: number;
-  end: number;
-}
-
-function chunk<T>(items: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += Math.max(1, size)) out.push(items.slice(i, i + size));
-  return out;
-}
 
 function clock(seconds: number) {
   const m = Math.floor(Math.max(0, seconds) / 60);
@@ -23,40 +10,34 @@ function clock(seconds: number) {
 }
 
 /**
- * Preview klip nyata: video sumber dipotong 9:16 (crop tengah) dan diputar
- * hanya pada rentang klip, dengan caption karaoke yang sinkron ke waktu video.
+ * Preview klip ASLI — video sudah dirender VPS (subtitle gaya terpilih terbakar
+ * di dalam file via libass + face tracking aktif), jadi preview == hasil unduhan.
+ * Browser hanya memutar file kecil 360x640, bukan streaming sumber 43MB.
  */
 export function ClipVideoPreview({
-  src,
   previewUrl,
+  src,
   start,
   end,
-  words,
-  style,
   className,
 }: {
+  previewUrl?: string | null | undefined;
   src: string | null;
-  previewUrl?: string | null;
   start: number;
   end: number;
-  words: PreviewWord[];
-  style: CaptionStyle;
   className?: string;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
 
-  // Preview VPS terpotong: video dimulai dari 0, durasi = panjang file preview.
-  // Caption tetap pakai jendela klip asli [start, end].
+  // Preview VPS terpotong: mulai dari 0, durasi file preview. Tanpa preview →
+  // fallback streaming sumber + seek (lambat, tapi tetap jalan).
   const usingPreview = Boolean(previewUrl);
   const videoSrc = usingPreview ? previewUrl : src;
-  const videoDuration = usingPreview ? Math.min(end - start, 12) : Math.max(0.1, end - start);
-  // offset: waktu caption asli = offset + waktu video preview
-  const captionOffset = usingPreview ? start : start;
-  const duration = videoDuration;
-
-  const lines = chunk(words, style.wordsPerLine);
+  const duration = usingPreview
+    ? Math.min(end - start, 12)
+    : Math.max(0.1, end - start);
 
   const seek = useCallback(
     (relative: number) => {
@@ -81,13 +62,8 @@ export function ClipVideoPreview({
     const onTime = () => {
       const vtime = video.currentTime;
       const relative = usingPreview ? vtime : vtime - start;
-      if (!usingPreview && relative >= duration) {
-        video.currentTime = start;
-        setTime(0);
-        return;
-      }
-      if (usingPreview && vtime >= duration) {
-        video.currentTime = 0;
+      if (relative >= duration) {
+        video.currentTime = usingPreview ? 0 : start;
         setTime(0);
         return;
       }
@@ -118,13 +94,6 @@ export function ClipVideoPreview({
     }
   }
 
-  // Waktu caption: preview terpotong → video 0..durasiPreview dipetakan ke start..start+durasiPreview
-  const captionTime = usingPreview ? captionOffset + time : time;
-
-  const activeLine =
-    lines.find((line) => captionTime >= line[0]!.start && captionTime <= line[line.length - 1]!.end) ??
-    lines.find((line) => captionTime < line[0]!.start);
-
   return (
     <div className={cn("space-y-2", className)}>
       <div className="relative aspect-[9/16] w-full overflow-hidden rounded-2xl border border-border bg-primary">
@@ -144,36 +113,8 @@ export function ClipVideoPreview({
         )}
 
         <div className="absolute left-3 top-3 rounded-full bg-background/85 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider">
-          {usingPreview ? "9:16 · preview instan" : "9:16 · crop tengah"}
+          {usingPreview ? "9:16 · render VPS" : "9:16 · sumber"}
         </div>
-
-        {activeLine ? (
-          <div
-            className="absolute inset-x-0 flex flex-wrap justify-center gap-x-2 gap-y-1 px-3 text-center"
-            style={{ top: `${style.position}%` }}
-          >
-            {activeLine.map((w, i) => {
-              const state = time > w.end ? "past" : time >= w.start ? "active" : "future";
-              return (
-                <span
-                  key={`${w.word}-${i}`}
-                  data-state={state}
-                  className="caption-word"
-                  style={{
-                    fontFamily: "var(--font-display)",
-                    fontSize: `${style.fontSize}px`,
-                    lineHeight: 1.1,
-                    color: state === "active" ? style.accent : style.base,
-                    WebkitTextStroke: style.stroke ? "1.5px rgba(0,0,0,0.85)" : undefined,
-                    textShadow: style.stroke ? "0 3px 0 rgba(0,0,0,0.55)" : undefined,
-                  }}
-                >
-                  {w.word}
-                </span>
-              );
-            })}
-          </div>
-        ) : null}
 
         <button
           type="button"

@@ -62,6 +62,7 @@ export async function renderClipServerSide(params: {
 export async function renderClipPreview(params: {
   projectId: string;
   clipId: string;
+  captionStyle?: Record<string, unknown>;
 }): Promise<RenderResult> {
   const token = await getAccessToken();
   const res = await fetch(`${BACKEND_URL}/api/preview-clip`, {
@@ -73,6 +74,7 @@ export async function renderClipPreview(params: {
     body: JSON.stringify({
       project_id: params.projectId,
       clip_id: params.clipId,
+      caption_style: params.captionStyle,
     }),
   });
   if (!res.ok) {
