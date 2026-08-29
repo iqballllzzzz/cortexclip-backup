@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
-import { motion } from "motion/react";
-import { Moon, Sun, Menu, LogOut, LayoutDashboard } from "lucide-react";
+import { motion, useScroll, useMotionValueEvent } from "motion/react";
+import { Moon, Sun, Menu, LogOut, LayoutDashboard, Sparkles, Zap } from "lucide-react";
 import { useState } from "react";
 import logo from "@/assets/cortexclip-logo.png";
 import { Button } from "@/components/ui/button";
@@ -35,6 +35,12 @@ export function SiteHeader() {
   const { theme, toggle } = useTheme();
   const { user, loading } = useAuth();
   const [open, setOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+  const { scrollY } = useScroll();
+
+  useMotionValueEvent(scrollY, "change", (latest) => {
+    setScrolled(latest > 12);
+  });
 
   async function handleSignOut() {
     await supabase.auth.signOut();
@@ -46,18 +52,27 @@ export function SiteHeader() {
       initial={{ y: -24, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ duration: 0.5, ease: [0.2, 0.8, 0.2, 1] }}
-      className="sticky top-0 z-50 border-b border-border/70 bg-background/80 backdrop-blur-xl"
+      className={`sticky top-0 z-50 border-b transition-all duration-300 ${
+        scrolled
+          ? "border-border/60 bg-background/85 shadow-soft backdrop-blur-2xl"
+          : "border-transparent bg-background/60 backdrop-blur-xl"
+      }`}
     >
       <div className="mx-auto flex h-16 max-w-6xl items-center gap-6 px-5">
-        <Link to="/" className="flex items-center gap-2">
-          <img
-            src={logo}
-            alt="Logo CortexClip"
-            width={32}
-            height={32}
-            className="h-8 w-8 dark:invert"
-          />
-          <span className="font-display text-lg font-bold tracking-tight">CortexClip</span>
+        <Link to="/" className="group flex items-center gap-2">
+          <div className="relative">
+            <img
+              src={logo}
+              alt="Logo CortexClip"
+              width={32}
+              height={32}
+              className="h-8 w-8 dark:invert"
+            />
+            <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-accent animate-pulse-glow" aria-hidden="true" />
+          </div>
+          <span className="font-display text-lg font-bold tracking-tight">
+            Cortex<span className="text-gradient-amber">Clip</span>
+          </span>
         </Link>
 
         <nav className="ml-auto hidden items-center gap-1 md:flex">
@@ -65,7 +80,7 @@ export function SiteHeader() {
             <a
               key={item.href}
               href={item.href}
-              className="rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              className="rounded-full px-3.5 py-2 text-sm text-muted-foreground transition-all hover:bg-secondary hover:text-foreground"
             >
               {item.label}
             </a>
@@ -78,6 +93,7 @@ export function SiteHeader() {
             size="icon"
             onClick={toggle}
             aria-label="Ganti tema terang atau gelap"
+            className="rounded-full"
           >
             {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
           </Button>
@@ -116,7 +132,9 @@ export function SiteHeader() {
             </>
           ) : (
             <Button asChild variant="accent" className="hidden sm:inline-flex">
-              <Link to="/auth">Coba Gratis</Link>
+              <Link to="/auth">
+                <Sparkles className="size-4" /> Coba Gratis
+              </Link>
             </Button>
           )}
 
@@ -165,9 +183,9 @@ export function SiteHeader() {
                     <a
                       href="/auth"
                       onClick={() => setOpen(false)}
-                      className="flex w-full items-center rounded-md bg-accent px-3 py-2 text-sm font-medium text-accent-foreground"
+                      className="flex w-full items-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-medium text-accent-foreground"
                     >
-                      Coba Gratis
+                      <Zap className="size-4" /> Coba Gratis
                     </a>
                   )}
                 </div>

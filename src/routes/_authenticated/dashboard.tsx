@@ -11,6 +11,10 @@ import {
   Upload,
   Link2,
   Loader2,
+  ArrowUpRight,
+  Video,
+  CheckCircle2,
+  Wand2,
 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -117,7 +121,6 @@ function Dashboard() {
           .eq("id", projectId);
       }
       toast.error(message);
-      /* biarkan daftar proyek menampilkan status gagal saat dimuat ulang */
     } finally {
       uploadRef.current = null;
       setUploadPct(null);
@@ -179,11 +182,21 @@ function Dashboard() {
   }
 
   const displayName = profile?.display_name ?? user.email?.split("@")[0] ?? "Creator";
+  const doneCount = projects.filter((p) => p.status === "completed").length;
+  const activeCount = projects.filter((p) => p.status !== "completed" && p.status !== "failed").length;
+
+  const stats = [
+    { icon: Video, label: "Total Proyek", value: projects.length, tint: "from-accent/20 to-accent/5 text-accent" },
+    { icon: Wand2, label: "Sedang Diproses", value: activeCount, tint: "from-amber-500/20 to-amber-500/5 text-amber-500" },
+    { icon: CheckCircle2, label: "Klip Selesai", value: doneCount, tint: "from-green-500/20 to-green-500/5 text-green-500" },
+  ];
 
   return (
     <div className="min-h-screen bg-background">
       <SiteHeader />
-      <main className="mx-auto max-w-6xl px-5 py-12">
+      <main className="relative mx-auto max-w-6xl px-5 py-12">
+        <div className="pointer-events-none absolute right-0 top-0 size-72 rounded-full bg-accent/5 blur-3xl" aria-hidden="true" />
+
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 16 }}
@@ -192,8 +205,8 @@ function Dashboard() {
           className="flex flex-wrap items-end justify-between gap-4"
         >
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">
-              Dashboard
+            <p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-accent">
+              <Sparkles className="size-3.5" /> Dashboard
             </p>
             <h1 className="mt-2 text-3xl font-bold sm:text-4xl">
               Halo, {displayName} 👋
@@ -222,29 +235,23 @@ function Dashboard() {
 
         {/* Stats */}
         <div className="mt-8 grid gap-4 sm:grid-cols-3">
-          {[
-            { icon: Film, label: "Total Proyek", value: projects.length },
-            {
-              icon: Clock,
-              label: "Proses Aktif",
-              value: projects.filter((p) => p.status !== "completed" && p.status !== "failed").length,
-            },
-            {
-              icon: TrendingUp,
-              label: "Klip Selesai",
-              value: projects.filter((p) => p.status === "completed").length,
-            },
-          ].map((s) => (
-            <div
+          {stats.map((s, i) => (
+            <motion.div
               key={s.label}
-              className="rounded-2xl border border-border bg-card p-5"
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, delay: 0.05 * i }}
+              className="group relative overflow-hidden rounded-2xl border border-border bg-card p-5 card-hover-lift"
             >
+              <div className={`pointer-events-none absolute -right-6 -top-6 size-24 rounded-full bg-gradient-to-br ${s.tint} opacity-50 blur-2xl`} aria-hidden="true" />
               <div className="flex items-center gap-2 text-muted-foreground">
-                <s.icon className="size-4" />
+                <span className={`flex size-8 items-center justify-center rounded-lg ${s.tint}`}>
+                  <s.icon className="size-4" />
+                </span>
                 <span className="text-xs font-medium uppercase tracking-wider">{s.label}</span>
               </div>
-              <p className="mt-2 font-display text-3xl font-bold">{s.value}</p>
-            </div>
+              <p className="mt-3 font-display text-4xl font-bold">{s.value}</p>
+            </motion.div>
           ))}
         </div>
 
@@ -252,12 +259,13 @@ function Dashboard() {
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.1 }}
-          className="mt-8 rounded-2xl border-2 border-dashed border-accent/40 bg-accent/5 p-6"
+          transition={{ duration: 0.4, delay: 0.15 }}
+          className="relative mt-8 overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-accent/5 via-card to-card p-6 card-hover-lift"
         >
+          <div className="pointer-events-none absolute -right-10 -top-10 size-40 rounded-full bg-accent/10 blur-3xl" aria-hidden="true" />
           <div className="flex items-start gap-4">
-            <div className="hidden size-12 shrink-0 items-center justify-center rounded-xl bg-accent/15 sm:flex">
-              <Sparkles className="size-6 text-accent" />
+            <div className="hidden size-12 shrink-0 items-center justify-center rounded-xl bg-accent shadow-soft sm:flex">
+              <Sparkles className="size-6 text-accent-foreground" />
             </div>
             <div className="min-w-0 flex-1">
               <h2 className="text-lg font-semibold">Mulai Proyek Baru</h2>
@@ -278,34 +286,44 @@ function Dashboard() {
                 }}
               />
 
-              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                <Button
-                  variant="accent"
-                  size="sm"
+              <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-end">
+                <button
+                  type="button"
                   disabled={creating}
                   onClick={() => fileInput.current?.click()}
+                  className="group flex min-w-0 flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed border-accent/40 bg-background/50 px-4 py-5 text-center transition-all hover:border-accent hover:bg-accent/5 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {creating ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <Upload className="size-4" />
-                  )}
-                  Unggah Video
-                </Button>
-                <div className="flex flex-1 gap-2">
-                  <input
-                    value={youtubeUrl}
-                    onChange={(e) => setYoutubeUrl(e.target.value)}
-                    placeholder="https://youtube.com/watch?v=…"
-                    className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
-                  />
+                  <span className="flex items-center gap-2 font-medium text-accent">
+                    {creating ? (
+                      <Loader2 className="size-5 animate-spin" />
+                    ) : (
+                      <Upload className="size-5 transition-transform group-hover:-translate-y-0.5" />
+                    )}
+                    {creating ? "Memproses…" : "Unggah Video"}
+                  </span>
+                  <span className="mt-1 text-xs text-muted-foreground">
+                    Seret video/audio ke sini, atau klik untuk memilih
+                  </span>
+                </button>
+
+                <div className="flex min-w-0 gap-2 md:flex-1 md:flex-col">
+                  <div className="flex items-center gap-2">
+                    <Link2 className="hidden size-4 shrink-0 text-muted-foreground md:block" />
+                    <input
+                      value={youtubeUrl}
+                      onChange={(e) => setYoutubeUrl(e.target.value)}
+                      placeholder="https://youtube.com/watch?v=…"
+                      className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-accent"
+                    />
+                  </div>
                   <Button
-                    variant="secondary"
+                    variant="accent"
                     size="sm"
                     disabled={creating}
                     onClick={() => void createFromYoutube()}
+                    className="md:w-full"
                   >
-                    <Link2 className="size-4" /> Buat
+                    <ArrowUpRight className="size-4" /> Buat dari Link
                   </Button>
                 </div>
               </div>
@@ -313,7 +331,9 @@ function Dashboard() {
               {uploadPct !== null ? (
                 <div className="mt-4 space-y-2">
                   <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>Mengunggah… {Math.round(uploadPct * 100)}%</span>
+                    <span className="flex items-center gap-1.5">
+                      <Loader2 className="size-3 animate-spin" /> Mengunggah… {Math.round(uploadPct * 100)}%
+                    </span>
                     <button
                       type="button"
                       onClick={() => uploadRef.current?.abort()}
@@ -324,7 +344,7 @@ function Dashboard() {
                   </div>
                   <div className="h-1.5 w-full overflow-hidden rounded-full bg-border">
                     <div
-                      className="h-full rounded-full bg-accent transition-[width]"
+                      className="h-full rounded-full bg-gradient-to-r from-accent to-amber-400 transition-[width]"
                       style={{ width: `${Math.round(uploadPct * 100)}%` }}
                     />
                   </div>
@@ -344,56 +364,55 @@ function Dashboard() {
           {loading ? (
             <div className="mt-4 space-y-3">
               {[1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  className="h-20 animate-pulse rounded-2xl border border-border bg-card"
-                />
+                <div key={i} className="h-20 animate-pulse rounded-2xl border border-border bg-card" />
               ))}
             </div>
           ) : projects.length === 0 ? (
-            <div className="mt-4 flex flex-col items-center justify-center rounded-2xl border border-border bg-card py-16 text-center">
+            <div className="relative mt-4 flex flex-col items-center justify-center overflow-hidden rounded-2xl border border-border bg-card py-16 text-center">
+              <div className="pointer-events-none absolute left-1/2 top-0 size-64 -translate-x-1/2 rounded-full bg-accent/5 blur-3xl" aria-hidden="true" />
               <Film className="size-10 text-muted-foreground/50" />
               <p className="mt-4 font-medium">Belum ada proyek</p>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <p className="mt-1 max-w-sm text-sm text-muted-foreground">
                 Mulai unggah video atau tempel link YouTube untuk membuat klip pertama kamu.
               </p>
-              <Button
-                variant="accent"
-                size="sm"
-                className="mt-5"
-                onClick={() => fileInput.current?.click()}
-              >
+              <Button variant="accent" size="sm" className="mt-5" onClick={() => fileInput.current?.click()}>
                 <Plus className="size-4" /> Buat Proyek Pertama
               </Button>
             </div>
           ) : (
             <div className="mt-4 space-y-3">
-              {projects.map((p) => (
-                <Link
+              {projects.map((p, i) => (
+                <motion.div
                   key={p.id}
-                  to="/projects/$projectId"
-                  params={{ projectId: p.id }}
-                  className="flex items-center gap-4 rounded-2xl border border-border bg-card p-4 transition-colors hover:border-accent/50"
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: 0.03 * i }}
                 >
-                  <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-secondary">
-                    <Film className="size-5 text-muted-foreground" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <h3 className="truncate font-medium">{p.title}</h3>
-                    <p className="text-xs text-muted-foreground">
-                      {p.source_type === "youtube" ? "YouTube" : "Unggah"} ·{" "}
-                      {new Date(p.created_at).toLocaleDateString("id-ID", {
-                        day: "numeric",
-                        month: "short",
-                        year: "numeric",
-                      })}
-                    </p>
-                  </div>
-                  <StatusBadge status={p.status} />
-                </Link>
+                  <Link
+                    to="/projects/$projectId"
+                    params={{ projectId: p.id }}
+                    className="group flex items-center gap-4 rounded-2xl border border-border bg-card p-4 transition-all hover:border-accent/50 hover:shadow-lift"
+                  >
+                    <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-accent/20 to-accent/5 text-accent transition-transform group-hover:scale-105">
+                      <Film className="size-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="truncate font-medium">{p.title}</h3>
+                      <p className="text-xs text-muted-foreground">
+                        {p.source_type === "youtube" ? "YouTube" : "Unggah"} ·{" "}
+                        {new Date(p.created_at).toLocaleDateString("id-ID", {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                        })}
+                      </p>
+                    </div>
+                    <StatusBadge status={p.status} />
+                    <ArrowUpRight className="hidden size-4 shrink-0 text-muted-foreground transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 sm:block" />
+                  </Link>
+                </motion.div>
               ))}
             </div>
-
           )}
         </section>
       </main>

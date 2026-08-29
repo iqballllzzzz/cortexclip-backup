@@ -1,4 +1,4 @@
-import { Check } from "lucide-react";
+import { Check, Sparkles } from "lucide-react";
 import { motion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import {
@@ -71,13 +71,25 @@ const faqs = [
 export function PricingFaq() {
   return (
     <>
-      <section id="harga" className="mx-auto max-w-6xl scroll-mt-20 px-5 py-20">
-        <div className="max-w-2xl">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">Harga</p>
-          <h2 className="mt-3 text-3xl font-bold sm:text-4xl">Mulai gratis, naik saat butuh.</h2>
-        </div>
+      <section id="harga" className="relative mx-auto max-w-6xl scroll-mt-20 px-5 py-24">
+        <div className="pointer-events-none absolute left-0 top-1/4 size-72 rounded-full bg-accent/5 blur-3xl" aria-hidden="true" />
 
-        <div className="mt-10 grid gap-4 lg:grid-cols-3">
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-80px" }}
+          transition={{ duration: 0.5 }}
+          className="max-w-2xl"
+        >
+          <p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-accent">
+            <Sparkles className="size-3.5" /> Harga
+          </p>
+          <h2 className="mt-3 text-3xl font-bold sm:text-4xl">
+            Mulai gratis, <span className="text-gradient-amber">naik saat butuh.</span>
+          </h2>
+        </motion.div>
+
+        <div className="mt-12 grid gap-5 lg:grid-cols-3">
           {plans.map((p, i) => (
             <motion.div
               key={p.name}
@@ -85,16 +97,19 @@ export function PricingFaq() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.45, delay: i * 0.08 }}
-              className={
+              className={`relative overflow-hidden rounded-2xl p-6 card-hover-lift ${
                 p.highlight
-                  ? "relative rounded-2xl border-2 border-accent bg-card p-6 shadow-lift"
-                  : "rounded-2xl border border-border bg-card p-6"
-              }
+                  ? "border-2 border-accent bg-card shadow-lift"
+                  : "border border-border bg-card"
+              }`}
             >
               {p.highlight && (
-                <span className="absolute -top-3 left-6 rounded-full bg-accent px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-accent-foreground">
-                  Paling populer
-                </span>
+                <>
+                  <div className="pointer-events-none absolute -right-10 -top-10 size-32 rounded-full bg-accent/15 blur-2xl" aria-hidden="true" />
+                  <span className="absolute -top-3 left-6 rounded-full bg-accent px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-accent-foreground shadow-soft">
+                    Paling populer
+                  </span>
+                </>
               )}
               <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
                 {p.name}
@@ -104,7 +119,9 @@ export function PricingFaq() {
               <ul className="mt-5 space-y-2.5">
                 {p.features.map((f) => (
                   <li key={f} className="flex items-start gap-2 text-sm text-muted-foreground">
-                    <Check className="mt-0.5 size-4 shrink-0 text-accent" />
+                    <span className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full ${p.highlight ? "bg-accent text-accent-foreground" : "bg-accent/10 text-accent"}`}>
+                      <Check className="size-3" />
+                    </span>
                     {f}
                   </li>
                 ))}
@@ -117,17 +134,37 @@ export function PricingFaq() {
         </div>
       </section>
 
-      <section id="faq" className="border-t border-border bg-surface">
-        <div className="mx-auto max-w-3xl scroll-mt-20 px-5 py-20">
-          <h2 className="text-3xl font-bold sm:text-4xl">Pertanyaan umum</h2>
-          <Accordion type="single" collapsible className="mt-8">
-            {faqs.map((f) => (
-              <AccordionItem key={f.q} value={f.q}>
-                <AccordionTrigger className="text-left text-base">{f.q}</AccordionTrigger>
-                <AccordionContent className="text-muted-foreground">{f.a}</AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
+      <section id="faq" className="border-t border-border bg-surface/60">
+        <div className="mx-auto max-w-3xl scroll-mt-20 px-5 py-24">
+          <motion.h2
+            initial={{ opacity: 0, y: 16 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5 }}
+            className="text-3xl font-bold sm:text-4xl"
+          >
+            Pertanyaan <span className="text-gradient-amber">umum</span>
+          </motion.h2>
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5, delay: 0.1 }}
+            className="mt-8"
+          >
+            <Accordion type="single" collapsible className="space-y-3">
+              {faqs.map((f) => (
+                <AccordionItem
+                  key={f.q}
+                  value={f.q}
+                  className="rounded-2xl border border-border bg-card px-5 transition-colors hover:border-accent/40 data-[state=open]:border-accent/40"
+                >
+                  <AccordionTrigger className="text-left text-base">{f.q}</AccordionTrigger>
+                  <AccordionContent className="text-muted-foreground">{f.a}</AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
+          </motion.div>
         </div>
       </section>
     </>
