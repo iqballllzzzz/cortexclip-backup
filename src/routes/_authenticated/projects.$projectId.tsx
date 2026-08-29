@@ -28,6 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { CaptionPreview, defaultCaptionStyle, type CaptionStyle } from "@/components/caption-preview";
 import { extractAudio } from "@/lib/audio-extract";
 import { ClipVideoPreview } from "@/components/clip-video-preview";
+import { VideoWithLiveCaption, type LiveCaptionStyle } from "@/components/live-caption-overlay";
 import { transcribeChunkFn, detectClipsFn } from "@/lib/pipeline.functions";
 import { buildAss, buildFfmpegCommand, buildSrt, download, toCaptionWords } from "@/lib/srt";
 import { getPreset, SubtitleStylePicker, DEFAULT_SUBTITLE_PRESET } from "@/components/subtitle-styles";
@@ -463,9 +464,31 @@ function ClipCard({
   // fontScale 0.5..2 (multiplier dari fontSize preset) & posisi 20..80 %dari atas
   const [fontScale, setFontScale] = useState(1);
   const [position, setPosition] = useState<number | null>(null); // null = default preset
+  const [opacity, setOpacity] = useState(1); // 1 = 100% (default), turun = transparan
   const preset = getPreset(presetId);
   const effPosition = position ?? preset.style.position;
   const effFontSize = Math.round(preset.style.fontSize * fontScale);
+
+  // words utk live overlay (timing word-level JSON dari transkripsi)
+  const liveWords = words.map((w) => ({ word: w.word, start: w.start, end: w.end }));
+
+  // style live overlay — LANGSUNG berubah tiap setting diubah (tanpa render VPS)
+  const liveStyle: LiveCaptionStyle = {
+    fontFamily: preset.cssFontFamily,
+    fontSize: effFontSize * 0.42, // skala ke preview kecil (basis 360px)
+    fontColor: preset.style.font_color,
+    highlightColor: preset.style.highlight_color,
+    emphasisColor: preset.style.highlight_color,
+    strokeColor: "#000000",
+    strokeWidth: preset.style.word_box ? 0 : 3,
+    shadow: true,
+    wordBox: preset.style.word_box ?? false,
+    wordBoxColor: preset.style.word_box_color,
+    uppercase: preset.style.uppercase ?? false,
+    opacity: opacity,
+    position: effPosition,
+    animation: "karaoke",
+  };
 
   /** caption_style yang dikirim ke backend (key template Supoclip — preview & render final SAMA). */
   function buildCaptionStyle() {
@@ -480,6 +503,7 @@ function ClipCard({
       word_box_color: preset.style.word_box_color,
       emoji: preset.style.emoji,
       uppercase: preset.style.uppercase,
+      opacity: opacity,
     };
   }
 
@@ -596,15 +620,16 @@ function ClipCard({
           transition={{ duration: 0.3 }}
           className="mt-5 space-y-5"
         >
-          {/* ===== 1. PREVIEW (paling atas) ===== */}
+          {/* ===== 1. PREVIEW (paling atas) — video + LIVE subtitle overlay ===== */}
           <div className="grid gap-6 md:grid-cols-[220px_1fr]">
             <div className="mx-auto w-[200px]">
               {mediaUrl || clip.preview_url ? (
-                <ClipVideoPreview
-                  src={mediaUrl}
-                  previewUrl={clip.preview_url}
+                <VideoWithLiveCaption
+                  videoSrc={clip.preview_url ?? mediaUrl}
+                  words={liveWords}
                   start={clip.start_time}
                   end={clip.end_time}
+                  style={liveStyle}
                 />
               ) : words.length > 0 ? (
                 <CaptionPreview
@@ -692,7 +717,7 @@ function ClipCard({
             <div className="mt-3">
               <SubtitleStylePicker value={presetId} onChange={setPresetId} />
             </div>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div className="mt-4 grid gap-4 sm:grid-cols-3">
               <div>
                 <label className="text-[11px] text-muted-foreground">
                   Ukuran · {Math.round(fontScale * 100)}%
@@ -718,6 +743,20 @@ function ClipCard({
                   step={1}
                   value={effPosition}
                   onChange={(e) => setPosition(parseInt(e.target.value))}
+                  className="mt-1.5 w-full accent-[var(--color-accent)]"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] text-muted-foreground">
+                  Transparansi · {Math.round(opacity * 100)}%
+                </label>
+                <input
+                  type="range"
+                  min={0.1}
+                  max={1}
+                  step={0.05}
+                  value={opacity}
+                  onChange={(e) => setOpacity(parseFloat(e.target.value))}
                   className="mt-1.5 w-full accent-[var(--color-accent)]"
                 />
               </div>

@@ -12,6 +12,8 @@ import { cn } from "@/lib/utils";
 export interface SubtitlePreset {
   id: string;
   label: string;
+  /** family CSS untuk live overlay (harus == @font-face subtitle-fonts.css) */
+  cssFontFamily: string;
   style: {
     preset: string;
     font_family: string;
@@ -31,6 +33,7 @@ export interface SubtitlePreset {
 export const SUBTITLE_PRESETS: SubtitlePreset[] = [
   {
     id: "default",
+    cssFontFamily: "THE BOLD FONT",
     label: "Default",
     style: {
       preset: "default", font_family: "THE BOLD FONT", font_size: 32,
@@ -45,6 +48,7 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
   },
   {
     id: "hormozi",
+    cssFontFamily: "THE BOLD FONT",
     label: "Hormozi",
     style: {
       preset: "hormozi", font_family: "THE BOLD FONT", font_size: 38,
@@ -61,6 +65,7 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
   },
   {
     id: "mrbeast",
+    cssFontFamily: "THE BOLD FONT",
     label: "MrBeast",
     style: {
       preset: "mrbeast", font_family: "THE BOLD FONT", font_size: 42,
@@ -76,6 +81,7 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
   },
   {
     id: "tiktok",
+    cssFontFamily: "TikTok Sans",
     label: "TikTok Pop",
     style: {
       preset: "tiktok", font_family: "TikTok Sans", font_size: 34,
@@ -90,6 +96,7 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
   },
   {
     id: "neon",
+    cssFontFamily: "THE BOLD FONT",
     label: "Neon Glow",
     style: {
       preset: "neon", font_family: "THE BOLD FONT", font_size: 36,
@@ -105,6 +112,7 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
   },
   {
     id: "minimal",
+    cssFontFamily: "TikTok Sans",
     label: "Clean Minimal",
     style: {
       preset: "minimal", font_family: "TikTok Sans", font_size: 26,
@@ -120,6 +128,7 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
   },
   {
     id: "comic",
+    cssFontFamily: "Bangers",
     label: "Comic Bang",
     style: {
       preset: "comic", font_family: "Bangers", font_size: 40,
@@ -135,6 +144,7 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
   },
   {
     id: "podcast",
+    cssFontFamily: "TikTok Sans",
     label: "Sermon Elegan",
     style: {
       preset: "podcast", font_family: "TikTok Sans", font_size: 28,
@@ -150,6 +160,7 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
   },
   {
     id: "typewriter",
+    cssFontFamily: "Courier Prime",
     label: "Typewriter",
     style: {
       preset: "typewriter", font_family: "Courier Prime", font_size: 30,
@@ -165,6 +176,7 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
   },
   {
     id: "gaming",
+    cssFontFamily: "Anton",
     label: "Gaming Energy",
     style: {
       preset: "gaming", font_family: "Anton", font_size: 38,

@@ -1,0 +1,72 @@
+/* Font subtitle self-hosted — SAMA file dengan bundle backend app/fonts
+   supaya preview HTML5 == hasil render MP4 (libass). */
+
+@font-face {
+  font-family: "THE BOLD FONT";
+  src: url("/fonts/THEBOLDFONT.ttf") format("truetype");
+  font-display: block;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "TikTok Sans";
+  src: url("/fonts/TikTokSans-Regular.ttf") format("truetype");
+  font-display: block;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Bangers";
+  src: url("/fonts/Bangers-Regular.ttf") format("truetype");
+  font-display: block;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Bebas Neue";
+  src: url("/fonts/BebasNeue-Regular.ttf") format("truetype");
+  font-display: block;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Poppins";
+  src: url("/fonts/Poppins-ExtraBold.ttf") format("truetype");
+  font-display: block;
+  font-weight: 800;
+}
+
+@font-face {
+  font-family: "Archivo Black";
+  src: url("/fonts/ArchivoBlack-Regular.ttf") format("truetype");
+  font-display: block;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Anton";
+  src: url("/fonts/Anton-Regular.ttf") format("truetype");
+  font-display: block;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Oswald";
+  src: url("/fonts/Oswald-Variable-wght.ttf") format("truetype");
+  font-display: block;
+  font-weight: 400 700;
+}
+
+@font-face {
+  font-family: "Barlow Condensed";
+  src: url("/fonts/BarlowCondensed-Bold.ttf") format("truetype");
+  font-display: block;
+  font-weight: 700;
+}
+
+@font-face {
+  font-family: "Courier Prime";
+  src: url("/fonts/CourierPrime-Regular.ttf") format("truetype");
+  font-display: block;
+  font-weight: 400;
+}

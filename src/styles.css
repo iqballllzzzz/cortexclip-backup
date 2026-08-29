@@ -2,6 +2,10 @@
 @source "../src";
 @import "tw-animate-css";
 
+/* Font subtitle self-hosted — SAMA file dengan bundle backend app/fonts
+   supaya live overlay HTML5 == hasil render MP4 (libass). */
+@import "./styles/subtitle-fonts.css";
+
 @custom-variant dark (&:is(.dark *));
 
 /*
