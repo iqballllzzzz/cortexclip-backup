@@ -467,25 +467,19 @@ function ClipCard({
   const effPosition = position ?? preset.style.position;
   const effFontSize = Math.round(preset.style.fontSize * fontScale);
 
-  /** caption_style yang dikirim ke backend (preview & render final SAMA). */
+  /** caption_style yang dikirim ke backend (key template Supoclip — preview & render final SAMA). */
   function buildCaptionStyle() {
     return {
       preset: presetId,
-      accent: preset.style.accent,
-      base: preset.style.base,
-      outline: preset.style.outline,
-      fontSize: effFontSize,
-      fontName: preset.style.fontName,
-      maxChars: preset.style.maxChars,
-      maxDuration: preset.style.maxDuration,
+      font_family: preset.style.font_family,
+      font_size: effFontSize,
+      font_color: preset.style.font_color,
+      highlight_color: preset.style.highlight_color,
       position: effPosition,
-      stroke: preset.style.stroke,
-      bold: preset.style.bold,
+      word_box: preset.style.word_box,
+      word_box_color: preset.style.word_box_color,
+      emoji: preset.style.emoji,
       uppercase: preset.style.uppercase,
-      italic: preset.style.italic,
-      effect: preset.style.effect,
-      opacity: preset.style.opacity,
-      borderWidth: preset.style.borderWidth,
     };
   }
 
@@ -602,54 +596,7 @@ function ClipCard({
           transition={{ duration: 0.3 }}
           className="mt-5 space-y-5"
         >
-          {/* ===== SUBTITLE SETTINGS (di atas, per-klip) ===== */}
-          <div className="rounded-xl border border-border bg-background/50 p-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Subtitle
-              </span>
-              {previewBusy ? (
-                <span className="inline-flex items-center gap-1.5 text-[11px] text-accent">
-                  <Loader2 className="size-3 animate-spin" /> memperbarui preview…
-                </span>
-              ) : null}
-            </div>
-            <div className="mt-3">
-              <SubtitleStylePicker value={presetId} onChange={setPresetId} />
-            </div>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="text-[11px] text-muted-foreground">
-                  Ukuran · {Math.round(fontScale * 100)}%
-                </label>
-                <input
-                  type="range"
-                  min={0.6}
-                  max={1.8}
-                  step={0.05}
-                  value={fontScale}
-                  onChange={(e) => setFontScale(parseFloat(e.target.value))}
-                  className="mt-1.5 w-full accent-[var(--color-accent)]"
-                />
-              </div>
-              <div>
-                <label className="text-[11px] text-muted-foreground">
-                  Posisi {effPosition <= 50 ? "atas" : "bawah"} · {effPosition}%
-                </label>
-                <input
-                  type="range"
-                  min={20}
-                  max={80}
-                  step={1}
-                  value={effPosition}
-                  onChange={(e) => setPosition(parseInt(e.target.value))}
-                  className="mt-1.5 w-full accent-[var(--color-accent)]"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* ===== Preview + deskripsi/hashtag (di bawah) ===== */}
+          {/* ===== 1. PREVIEW (paling atas) ===== */}
           <div className="grid gap-6 md:grid-cols-[220px_1fr]">
             <div className="mx-auto w-[200px]">
               {mediaUrl || clip.preview_url ? (
@@ -676,8 +623,8 @@ function ClipCard({
                   style={{
                     ...defaultCaptionStyle,
                     preset: presetId,
-                    accent: preset.style.accent,
-                    base: preset.style.base,
+                    accent: preset.style.highlight_color,
+                    base: preset.style.font_color,
                     uppercase: preset.style.uppercase,
                   }}
                 />
@@ -726,6 +673,53 @@ function ClipCard({
                     Batalkan
                   </Button>
                 ) : null}
+              </div>
+            </div>
+          </div>
+
+          {/* ===== 2. SUBTITLE EDITOR (di bawah preview) ===== */}
+          <div className="rounded-xl border border-border bg-background/50 p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Subtitle
+              </span>
+              {previewBusy ? (
+                <span className="inline-flex items-center gap-1.5 text-[11px] text-accent">
+                  <Loader2 className="size-3 animate-spin" /> memperbarui preview…
+                </span>
+              ) : null}
+            </div>
+            <div className="mt-3">
+              <SubtitleStylePicker value={presetId} onChange={setPresetId} />
+            </div>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="text-[11px] text-muted-foreground">
+                  Ukuran · {Math.round(fontScale * 100)}%
+                </label>
+                <input
+                  type="range"
+                  min={0.6}
+                  max={1.8}
+                  step={0.05}
+                  value={fontScale}
+                  onChange={(e) => setFontScale(parseFloat(e.target.value))}
+                  className="mt-1.5 w-full accent-[var(--color-accent)]"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] text-muted-foreground">
+                  Posisi {effPosition <= 50 ? "atas" : "bawah"} · {effPosition}%
+                </label>
+                <input
+                  type="range"
+                  min={20}
+                  max={80}
+                  step={1}
+                  value={effPosition}
+                  onChange={(e) => setPosition(parseInt(e.target.value))}
+                  className="mt-1.5 w-full accent-[var(--color-accent)]"
+                />
               </div>
             </div>
           </div>

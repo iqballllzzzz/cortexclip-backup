@@ -31,12 +31,12 @@ export function ClipVideoPreview({
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
 
-  // Preview VPS terpotong: mulai dari 0, durasi file preview. Tanpa preview →
-  // fallback streaming sumber + seek (lambat, tapi tetap jalan).
+  // Preview VPS terpotong: mulai dari 0, durasi = panjang file preview (klip penuh).
+  // Tanpa preview → fallback streaming sumber + seek (lambat, tapi tetap jalan).
   const usingPreview = Boolean(previewUrl);
   const videoSrc = usingPreview ? previewUrl : src;
   const duration = usingPreview
-    ? Math.min(end - start, 12)
+    ? end - start
     : Math.max(0.1, end - start);
 
   const seek = useCallback(
