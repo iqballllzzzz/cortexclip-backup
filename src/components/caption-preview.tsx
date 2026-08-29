@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { AlertTriangle, Clock, Coins, Sparkles, TrendingUp } from "lucide-react";
 import type { CaptionWord, DemoClip } from "@/data/demo-clips";
+import { getPreset } from "@/components/subtitle-styles";
 import { cn } from "@/lib/utils";
 
 const icons = {
@@ -20,6 +21,8 @@ export interface CaptionStyle {
   position: number;
   stroke: boolean;
   showOverlays: boolean;
+  /** Gaya subtitle preset (8 gaya) — sumber utama; efek/warna aktif ditentukan preset */
+  preset: string;
   /** Subtitle effect style */
   effect: "none" | "glow" | "pop" | "box";
   /** Uppercase all captions */
@@ -36,6 +39,7 @@ export const defaultCaptionStyle: CaptionStyle = {
   position: 62,
   stroke: true,
   showOverlays: true,
+  preset: "hormozi",
   effect: "glow",
   uppercase: false,
   showFaceTracking: true,
@@ -160,64 +164,81 @@ export function CaptionPreview({
           const state = time > w.end ? "past" : time >= w.start ? "active" : "future";
           const isActive = state === "active";
           const wordText = style.uppercase ? w.word.toUpperCase() : w.word;
-          
-          // Apply effects
+
+          // Jika preset gaya subtitle dipilih, pakai CSS preset-nya (mirror backend ASS)
+          const preset = style.preset ? getPreset(style.preset) : null;
           let effectStyles: React.CSSProperties = {};
           let effectClasses = "";
-          
-          switch (style.effect) {
-            case "glow":
-              effectStyles = {
-                color: isActive ? style.accent : style.base,
-                WebkitTextStroke: style.stroke
-                  ? `2px ${isActive ? style.accent : "rgba(0,0,0,0.85)"}`
-                  : undefined,
-                textShadow: isActive
-                  ? `0 0 12px ${style.accent}, 0 0 24px ${style.accent}80, 0 3px 0 rgba(0,0,0,0.55)`
-                  : style.stroke
-                  ? "0 3px 0 rgba(0,0,0,0.55)"
-                  : undefined,
-                filter: isActive ? "brightness(1.1)" : undefined,
-              };
-              break;
-              
-            case "box":
-              effectStyles = {
-                color: isActive ? "#000000" : style.base,
-                backgroundColor: isActive ? style.accent : "transparent",
-                padding: isActive ? "2px 8px" : "0",
-                borderRadius: isActive ? "4px" : "0",
-                WebkitTextStroke: style.stroke
-                  ? `1.5px ${isActive ? style.accent : "rgba(0,0,0,0.85)"}`
-                  : undefined,
-                textShadow: !isActive && style.stroke
-                  ? "0 3px 0 rgba(0,0,0,0.55)"
-                  : undefined,
-              };
-              break;
-              
-            case "pop":
-              effectStyles = {
-                color: isActive ? style.accent : style.base,
-                WebkitTextStroke: style.stroke
-                  ? `1.5px ${isActive ? style.accent : "rgba(0,0,0,0.85)"}`
-                  : undefined,
-                textShadow: style.stroke ? "0 3px 0 rgba(0,0,0,0.55)" : undefined,
-                transform: isActive ? "scale(1.15)" : "scale(1)",
-                transition: "transform 0.15s ease-out",
-              };
-              break;
-              
-            default: // none
-              effectStyles = {
-                color: isActive ? style.accent : style.base,
-                WebkitTextStroke: style.stroke
-                  ? "1.5px rgba(0,0,0,0.85)"
-                  : undefined,
-                textShadow: style.stroke ? "0 3px 0 rgba(0,0,0,0.55)" : undefined,
-              };
+
+          if (preset) {
+            const pc = preset.css;
+            effectStyles = {
+              fontFamily: pc.fontFamily,
+              fontWeight: pc.fontWeight,
+              fontStyle: pc.fontStyle,
+              color: isActive ? pc.color : "rgba(255,255,255,0.7)",
+              backgroundColor: pc.backgroundColor,
+              WebkitTextStroke: pc.WebkitTextStroke,
+              textShadow: isActive
+                ? pc.textShadow
+                : pc.textShadow
+                ? undefined
+                : "0 2px 4px rgba(0,0,0,0.6)",
+              borderRadius: pc.borderRadius,
+              padding: pc.padding,
+              textTransform: pc.textTransform,
+              transform: pc.transform,
+              letterSpacing: (pc as any).letterSpacing,
+            };
+          } else {
+            // fallback legacy effect logic
+            switch (style.effect) {
+              case "glow":
+                effectStyles = {
+                  color: isActive ? style.accent : style.base,
+                  WebkitTextStroke: style.stroke
+                    ? `2px ${isActive ? style.accent : "rgba(0,0,0,0.85)"}`
+                    : undefined,
+                  textShadow: isActive
+                    ? `0 0 12px ${style.accent}, 0 0 24px ${style.accent}80, 0 3px 0 rgba(0,0,0,0.55)`
+                    : style.stroke
+                    ? "0 3px 0 rgba(0,0,0,0.55)"
+                    : undefined,
+                  filter: isActive ? "brightness(1.1)" : undefined,
+                };
+                break;
+              case "box":
+                effectStyles = {
+                  color: isActive ? "#000000" : style.base,
+                  backgroundColor: isActive ? style.accent : "transparent",
+                  padding: isActive ? "2px 8px" : "0",
+                  borderRadius: isActive ? "4px" : "0",
+                  WebkitTextStroke: style.stroke
+                    ? `1.5px ${isActive ? style.accent : "rgba(0,0,0,0.85)"}`
+                    : undefined,
+                  textShadow: !isActive && style.stroke ? "0 3px 0 rgba(0,0,0,0.55)" : undefined,
+                };
+                break;
+              case "pop":
+                effectStyles = {
+                  color: isActive ? style.accent : style.base,
+                  WebkitTextStroke: style.stroke
+                    ? `1.5px ${isActive ? style.accent : "rgba(0,0,0,0.85)"}`
+                    : undefined,
+                  textShadow: style.stroke ? "0 3px 0 rgba(0,0,0,0.55)" : undefined,
+                  transform: isActive ? "scale(1.15)" : "scale(1)",
+                  transition: "transform 0.15s ease-out",
+                };
+                break;
+              default:
+                effectStyles = {
+                  color: isActive ? style.accent : style.base,
+                  WebkitTextStroke: style.stroke ? "1.5px rgba(0,0,0,0.85)" : undefined,
+                  textShadow: style.stroke ? "0 3px 0 rgba(0,0,0,0.55)" : undefined,
+                };
+            }
           }
-          
+
           return (
             <motion.span
               key={`${w.word}-${i}`}
@@ -227,15 +248,25 @@ export function CaptionPreview({
                 fontFamily: "var(--font-display)",
                 fontSize: `${style.fontSize}px`,
                 lineHeight: 1.1,
+                transition: "transform 0.15s ease-out",
                 ...effectStyles,
               }}
-              animate={isActive && style.effect === "pop" ? {
-                scale: [1, 1.15, 1.05],
-              } : undefined}
-              transition={isActive ? {
-                duration: 0.2,
-                ease: "easeOut",
-              } : undefined}
+              animate={
+                isActive && preset
+                  ? preset.animate === "pop"
+                    ? { scale: [1, 1.15, 1.05] }
+                    : preset.animate === "glow"
+                    ? { scale: [1, 1.06, 1] }
+                    : { scale: [1, 1.05, 1] }
+                  : isActive && style.effect === "pop"
+                  ? { scale: [1, 1.15, 1.05] }
+                  : undefined
+              }
+              transition={
+                isActive
+                  ? { duration: 0.2, ease: "easeOut" }
+                  : undefined
+              }
             >
               {wordText}
             </motion.span>

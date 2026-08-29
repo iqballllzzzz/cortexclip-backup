@@ -4,11 +4,9 @@ import { motion } from "motion/react";
 import {
   ArrowLeft,
   Download,
-  FileText,
   Loader2,
   Play,
   Sparkles,
-  Terminal,
   Upload,
   Wand2,
   Eye,
@@ -30,12 +28,11 @@ import { Badge } from "@/components/ui/badge";
 import { CaptionPreview, defaultCaptionStyle, type CaptionStyle } from "@/components/caption-preview";
 import { extractAudio } from "@/lib/audio-extract";
 import { ClipVideoPreview } from "@/components/clip-video-preview";
-import { exportClipWebm, isWebmExportSupported } from "@/lib/webm-export";
 import { transcribeChunkFn, detectClipsFn } from "@/lib/pipeline.functions";
 import { buildAss, buildFfmpegCommand, buildSrt, download, toCaptionWords } from "@/lib/srt";
+import { getPreset, SubtitleStylePicker } from "@/components/subtitle-styles";
 import type { Transcript, TranscriptSegment } from "@/lib/pipeline-types";
 import type { Database } from "@/integrations/supabase/types";
-import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 
 type Project = Database["public"]["Tables"]["projects"]["Row"];
@@ -59,8 +56,6 @@ export const Route = createFileRoute("/_authenticated/projects/$projectId")({
   component: ProjectPage,
 });
 
-const RESOLUTIONS = ["1080x1920", "720x1280", "1080x1080"] as const;
-
 const STATUS_META: Record<string, { label: string; dot: string }> = {
   pending: { label: "Menunggu", dot: "bg-muted-foreground" },
   uploading: { label: "Mengunggah", dot: "bg-blue-500" },
@@ -79,12 +74,11 @@ function ProjectPage() {
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState("");
   const [localFile, setLocalFile] = useState<File | null>(null);
-  const [resolution, setResolution] = useState<(typeof RESOLUTIONS)[number]>("1080x1920");
-  const [faceTracking, setFaceTracking] = useState(true);
+  // Editor terpadu: gaya subtitle preset + ukuran + posisi (auto-framing tetap AKTIF selalu)
+  const [presetId, setPresetId] = useState(defaultCaptionStyle.preset);
+  const [captionStyle, setCaptionStyle] = useState<CaptionStyle>(defaultCaptionStyle);
   const [activeClip, setActiveClip] = useState<string | null>(null);
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
-
-  const [captionStyle, setCaptionStyle] = useState<CaptionStyle>(defaultCaptionStyle);
 
   useEffect(() => {
     if (localFile) {
@@ -214,15 +208,16 @@ function ProjectPage() {
       return;
     }
     if (kind === "ass") {
+      const preset = getPreset(presetId).style;
       download(
         `${slug}.ass`,
         buildAss(words, {
-          accent: captionStyle.accent,
-          base: captionStyle.base,
+          accent: preset.accent,
+          base: preset.base,
           fontSize: captionStyle.fontSize,
-          wordsPerLine: captionStyle.wordsPerLine,
+          wordsPerLine: preset.wordsPerLine,
           position: captionStyle.position,
-          stroke: captionStyle.stroke,
+          stroke: preset.stroke,
         }),
       );
       return;
@@ -233,29 +228,11 @@ function ProjectPage() {
       start: clip.start_time,
       end: clip.end_time,
       subtitleFile: `${slug}.ass`,
-      resolution,
-      faceTracking,
+      resolution: "1080x1920",
+      faceTracking: true, // auto-framing wajah SELALU aktif
     });
     void navigator.clipboard.writeText(command);
     toast.success("Perintah FFmpeg disalin ke clipboard.");
-  }
-
-  function exportAll() {
-    const script = clips
-      .map((clip) => {
-        const slug = clip.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40) || "clip";
-        return `# ${clip.title} (skor ${clip.virality_score})\n${buildFfmpegCommand({
-          input: "source.mp4",
-          output: `${slug}.mp4`,
-          start: clip.start_time,
-          end: clip.end_time,
-          subtitleFile: `${slug}.ass`,
-          resolution,
-          faceTracking,
-        })}`;
-      })
-      .join("\n\n");
-    download("cortexclip-render.sh", `#!/usr/bin/env bash\nset -e\n\n${script}\n`, "text/x-sh");
   }
 
   if (loading) {
@@ -403,123 +380,81 @@ function ProjectPage() {
             </div>
           </section>
 
-          {/* Render settings */}
-          <section className="rounded-2xl border border-border bg-card p-5">
-            <h2 className="flex items-center gap-2 text-sm font-semibold">
-              <span className="flex size-7 items-center justify-center rounded-lg bg-accent/15 text-accent">
-                <Terminal className="size-3.5" />
+          {/* Editor terpadu: Gaya Subtitle + Ukuran + Posisi */}
+          <section className="rounded-2xl border border-border bg-card p-5 lg:col-span-2">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="flex items-center gap-2 text-sm font-semibold">
+                <span className="flex size-7 items-center justify-center rounded-lg bg-accent/15 text-accent">
+                  <Type className="size-3.5" />
+                </span>
+                Editor Subtitle
+              </h2>
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent">
+                <Eye className="size-3" /> Auto-framing wajah selalu aktif
               </span>
-              Pengaturan ekspor
-            </h2>
-            <div className="mt-4 space-y-4">
-              <div>
-                <Label className="text-xs">Resolusi</Label>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {RESOLUTIONS.map((r) => (
-                    <button
-                      key={r}
-                      onClick={() => setResolution(r)}
-                      className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-all ${
-                        resolution === r
-                          ? "border-accent bg-accent/15 text-accent shadow-sm"
-                          : "border-border text-muted-foreground hover:border-accent/40 hover:text-foreground"
-                      }`}
-                    >
-                      {r === "1080x1920" ? "9:16 · 1080p" : r === "720x1280" ? "9:16 · 720p" : "1:1 · 1080p"}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
-                <Switch
-                  checked={faceTracking}
-                  onCheckedChange={setFaceTracking}
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Pilih gaya subtitle — setiap gaya punya font, warna, bentuk, dan animasi khasnya
+              sendiri. Pratinjau di bawah mirip hasil render MP4. Tekan <b>Unduh</b> untuk render.
+            </p>
+
+            <div className="mt-5">
+              <Label className="text-xs font-medium">Gaya Subtitle</Label>
+              <div className="mt-3">
+                <SubtitleStylePicker
+                  value={presetId}
+                  onChange={(id) => {
+                    setPresetId(id);
+                    const st = getPreset(id).style;
+                    setCaptionStyle((s) => ({
+                      ...s,
+                      preset: id,
+                      accent: st.accent,
+                      base: st.base,
+                      wordsPerLine: st.wordsPerLine,
+                      uppercase: st.uppercase,
+                      stroke: st.stroke,
+                      effect: st.effect === "classic" ? "none" : st.effect,
+                    }));
+                  }}
                 />
-                <Eye className="size-3.5 text-accent" /> Auto-framing wajah
-              </label>
-              {clips.length > 0 ? (
-                <Button variant="secondary" size="sm" onClick={exportAll} className="w-full">
-                  <Download className="size-4" /> Unduh script render semua klip
-                </Button>
-              ) : null}
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-6 sm:grid-cols-2">
+              <div>
+                <Label className="text-xs">Ukuran subtitle · {captionStyle.fontSize}px</Label>
+                <input
+                  type="range"
+                  min={18}
+                  max={64}
+                  step={1}
+                  value={captionStyle.fontSize}
+                  onChange={(e) =>
+                    setCaptionStyle((s) => ({ ...s, fontSize: parseInt(e.target.value) }))
+                  }
+                  className="mt-2 w-full accent-[var(--color-accent)]"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">
+                  Posisi {captionStyle.position <= 50 ? "atas" : "bawah"} · {captionStyle.position}%
+                </Label>
+                <input
+                  type="range"
+                  min={20}
+                  max={80}
+                  step={1}
+                  value={captionStyle.position}
+                  onChange={(e) =>
+                    setCaptionStyle((s) => ({ ...s, position: parseInt(e.target.value) }))
+                  }
+                  className="mt-2 w-full accent-[var(--color-accent)]"
+                />
+              </div>
             </div>
           </section>
         </div>
-
-        {/* Caption Style Settings */}
-        <section className="mt-6 rounded-2xl border border-border bg-card p-5">
-          <h2 className="flex items-center gap-2 text-sm font-semibold mb-4">
-            <span className="flex size-7 items-center justify-center rounded-lg bg-accent/15 text-accent">
-              <Type className="size-3.5" />
-            </span>
-            Pengaturan Caption
-          </h2>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="space-y-2">
-              <Label className="text-xs">Warna Aktif</Label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  value={captionStyle.accent}
-                  onChange={(e) => setCaptionStyle(s => ({ ...s, accent: e.target.value }))}
-                  className="size-8 cursor-pointer rounded-lg border border-border"
-                />
-                <span className="font-mono text-xs text-muted-foreground">{captionStyle.accent}</span>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs">Efek Subtitle</Label>
-              <select
-                value={captionStyle.effect}
-                onChange={(e) => setCaptionStyle(s => ({ ...s, effect: e.target.value as CaptionStyle["effect"] }))}
-                className="w-full cursor-pointer rounded-xl border border-border bg-background p-2 text-xs outline-none focus:border-accent"
-              >
-                <option value="none">Tanpa Efek</option>
-                <option value="glow">Glow</option>
-                <option value="pop">Pop</option>
-                <option value="box">Box</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs">Kata per Baris · {captionStyle.wordsPerLine}</Label>
-              <input
-                type="range"
-                min={1}
-                max={5}
-                value={captionStyle.wordsPerLine}
-                onChange={(e) => setCaptionStyle(s => ({ ...s, wordsPerLine: parseInt(e.target.value) }))}
-                className="w-full accent-[var(--color-accent)]"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs">Ukuran Font · {captionStyle.fontSize}px</Label>
-              <input
-                type="range"
-                min={18}
-                max={48}
-                value={captionStyle.fontSize}
-                onChange={(e) => setCaptionStyle(s => ({ ...s, fontSize: parseInt(e.target.value) }))}
-                className="w-full accent-[var(--color-accent)]"
-              />
-            </div>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-4">
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Switch
-                checked={captionStyle.uppercase}
-                onCheckedChange={(v) => setCaptionStyle(s => ({ ...s, uppercase: v }))}
-              />
-              Huruf Kapital
-            </label>
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Switch
-                checked={captionStyle.stroke}
-                onCheckedChange={(v) => setCaptionStyle(s => ({ ...s, stroke: v }))}
-              />
-              Garis Tepi
-            </label>
-          </div>
-        </section>
 
         {/* Clips */}
         <section className="mt-8">
@@ -564,7 +499,7 @@ function ProjectPage() {
                     onSave={saveClip}
                     onExport={exportClip}
                     captionStyle={captionStyle}
-                    faceTracking={faceTracking}
+                    presetId={presetId}
                   />
                 </motion.div>
               ))}
@@ -585,7 +520,7 @@ function ClipCard({
   onSave,
   onExport,
   captionStyle,
-  faceTracking,
+  presetId,
 }: {
   clip: Clip;
   mediaUrl: string | null;
@@ -594,7 +529,7 @@ function ClipCard({
   onSave: (clip: Clip, patch: Partial<Clip>) => void;
   onExport: (clip: Clip, kind: "srt" | "ass" | "ffmpeg") => void;
   captionStyle: CaptionStyle;
-  faceTracking: boolean;
+  presetId: string;
 }) {
   const words = (clip.caption_words as unknown as { word: string; start: number; end: number }[]) ?? [];
   const duration = clip.end_time - clip.start_time;
@@ -609,24 +544,28 @@ function ClipCard({
     try {
       toast.info("Mengirim klip ke server untuk render MP4…");
       const { renderClipServerSide } = await import("@/lib/backend-api");
+      const preset = getPreset(presetId).style;
       const result = await renderClipServerSide({
         projectId: clip.project_id,
         clipId: clip.id,
         captionStyle: {
-          accent: captionStyle.accent,
-          base: captionStyle.base,
-          outline: "#000000",
-          fontSize: Math.round((captionStyle.fontSize / 30) * 32),
-          fontName: "Anton",
-          wordsPerLine: captionStyle.wordsPerLine,
+          preset: presetId, // 8 gaya subtitle — backend apply STYLE_PRESETS
+          accent: preset.accent,
+          base: preset.base,
+          outline: preset.outline,
+          fontSize: Math.round((captionStyle.fontSize / 30) * 40), // skala agar proporsional
+          fontName: preset.fontName,
+          wordsPerLine: preset.wordsPerLine,
           position: captionStyle.position,
-          stroke: captionStyle.stroke,
-          bold: true,
-          uppercase: captionStyle.uppercase,
-          effect: captionStyle.effect === "none" ? "classic" : captionStyle.effect,
-          opacity: 0.45,
+          stroke: preset.stroke,
+          bold: preset.bold,
+          uppercase: preset.uppercase,
+          italic: preset.italic,
+          effect: preset.effect,
+          opacity: preset.opacity,
         },
-        faceTracking,
+        resolution: "1080x1920",
+        faceTracking: true, // auto-framing wajah SELALU aktif
       });
       setRenderProgress(1);
       toast.success("MP4 berhasil dirender di server!");
@@ -638,52 +577,6 @@ function ClipCard({
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Render server gagal.");
     } finally {
-      setRendering(false);
-      setRenderProgress(0);
-    }
-  }
-
-  async function renderWebm() {
-    if (!mediaUrl) {
-      toast.error("Pilih file video dulu supaya bisa merender di browser.");
-      return;
-    }
-    if (!isWebmExportSupported()) {
-      toast.error("Browser ini belum mendukung ekspor otomatis. Gunakan ekspor FFmpeg.");
-      return;
-    }
-    const controller = new AbortController();
-    abortRef.current = controller;
-    setRendering(true);
-    setRenderProgress(0);
-    try {
-      const blob = await exportClipWebm({
-        src: mediaUrl,
-        start: clip.start_time,
-        end: clip.end_time,
-        words,
-        accent: captionStyle.accent,
-        base: captionStyle.base,
-        wordsPerLine: captionStyle.wordsPerLine,
-        position: captionStyle.position,
-        enableFaceTracking: faceTracking,
-        subtitleEffect: captionStyle.effect,
-        uppercase: captionStyle.uppercase,
-        onProgress: setRenderProgress,
-        signal: controller.signal,
-      });
-      const slug = clip.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40) || "clip";
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${slug}.webm`;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast.success("Klip berhasil dirender dengan efek subtitle & face tracking!");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Render gagal.");
-    } finally {
-      abortRef.current = null;
       setRendering(false);
       setRenderProgress(0);
     }
@@ -786,36 +679,26 @@ function ClipCard({
                 className="mt-1 w-full rounded-xl border border-border bg-background p-3 text-sm outline-none transition-colors focus:border-accent"
               />
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="accent" size="sm" onClick={renderWebm} disabled={rendering || !mediaUrl} title="Render di browser (WebM)">
-                {rendering ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
-                {rendering ? `Merender ${Math.round(renderProgress * 100)}%` : "Render video (WebM)"}
-              </Button>
+            <div className="flex flex-wrap items-center gap-3">
               <Button
                 variant="accent"
                 size="sm"
                 onClick={renderServerMp4}
                 disabled={rendering}
-                className="bg-accent/90"
-                title="Render MP4 720x1280 di server VPS (ffmpeg + karaoke + face tracking)"
+                className="min-w-[160px]"
+                title="Render MP4 vertikal di server VPS (ffmpeg + karaoke + auto-framing wajah) lalu otomatis unduh"
               >
-                {rendering ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-                {rendering ? "Merender MP4…" : "Render MP4 (server)"}
+                {rendering ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+                {rendering ? `Merender… ${Math.round(renderProgress * 100)}%` : "Unduh"}
               </Button>
               {rendering ? (
                 <Button variant="ghost" size="sm" onClick={() => abortRef.current?.abort()}>
                   Batalkan
                 </Button>
               ) : null}
-              <Button variant="secondary" size="sm" onClick={() => onExport(clip, "srt")}>
-                <FileText className="size-4" /> .srt
-              </Button>
-              <Button variant="secondary" size="sm" onClick={() => onExport(clip, "ass")}>
-                <FileText className="size-4" /> .ass karaoke
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => onExport(clip, "ffmpeg")}>
-                <Terminal className="size-4" /> Salin FFmpeg
-              </Button>
+              <span className="text-xs text-muted-foreground">
+                &lt;MP4 9:16 · auto-framing wajah aktif&gt;
+              </span>
             </div>
           </div>
         </motion.div>

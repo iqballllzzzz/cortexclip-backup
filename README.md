@@ -172,7 +172,12 @@ Frontend `.env`: `SUPABASE_URL`, `VITE_SUPABASE_URL`, `VITE_BACKEND_URL` (lihat 
 
 ## 📝 Gaya Subtitle (Presets)
 
-8 gaya subtitle siap pakai (rencana): hormozi, tiktok-pop, neon-glow, clean-minimal, comic-bang, sermon-elegant, typewriter, gaming-energy. Tiap gaya punya font, animasi, warna, bentuk berbeda — dipilih dari editor, preview langsung terlihat.
+8 gaya subtitle siap pakai — dipilih lewat kartu preview animasi "Halo" di editor:
+**hormozi, tiktok-pop, neon-glow, clean-minimal, comic-bang, sermon-elegant, typewriter, gaming-energy.**
+
+Tiap gaya = kombinasi font (Montserrat/Anton/Noto Serif/Inter/Impact/Courier), warna, bentuk, dan animasi khas. Satu sumber kebenaran: `backend/app/subtitles.py` → `STYLE_PRESETS` (untuk render MP4/libass) mirror `src/components/subtitle-styles.tsx` → `SUBTITLE_PRESETS` (untuk preview browser). Frontend mengirim `caption_style.preset` ke `/api/render-clip`, backend apply preset → ASS → ffmpeg burn. Preview browser == hasil MP4.
+
+**Editor terpadu** (halaman proyek): pilih gaya subtitle (8 preset), atur ukuran & posisi atas/bawah. Auto-framing wajah **selalu aktif** (tanpa toggle). Satu tombol **"Unduh"** → render MP4 9:16 di server → otomatis unduh (tanpa pilihan webm/mp4 format). Efek subtitle & warna aktif dihapus (digantikan preset).
 
 ---
 
@@ -186,4 +191,4 @@ Frontend `.env`: `SUPABASE_URL`, `VITE_SUPABASE_URL`, `VITE_BACKEND_URL` (lihat 
 
 ---
 
-*Terakhir diperbarui: 2026-08-29 — sesi Hydra fix (Gemini AQ.* native, unlimitedai/publicai gratis, 38 endpoints), backup rclone 12 jam, rendered_url publik.*
+*Terakhir diperbarui: 2026-08-29 — sesi editor terpadu: 8 gaya subtitle preset (preview animasi "Halo", backend ASS STYLE_PRESETS), auto-framing wajah selalu aktif, tombol "Unduh" tunggal, rendered_url publik (VPS IP), backup rclone 12 jam, README hidup.*
