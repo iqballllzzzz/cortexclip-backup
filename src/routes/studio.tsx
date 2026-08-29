@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { motion } from "motion/react";
-import { Download, Pause, Play, Shapes, Type, FileText, Eye } from "lucide-react";
+import { Download, Pause, Play, Shapes, Type, FileText, Eye, Sparkles } from "lucide-react";
 
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
