@@ -230,6 +230,60 @@ def render_clip(
     return out_path
 
 
+
+
+def burn_hook_overlay(
+    src: str,
+    hook_text: str,
+    out_path: str,
+    position: str = "top",
+    fontsize_ratio: float = 0.055,
+) -> str:
+    """Burn AI-generated hook text onto video using ffmpeg drawtext.
+    
+    Args:
+        src: input video path
+        hook_text: hook text to burn
+        out_path: output video path
+        position: "top" or "bottom"
+        fontsize_ratio: font size as fraction of video height
+    """
+    if not hook_text or not hook_text.strip():
+        shutil.copy2(src, out_path)
+        return out_path
+    
+    # Escape special chars for drawtext
+    escaped = hook_text.replace("\\", "\\\\") \
+                       .replace(":", "\\:") \
+                       .replace("'", "\\'") \
+                       .replace("%", "\\%") \
+                       .replace(",", "\\,") \
+                       .replace("[", "\\[") \
+                       .replace("]", "\\]")
+    
+    x = "(w-text_w)/2"
+    y = "h*0.06" if position == "top" else "h-text_h-h*0.04"
+    
+    drawtext = (
+        f"drawtext=text='{escaped}':x={x}:y={y}:"
+        f"fontsize=h*{fontsize_ratio}:"
+        f"fontcolor=white:borderw=4:bordercolor=black:"
+        f"fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    )
+    
+    cmd = [
+        "ffmpeg", "-y", "-v", "error",
+        "-i", src,
+        "-vf", drawtext,
+        "-c:a", "copy",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        out_path,
+    ]
+    subprocess.run(cmd, check=True, capture_output=True)
+    return out_path
+
 def render_clip_webm_style(
     src: str, start: float, end: float, out_path: str
 ) -> str:
