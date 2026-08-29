@@ -210,16 +210,16 @@ function ProjectPage() {
       return;
     }
     if (kind === "ass") {
-      const preset = getPreset(DEFAULT_SUBTITLE_PRESET).style;
+      const p = getPreset(DEFAULT_SUBTITLE_PRESET);
       download(
         `${slug}.ass`,
         buildAss(words, {
-          accent: preset.accent,
-          base: preset.base,
-          fontSize: preset.fontSize,
+          accent: p.style.highlight_color,
+          base: p.style.font_color,
+          fontSize: p.style.font_size,
           wordsPerLine: 3,
-          position: preset.position,
-          stroke: preset.stroke,
+          position: p.style.position,
+          stroke: !p.style.word_box,
         }),
       );
       return;
@@ -467,7 +467,7 @@ function ClipCard({
   const [opacity, setOpacity] = useState(1); // 1 = 100% (default), turun = transparan
   const preset = getPreset(presetId);
   const effPosition = position ?? preset.style.position;
-  const effFontSize = Math.round(preset.style.fontSize * fontScale);
+  const effFontSize = Math.round(preset.style.font_size * fontScale);
 
   // words utk live overlay (timing word-level JSON dari transkripsi)
   const liveWords = words.map((w) => ({ word: w.word, start: w.start, end: w.end }));
@@ -499,10 +499,10 @@ function ClipCard({
       font_color: preset.style.font_color,
       highlight_color: preset.style.highlight_color,
       position: effPosition,
-      word_box: preset.style.word_box,
+      word_box: preset.style.word_box ?? false,
       word_box_color: preset.style.word_box_color,
-      emoji: preset.style.emoji,
-      uppercase: preset.style.uppercase,
+      emoji: preset.style.emoji ?? true,
+      uppercase: preset.style.uppercase ?? false,
       opacity: opacity,
     };
   }
@@ -527,26 +527,15 @@ function ClipCard({
     }
   }
 
-  // Saat kartu dibuka & preview belum ada → bikin instan
+  // Saat kartu dibuka & preview belum ada → render sekali (video murni).
+  // Preview TIDAK lagi re-render saat setting berubah — subtitle live overlay
+  // HTML5 menampilkan perubahan gaya/ukuran/posisi/opacity SEKETIKA.
   useEffect(() => {
     if (expanded && mediaUrl && !clip.preview_ready && !previewBusy) {
       void ensurePreview();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expanded, mediaUrl]);
-
-  // Ganti gaya/ukuran/posisi → re-render preview (debounce 800ms biar slider
-  // tidak spam render tiap tick — VPS render ~5-10s per preview)
-  const styleKey = `${presetId}:${fontScale}:${effPosition}`;
-  const styleKeyRef = useRef(styleKey);
-  useEffect(() => {
-    if (styleKeyRef.current === styleKey) return;
-    styleKeyRef.current = styleKey;
-    if (!expanded || !clip.preview_ready || previewBusy) return;
-    const t = setTimeout(() => void ensurePreview(true), 800);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [styleKey]);
 
   async function renderServerMp4() {
     if (rendering) return;
