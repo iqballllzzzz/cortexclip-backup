@@ -61,13 +61,12 @@ function ResetPasswordPage() {
   if (done) {
     return (
       <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-5">
-        <div className="absolute inset-0 aurora" aria-hidden="true" />
-        <div className="absolute inset-0 grid-lines opacity-30" aria-hidden="true" />
+        <div className="absolute inset-0 bg-background" aria-hidden="true" />
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
-          className="relative w-full max-w-md rounded-2xl border border-border bg-card p-8 text-center shadow-lift"
+          className="relative w-full max-w-md rounded-2xl border border-border bg-card p-8 text-center shadow-lg"
         >
           <div className="flex justify-center">
             <div className="flex size-14 items-center justify-center rounded-full bg-accent/15">
@@ -92,14 +91,13 @@ function ResetPasswordPage() {
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-5">
-      <div className="absolute inset-0 aurora" aria-hidden="true" />
-      <div className="absolute inset-0 grid-lines opacity-30" aria-hidden="true" />
+      <div className="absolute inset-0 bg-background" aria-hidden="true" />
 
       <motion.div
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.2, 0.8, 0.2, 1] }}
-        className="relative w-full max-w-md rounded-2xl border border-border bg-card p-8 shadow-lift"
+        className="relative w-full max-w-md rounded-2xl border border-border bg-card p-8 shadow-lg"
       >
         <div className="flex items-center justify-center gap-2">
           <img

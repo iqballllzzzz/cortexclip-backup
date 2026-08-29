@@ -96,7 +96,7 @@ function Studio() {
             transition={{ duration: 0.5 }}
             className="mx-auto w-full max-w-[320px] lg:sticky lg:top-24 lg:self-start"
           >
-            <CaptionPreview clip={clip} style={style} playing={playing} className="shadow-lift" />
+            <CaptionPreview clip={clip} style={style} playing={playing} className="shadow-md" />
             <div className="mt-3 flex items-center gap-2">
               <Button
                 variant="secondary"

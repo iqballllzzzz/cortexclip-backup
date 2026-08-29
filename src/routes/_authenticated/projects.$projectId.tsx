@@ -262,7 +262,7 @@ function ProjectPage() {
     return (
       <div className="min-h-screen bg-background">
         <SiteHeader />
-        <div className="mx-auto max-w-5xl px-5 py-20">
+        <div className="mx-auto max-w-5xl px-5 pb-16 pt-28">
           <div className="h-40 animate-pulse rounded-2xl border border-border bg-card" />
         </div>
       </div>
@@ -273,7 +273,7 @@ function ProjectPage() {
     return (
       <div className="min-h-screen bg-background">
         <SiteHeader />
-        <div className="mx-auto max-w-5xl px-5 py-20 text-center">
+        <div className="mx-auto max-w-5xl px-5 py-28 text-center">
           <p className="text-lg font-semibold">Proyek tidak ditemukan.</p>
           <Button className="mt-4" onClick={() => navigate({ to: "/dashboard" })}>
             Kembali ke dashboard
@@ -291,8 +291,7 @@ function ProjectPage() {
   return (
     <div className="min-h-screen bg-background">
       <SiteHeader />
-      <main className="relative mx-auto max-w-5xl px-5 py-10">
-        <div className="pointer-events-none absolute right-0 top-0 size-72 rounded-full bg-accent/5 blur-3xl" aria-hidden="true" />
+      <main className="mx-auto max-w-5xl px-5 pb-16 pt-28">
 
         <Link
           to="/dashboard"
@@ -355,7 +354,7 @@ function ProjectPage() {
           <motion.div
             initial={{ opacity: 0, y: -6 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mt-6 flex items-center gap-3 rounded-2xl border border-accent/40 bg-accent/5 p-4 text-sm shadow-soft"
+            className="mt-6 flex items-center gap-3 rounded-2xl border border-accent/40 bg-accent/5 p-4 text-sm shadow-sm"
           >
             <Loader2 className="size-4 animate-spin text-accent" />
             <span>{progress || "Memproses…"}</span>
@@ -371,8 +370,7 @@ function ProjectPage() {
         {/* Config grid: media + render settings */}
         <div className="mt-6 grid gap-6 lg:grid-cols-2">
           {/* Media source */}
-          <section className="relative overflow-hidden rounded-2xl border border-border bg-card p-5 card-hover-lift">
-            <div className="pointer-events-none absolute -right-8 -top-8 size-28 rounded-full bg-accent/10 blur-3xl" aria-hidden="true" />
+          <section className="rounded-2xl border border-border bg-card p-5">
             <h2 className="flex items-center gap-2 text-sm font-semibold">
               <span className="flex size-7 items-center justify-center rounded-lg bg-accent/15 text-accent">
                 <Film className="size-3.5" />
@@ -406,8 +404,7 @@ function ProjectPage() {
           </section>
 
           {/* Render settings */}
-          <section className="relative overflow-hidden rounded-2xl border border-border bg-card p-5 card-hover-lift">
-            <div className="pointer-events-none absolute -right-8 -top-8 size-28 rounded-full bg-accent/10 blur-3xl" aria-hidden="true" />
+          <section className="rounded-2xl border border-border bg-card p-5">
             <h2 className="flex items-center gap-2 text-sm font-semibold">
               <span className="flex size-7 items-center justify-center rounded-lg bg-accent/15 text-accent">
                 <Terminal className="size-3.5" />
@@ -424,7 +421,7 @@ function ProjectPage() {
                       onClick={() => setResolution(r)}
                       className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-all ${
                         resolution === r
-                          ? "border-accent bg-accent/15 text-accent shadow-soft"
+                          ? "border-accent bg-accent/15 text-accent shadow-sm"
                           : "border-border text-muted-foreground hover:border-accent/40 hover:text-foreground"
                       }`}
                     >
@@ -538,8 +535,7 @@ function ProjectPage() {
           </div>
 
           {clips.length === 0 ? (
-            <div className="relative mt-4 flex flex-col items-center overflow-hidden rounded-2xl border border-border bg-card py-16 text-center">
-              <div className="pointer-events-none absolute left-1/2 top-0 size-64 -translate-x-1/2 rounded-full bg-accent/5 blur-3xl" aria-hidden="true" />
+            <div className="flex flex-col items-center rounded-2xl border border-border bg-card py-16 text-center">
               <Sparkles className="size-10 text-muted-foreground/50" />
               <p className="mt-4 font-medium">Belum ada klip</p>
               <p className="mt-1 max-w-md text-sm text-muted-foreground">
@@ -693,18 +689,11 @@ function ClipCard({
     }
   }
 
-  const scoreTone =
-    clip.virality_score >= 85
-      ? "from-accent/30 to-accent/5 text-accent"
-      : clip.virality_score >= 70
-        ? "from-amber-500/30 to-amber-500/5 text-amber-500"
-        : "from-muted to-transparent text-muted-foreground";
-
   return (
-    <div className={`rounded-2xl border bg-card p-5 transition-all card-hover-lift ${expanded ? "border-accent/50 shadow-lift" : "border-border"}`}>
+    <div className={`rounded-2xl border bg-card p-5 transition-shadow hover:shadow-md ${expanded ? "border-accent/50 shadow-md" : "border-border"}`}>
       <div className="flex flex-wrap items-start gap-4">
-        <div className={`relative flex size-14 shrink-0 flex-col items-center justify-center rounded-xl bg-gradient-to-br ${scoreTone}`}>
-          <span className="font-display text-xl font-bold">{clip.virality_score}</span>
+        <div className={`relative flex size-14 shrink-0 flex-col items-center justify-center rounded-xl border border-accent/20 bg-accent/10 ${clip.virality_score >= 85 ? "ring-1 ring-accent/40" : ""}`}>
+          <span className="font-display text-xl font-bold text-accent">{clip.virality_score}</span>
           <span className="text-[9px] font-semibold uppercase tracking-wider opacity-80">viral</span>
           {clip.virality_score >= 85 ? (
             <Flame className="absolute -right-1.5 -top-1.5 size-4 rounded-full bg-background p-0.5 text-accent" />

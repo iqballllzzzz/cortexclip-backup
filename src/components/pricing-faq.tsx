@@ -1,4 +1,4 @@
-import { Check, Sparkles } from "lucide-react";
+import { Check } from "lucide-react";
 import { motion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,7 +14,6 @@ const plans = [
     price: "Gratis",
     note: "60 menit unggah / bulan",
     features: ["10 klip per video", "Caption karaoke dasar", "Ekspor 720p", "Watermark ringan"],
-    variant: "outline" as const,
   },
   {
     name: "Creator",
@@ -28,7 +27,6 @@ const plans = [
       "Brand kit & template",
     ],
     highlight: true,
-    variant: "accent" as const,
   },
   {
     name: "Agency",
@@ -39,94 +37,79 @@ const plans = [
       "Team workspace & hak akses",
       "Export XML + API access",
       "Auto-post scheduler",
-      "Terjemahan caption multi-bahasa",
+      "Caption multi-bahasa",
     ],
-    variant: "outline" as const,
   },
 ];
 
 const faqs = [
   {
     q: "Apakah bisa langsung dari URL YouTube?",
-    a: "Bisa. Tempel link video, CortexClip akan mengambil audio, mentranskrip, dan memilih momen terbaik tanpa perlu unduh manual.",
+    a: "Bisa. Tempel link video, CortexClip mengambil audio, mentranskrip, dan memilih momen terbaik tanpa unduh manual.",
   },
   {
     q: "Bagaimana virality score dihitung?",
-    a: "AI menilai kekuatan hook tiga detik pertama, kejelasan konteks, ketegangan cerita, dan penutup. Skor 85+ biasanya layak diprioritaskan.",
+    a: "AI menilai kekuatan hook 3 detik pertama, kejelasan konteks, ketegangan cerita, dan penutup. Skor 85+ layak diprioritaskan.",
   },
   {
     q: "Bisakah overlay ikon dimatikan?",
-    a: "Ya. Klip podcast komedi biasanya lebih baik tanpa overlay, sedangkan konten edukasi seperti kelas finansial justru terbantu. Semuanya bisa diatur per proyek.",
+    a: "Ya. Semua bisa diatur per proyek — konten edukasi dan komedi punya kebutuhan yang berbeda.",
   },
   {
     q: "Bahasa apa saja yang didukung?",
-    a: "Transkrip mendukung Bahasa Indonesia, Inggris, dan puluhan bahasa lain, dengan opsi menerjemahkan caption ke bahasa target.",
-  },
-  {
-    q: "Apakah hasilnya bisa diedit ulang?",
-    a: "Bisa. Anda dapat mengubah teks, warna, posisi, dan potongan di editor, atau mengekspor XML untuk disempurnakan di Premiere Pro atau DaVinci Resolve.",
+    a: "Bahasa Indonesia, Inggris, dan puluhan bahasa lain, dengan opsi menerjemahkan caption ke bahasa target.",
   },
 ];
 
 export function PricingFaq() {
   return (
     <>
-      <section id="harga" className="relative mx-auto max-w-6xl scroll-mt-20 px-5 py-24">
-        <div className="pointer-events-none absolute left-0 top-1/4 size-72 rounded-full bg-accent/5 blur-3xl" aria-hidden="true" />
-
+      <section id="harga" className="mx-auto max-w-6xl scroll-mt-28 px-5 py-24">
         <motion.div
-          initial={{ opacity: 0, y: 16 }}
+          initial={{ opacity: 0, y: 12 }}
           whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: "-80px" }}
-          transition={{ duration: 0.5 }}
-          className="max-w-2xl"
+          viewport={{ once: true }}
+          className="max-w-xl"
         >
-          <p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-accent">
-            <Sparkles className="size-3.5" /> Harga
-          </p>
-          <h2 className="mt-3 text-3xl font-bold sm:text-4xl">
-            Mulai gratis, <span className="text-gradient-amber">naik saat butuh.</span>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Harga</p>
+          <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
+            Mulai gratis, naik saat butuh.
           </h2>
         </motion.div>
 
-        <div className="mt-12 grid gap-5 lg:grid-cols-3">
+        <div className="mt-10 grid gap-4 lg:grid-cols-3">
           {plans.map((p, i) => (
             <motion.div
               key={p.name}
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 12 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
-              transition={{ duration: 0.45, delay: i * 0.08 }}
-              className={`relative overflow-hidden rounded-2xl p-6 card-hover-lift ${
-                p.highlight
-                  ? "border-2 border-accent bg-card shadow-lift"
-                  : "border border-border bg-card"
+              transition={{ duration: 0.4, delay: i * 0.07 }}
+              className={`relative flex flex-col rounded-3xl border p-6 shadow-sm transition-shadow hover:shadow-md ${
+                p.highlight ? "border-accent bg-accent/5" : "border-border bg-card"
               }`}
             >
-              {p.highlight && (
-                <>
-                  <div className="pointer-events-none absolute -right-10 -top-10 size-32 rounded-full bg-accent/15 blur-2xl" aria-hidden="true" />
-                  <span className="absolute -top-3 left-6 rounded-full bg-accent px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-accent-foreground shadow-soft">
-                    Paling populer
-                  </span>
-                </>
-              )}
+              {p.highlight ? (
+                <span className="absolute -top-3 left-6 rounded-full bg-accent px-2.5 py-0.5 text-[11px] font-semibold text-accent-foreground">
+                  Paling populer
+                </span>
+              ) : null}
               <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
                 {p.name}
               </h3>
-              <p className="mt-3 font-display text-3xl font-bold">{p.price}</p>
+              <p className="mt-3 font-display text-3xl font-bold tracking-tight">{p.price}</p>
               <p className="mt-1 text-xs text-muted-foreground">{p.note}</p>
-              <ul className="mt-5 space-y-2.5">
+              <ul className="mt-5 flex-1 space-y-2.5">
                 {p.features.map((f) => (
-                  <li key={f} className="flex items-start gap-2 text-sm text-muted-foreground">
-                    <span className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full ${p.highlight ? "bg-accent text-accent-foreground" : "bg-accent/10 text-accent"}`}>
+                  <li key={f} className="flex items-start gap-2 text-sm">
+                    <span className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full ${p.highlight ? "bg-accent text-accent-foreground" : "bg-muted text-muted-foreground"}`}>
                       <Check className="size-3" />
                     </span>
-                    {f}
+                    <span className="text-muted-foreground">{f}</span>
                   </li>
                 ))}
               </ul>
-              <Button asChild variant={p.variant} className="mt-6 w-full">
+              <Button asChild variant={p.highlight ? "accent" : "outline"} className="mt-6 w-full rounded-full">
                 <a href="/studio">Pilih {p.name}</a>
               </Button>
             </motion.div>
@@ -135,36 +118,29 @@ export function PricingFaq() {
       </section>
 
       <section id="faq" className="border-t border-border bg-surface/60">
-        <div className="mx-auto max-w-3xl scroll-mt-20 px-5 py-24">
+        <div className="mx-auto max-w-3xl scroll-mt-28 px-5 py-24">
           <motion.h2
-            initial={{ opacity: 0, y: 16 }}
+            initial={{ opacity: 0, y: 12 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            transition={{ duration: 0.5 }}
-            className="text-3xl font-bold sm:text-4xl"
+            className="text-3xl font-bold tracking-tight sm:text-4xl"
           >
-            Pertanyaan <span className="text-gradient-amber">umum</span>
+            Pertanyaan umum
           </motion.h2>
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.5, delay: 0.1 }}
-            className="mt-8"
-          >
+          <div className="mt-8">
             <Accordion type="single" collapsible className="space-y-3">
               {faqs.map((f) => (
                 <AccordionItem
                   key={f.q}
                   value={f.q}
-                  className="rounded-2xl border border-border bg-card px-5 transition-colors hover:border-accent/40 data-[state=open]:border-accent/40"
+                  className="rounded-2xl border border-border bg-card px-5 shadow-sm"
                 >
                   <AccordionTrigger className="text-left text-base">{f.q}</AccordionTrigger>
                   <AccordionContent className="text-muted-foreground">{f.a}</AccordionContent>
                 </AccordionItem>
               ))}
             </Accordion>
-          </motion.div>
+          </div>
         </div>
       </section>
     </>

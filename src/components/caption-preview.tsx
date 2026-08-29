@@ -103,8 +103,8 @@ export function CaptionPreview({
       )}
     >
       {/* Stand-in for the rendered speaker frame (AI face tracking keeps it centered) */}
-      <div className="absolute inset-0 aurora bg-primary" aria-hidden="true" />
-      <div className="absolute inset-0 grid-lines opacity-30" aria-hidden="true" />
+      <div className="absolute inset-0 bg-gradient-to-b from-primary to-primary/80" aria-hidden="true" />
+      <div className="absolute inset-0 opacity-[0.07] [background-image:radial-gradient(circle_at_1px_1px,white_1px,transparent_0)] [background-size:22px_22px]" aria-hidden="true" />
       
       {/* Face tracking visualization */}
       {style.showFaceTracking && (
@@ -143,7 +143,7 @@ export function CaptionPreview({
             animate={{ scale: 1, opacity: 1, rotate: -6 }}
             exit={{ scale: 0.7, opacity: 0 }}
             transition={{ type: "spring", stiffness: 420, damping: 18 }}
-            className="absolute right-4 top-[38%] flex items-center gap-1.5 rounded-xl bg-background px-2.5 py-1.5 shadow-lift"
+            className="absolute right-4 top-[38%] flex items-center gap-1.5 rounded-xl bg-background px-2.5 py-1.5 shadow-md"
           >
             <OverlayIcon className="size-4 text-accent" />
             <span className="text-xs font-bold">{overlay.label}</span>
