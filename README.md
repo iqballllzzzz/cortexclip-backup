@@ -191,6 +191,19 @@ Tiap gaya = kombinasi font (Montserrat/Anton/Noto Serif/Inter/Impact/Courier), w
 
 ---
 
+## 📝 Subtitle Engine (PORT OpenShorts — WAJIB baca sebelum utak-atik)
+
+Engine subtitle adalah **port perilaku persis OpenShorts** (`/root/openshorts/subtitles.py`):
+- **Kanvas PlayRes 162x288** (9:16): fontSize dalam unit kanvas → teks BESAR & konsisten di semua resolusi output. JANGAN pakai kanvas 1080x1920 (teks jadi semut).
+- **1 event Dialogue per KATA** (bukan per baris): event kata ke-i berjalan dari start kata i sampai start kata i+1 → highlight karaoke mulus tanpa flicker.
+- **Blok kata ala CapCut**: `maxChars` (16 default) + `maxDuration` (1.4s default) — bukan wordsPerLine kaku.
+- **Dim kata non-aktif via RGB scaling** (BUKAN alpha): libass menggambar outline di bawah fill, alpha bikin teks "timpa-timpa" lumpur. Kurva: `0.5 + 0.5*opacity`.
+- **Efek aktif**: pop `fscx90→t(0,110,fscx108)`, glow `\blur4 + outline accent`, box `outline tebal accent`, classic (warna saja).
+- **MarginV aman 15%** dari tepi (bebas UI TikTok/Reels).
+- Font ter-install di VPS `/usr/share/fonts/truetype/subtitles/` + `fontsdir` eksplisit di filter ass.
+
+8 preset (mirror frontend `subtitle-styles.tsx`): hormozi (Anton), tiktok-pop (Anton), neon-glow (Montserrat), clean-minimal (Inter), comic-bang (Archivo Black), sermon-elegant (Noto Serif italic), typewriter (Courier Prime), gaming-energy (Anton). Preview == hasil karena preview & render final pakai `build_ass` + `render_clip` yang sama persis.
+
 ## ⚡ Preview Instan (VPS yang nggarap)
 
 Preview klip di editor memakai **pipeline render ASLI** (`build_ass` + `render_clip` + face tracking) pada 360x640 — subtitle gaya terpilih **terbakar di dalam video**, jadi **preview 100% == hasil unduhan**. Saat kartu dibuka, backend render potongan 12 detik pertama (~850KB), simpan ke `clips.preview_url` + cache-hash `preview_style_hash`; ganti gaya/ukuran/posisi → preview otomatis re-render. Endpoint: `POST /api/preview-clip` (body: `project_id`, `clip_id`, `caption_style`).
