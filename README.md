@@ -193,9 +193,8 @@ Tiap gaya = kombinasi font (Montserrat/Anton/Noto Serif/Inter/Impact/Courier), w
 
 ## ⚡ Preview Instan (VPS yang nggarap)
 
-Preview klip di editor **tidak lagi streaming video sumber 43MB**. Saat kartu klip dibuka,
-backend memotong klip 12 detik resolusi rendah (360x640, {@literal ultrafast}) dan menyimpan URL kecil
-(~100-500KB) — browser memutarnya instan. Endpoint: `POST /api/preview-clip` → kolom
-`clips.preview_url` + `preview_ready`. Auto-request saat kartu di-expand, fallback ke sumber bila gagal.
+Preview klip di editor memakai **pipeline render ASLI** (`build_ass` + `render_clip` + face tracking) pada 360x640 — subtitle gaya terpilih **terbakar di dalam video**, jadi **preview 100% == hasil unduhan**. Saat kartu dibuka, backend render potongan 12 detik pertama (~850KB), simpan ke `clips.preview_url` + cache-hash `preview_style_hash`; ganti gaya/ukuran/posisi → preview otomatis re-render. Endpoint: `POST /api/preview-clip` (body: `project_id`, `clip_id`, `caption_style`).
+
+**Font subtitle ter-install di VPS** (`/usr/share/fonts/truetype/subtitles/`): Montserrat, Anton, Inter, Noto Serif, Archivo Black (pengganti Impact), Courier Prime (pengganti Courier New). Setelah restore VPS baru: download ulang font dari `raw.githubusercontent.com/google/fonts` lalu `fc-cache -f` — tanpa ini libass fallback ke DejaVu dan semua gaya terlihat sama.
 
 *Terakhir diperbarui: 2026-08-29 — sesi editor terpadu: 8 gaya subtitle preset (preview animasi "Halo", backend ASS STYLE_PRESETS), auto-framing wajah selalu aktif, tombol "Unduh" tunggal, rendered_url publik (VPS IP), preview instan (potong 12s 360x640 di VPS), backup rclone 12 jam, README hidup, perbaikan korupsi `***` di main.py & backend-api.ts.*
