@@ -2,25 +2,26 @@ import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
 
 /**
- * 8 GAYA SUBTITLE — mirror STYLE_PRESETS backend `subtitles.py`.
- * Font CSS == font yang ter-install di VPS (dibakar libass ke MP4),
- * jadi preview kartu == hasil render: Archivo Black, Courier Prime,
- * Noto Serif, Montserrat, Anton, Inter.
+ * 8 GAYA SUBTITLE — mirror STYLE_PRESETS backend `subtitles.py` (port OpenShorts).
+ * Font CSS == font yang ter-install di VPS (dibakar libass ke MP4).
+ * Parameter penting: maxChars/maxDuration (blok kata ala CapCut), fontSize
+ * dalam unit kanvas 288 (OpenShorts) — BESAR & terbaca di video vertikal.
  *
- * Kartu SENGAJA kecil ("Halo" mini + nama) supaya 8 gaya muat
- * dalam SATU layar tanpa scroll.
+ * Kartu SENGAJA kecil ("Halo" mini + nama) supaya 8 gaya muat satu layar.
  */
 
 export interface SubtitlePreset {
   id: string;
   label: string;
+  /** dikirim ke backend build_ass (OpenShorts engine) */
   style: {
     accent: string;
     base: string;
     outline: string;
-    fontSize: number;
+    fontSize: number; // unit kanvas 288
     fontName: string;
-    wordsPerLine: number;
+    maxChars: number;
+    maxDuration: number;
     position: number;
     stroke: boolean;
     bold: boolean;
@@ -28,6 +29,7 @@ export interface SubtitlePreset {
     italic?: boolean;
     effect: "classic" | "glow" | "pop" | "box";
     opacity: number;
+    borderWidth: number;
   };
   css: React.CSSProperties;
   animate: "none" | "pop" | "glow" | "box" | "type" | "slide";
@@ -38,15 +40,15 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
     id: "hormozi",
     label: "Hormozi",
     style: {
-      accent: "#FFD400", base: "#FFFFFF", outline: "#000000",
-      fontSize: 44, fontName: "Montserrat", wordsPerLine: 2,
+      accent: "#FFE500", base: "#FFFFFF", outline: "#000000",
+      fontSize: 44, fontName: "Anton", maxChars: 16, maxDuration: 1.4,
       position: 68, stroke: true, bold: true, uppercase: true,
-      effect: "pop", opacity: 0.55,
+      effect: "pop", opacity: 1.0, borderWidth: 4,
     },
     css: {
-      fontFamily: "'Montserrat', sans-serif", fontWeight: 800,
-      color: "#FFD400", WebkitTextStroke: "1px rgba(0,0,0,0.9)",
-      textTransform: "uppercase", letterSpacing: "-0.02em",
+      fontFamily: "'Anton', sans-serif",
+      color: "#FFE500", WebkitTextStroke: "1.5px rgba(0,0,0,0.9)",
+      textTransform: "uppercase", letterSpacing: "0.01em",
     },
     animate: "pop",
   },
@@ -55,14 +57,14 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
     label: "TikTok Pop",
     style: {
       accent: "#00F0FF", base: "#FFFFFF", outline: "#000000",
-      fontSize: 52, fontName: "Anton", wordsPerLine: 2,
-      position: 58, stroke: true, bold: true, uppercase: true,
-      effect: "pop", opacity: 0.5,
+      fontSize: 48, fontName: "Anton", maxChars: 12, maxDuration: 1.2,
+      position: 62, stroke: true, bold: true, uppercase: true,
+      effect: "pop", opacity: 0.85, borderWidth: 5,
     },
     css: {
-      fontFamily: "'Anton', sans-serif", fontWeight: 400,
-      color: "#00F0FF", WebkitTextStroke: "1px rgba(0,0,0,0.9)",
-      textTransform: "uppercase", letterSpacing: "0.01em",
+      fontFamily: "'Anton', sans-serif",
+      color: "#00F0FF", WebkitTextStroke: "1.5px rgba(0,0,0,0.9)",
+      textTransform: "uppercase",
     },
     animate: "pop",
   },
@@ -71,12 +73,12 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
     label: "Neon Glow",
     style: {
       accent: "#FF2E88", base: "#FFFFFF", outline: "#000000",
-      fontSize: 40, fontName: "Montserrat", wordsPerLine: 3,
-      position: 60, stroke: true, bold: true, uppercase: false,
-      effect: "glow", opacity: 0.4,
+      fontSize: 40, fontName: "Montserrat", maxChars: 18, maxDuration: 1.6,
+      position: 64, stroke: true, bold: true, uppercase: false,
+      effect: "glow", opacity: 0.75, borderWidth: 3,
     },
     css: {
-      fontFamily: "'Montserrat', sans-serif", fontWeight: 700,
+      fontFamily: "'Montserrat', sans-serif", fontWeight: 800,
       color: "#FFFFFF",
       textShadow: "0 0 6px #FF2E88, 0 0 14px #FF2E88",
     },
@@ -87,9 +89,9 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
     label: "Clean Minimal",
     style: {
       accent: "#F5F5F5", base: "#FFFFFF", outline: "#111111",
-      fontSize: 34, fontName: "Inter", wordsPerLine: 4,
+      fontSize: 30, fontName: "Inter", maxChars: 24, maxDuration: 2.0,
       position: 74, stroke: false, bold: false, uppercase: false,
-      effect: "classic", opacity: 0.62,
+      effect: "classic", opacity: 1.0, borderWidth: 2,
     },
     css: {
       fontFamily: "'Inter', sans-serif", fontWeight: 500,
@@ -101,14 +103,14 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
     id: "comic-bang",
     label: "Comic Bang",
     style: {
-      accent: "#FFE600", base: "#FFE600", outline: "#FF2200",
-      fontSize: 54, fontName: "Archivo Black", wordsPerLine: 2,
-      position: 50, stroke: true, bold: true, uppercase: true,
-      effect: "pop", opacity: 0.6,
+      accent: "#FF2200", base: "#FFFFFF", outline: "#000000",
+      fontSize: 46, fontName: "Archivo Black", maxChars: 12, maxDuration: 1.2,
+      position: 56, stroke: true, bold: true, uppercase: true,
+      effect: "box", opacity: 0.9, borderWidth: 4,
     },
     css: {
-      fontFamily: "'Archivo Black', sans-serif", fontWeight: 400,
-      color: "#FFE600", WebkitTextStroke: "1.5px #FF2200",
+      fontFamily: "'Archivo Black', sans-serif",
+      color: "#FFFFFF", WebkitTextStroke: "1.5px #FF2200",
       textTransform: "uppercase", transform: "rotate(-4deg)",
     },
     animate: "pop",
@@ -118,9 +120,10 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
     label: "Sermon Elegan",
     style: {
       accent: "#D4AF37", base: "#F8F4E8", outline: "#2A2A2A",
-      fontSize: 38, fontName: "Noto Serif", wordsPerLine: 3,
-      position: 64, stroke: true, bold: false, uppercase: false,
-      effect: "classic", opacity: 0.5,
+      fontSize: 34, fontName: "Noto Serif", maxChars: 24, maxDuration: 1.8,
+      position: 66, stroke: true, bold: false, uppercase: false,
+      effect: "classic", opacity: 0.85, borderWidth: 2,
+      italic: true,
     },
     css: {
       fontFamily: "'Noto Serif', serif", fontWeight: 400,
@@ -134,12 +137,12 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
     label: "Typewriter",
     style: {
       accent: "#4AF626", base: "#D8FFD0", outline: "#0A3300",
-      fontSize: 36, fontName: "Courier Prime", wordsPerLine: 4,
-      position: 78, stroke: true, bold: false, uppercase: false,
-      effect: "box", opacity: 0.5,
+      fontSize: 32, fontName: "Courier Prime", maxChars: 26, maxDuration: 1.8,
+      position: 72, stroke: true, bold: false, uppercase: false,
+      effect: "box", opacity: 0.8, borderWidth: 3,
     },
     css: {
-      fontFamily: "'Courier Prime', monospace", fontWeight: 400,
+      fontFamily: "'Courier Prime', monospace",
       color: "#4AF626", backgroundColor: "rgba(10,51,0,0.85)",
       padding: "2px 6px", borderRadius: 2,
     },
@@ -150,12 +153,12 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
     label: "Gaming Energy",
     style: {
       accent: "#7CFC00", base: "#FFFFFF", outline: "#5A00FF",
-      fontSize: 50, fontName: "Anton", wordsPerLine: 2,
-      position: 70, stroke: true, bold: true, uppercase: true,
-      effect: "glow", opacity: 0.55,
+      fontSize: 44, fontName: "Anton", maxChars: 14, maxDuration: 1.3,
+      position: 66, stroke: true, bold: true, uppercase: true,
+      effect: "glow", opacity: 0.8, borderWidth: 4,
     },
     css: {
-      fontFamily: "'Anton', sans-serif", fontWeight: 400,
+      fontFamily: "'Anton', sans-serif",
       color: "#7CFC00", WebkitTextStroke: "1px rgba(90,0,255,0.95)",
       textShadow: "0 0 8px #7CFC00, 0 0 18px #5A00FF",
       textTransform: "uppercase", transform: "skewX(-6deg)",
@@ -247,7 +250,6 @@ export function SubtitleStyleCard({
 
 /**
  * Baris pilihan 8 gaya subtitle — KOMPAK, satu layar tanpa scroll.
- * 8 kolom di desktop, 4 kolom (2 baris) di layar kecil.
  */
 export function SubtitleStylePicker({
   value,

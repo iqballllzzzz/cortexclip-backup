@@ -30,7 +30,7 @@ import { extractAudio } from "@/lib/audio-extract";
 import { ClipVideoPreview } from "@/components/clip-video-preview";
 import { transcribeChunkFn, detectClipsFn } from "@/lib/pipeline.functions";
 import { buildAss, buildFfmpegCommand, buildSrt, download, toCaptionWords } from "@/lib/srt";
-import { getPreset, SubtitleStylePicker } from "@/components/subtitle-styles";
+import { getPreset, SubtitleStylePicker, DEFAULT_SUBTITLE_PRESET } from "@/components/subtitle-styles";
 import type { Transcript, TranscriptSegment } from "@/lib/pipeline-types";
 import type { Database } from "@/integrations/supabase/types";
 import { Label } from "@/components/ui/label";
@@ -78,9 +78,6 @@ function ProjectPage() {
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState("");
   const [localFile, setLocalFile] = useState<File | null>(null);
-  // Editor terpadu: gaya subtitle preset + ukuran + posisi (auto-framing tetap AKTIF selalu)
-  const [presetId, setPresetId] = useState(defaultCaptionStyle.preset);
-  const [captionStyle, setCaptionStyle] = useState<CaptionStyle>(defaultCaptionStyle);
   const [activeClip, setActiveClip] = useState<string | null>(null);
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
 
@@ -212,15 +209,15 @@ function ProjectPage() {
       return;
     }
     if (kind === "ass") {
-      const preset = getPreset(presetId).style;
+      const preset = getPreset(DEFAULT_SUBTITLE_PRESET).style;
       download(
         `${slug}.ass`,
         buildAss(words, {
           accent: preset.accent,
           base: preset.base,
-          fontSize: captionStyle.fontSize,
-          wordsPerLine: preset.wordsPerLine,
-          position: captionStyle.position,
+          fontSize: preset.fontSize,
+          wordsPerLine: 3,
+          position: preset.position,
           stroke: preset.stroke,
         }),
       );
@@ -383,81 +380,6 @@ function ProjectPage() {
               </label>
             </div>
           </section>
-
-          {/* Editor terpadu: Gaya Subtitle + Ukuran + Posisi */}
-          <section className="rounded-2xl border border-border bg-card p-5 lg:col-span-2">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="flex items-center gap-2 text-sm font-semibold">
-                <span className="flex size-7 items-center justify-center rounded-lg bg-accent/15 text-accent">
-                  <Type className="size-3.5" />
-                </span>
-                Editor Subtitle
-              </h2>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent">
-                <Eye className="size-3" /> Auto-framing wajah selalu aktif
-              </span>
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Pilih gaya subtitle — setiap gaya punya font, warna, bentuk, dan animasi khasnya
-              sendiri. Pratinjau di bawah mirip hasil render MP4. Tekan <b>Unduh</b> untuk render.
-            </p>
-
-            <div className="mt-5">
-              <Label className="text-xs font-medium">Gaya Subtitle</Label>
-              <div className="mt-3">
-                <SubtitleStylePicker
-                  value={presetId}
-                  onChange={(id) => {
-                    setPresetId(id);
-                    const st = getPreset(id).style;
-                    setCaptionStyle((s) => ({
-                      ...s,
-                      preset: id,
-                      accent: st.accent,
-                      base: st.base,
-                      wordsPerLine: st.wordsPerLine,
-                      uppercase: st.uppercase,
-                      stroke: st.stroke,
-                      effect: st.effect === "classic" ? "none" : st.effect,
-                    }));
-                  }}
-                />
-              </div>
-            </div>
-
-            <div className="mt-5 grid gap-6 sm:grid-cols-2">
-              <div>
-                <Label className="text-xs">Ukuran subtitle · {captionStyle.fontSize}px</Label>
-                <input
-                  type="range"
-                  min={18}
-                  max={64}
-                  step={1}
-                  value={captionStyle.fontSize}
-                  onChange={(e) =>
-                    setCaptionStyle((s) => ({ ...s, fontSize: parseInt(e.target.value) }))
-                  }
-                  className="mt-2 w-full accent-[var(--color-accent)]"
-                />
-              </div>
-              <div>
-                <Label className="text-xs">
-                  Posisi {captionStyle.position <= 50 ? "atas" : "bawah"} · {captionStyle.position}%
-                </Label>
-                <input
-                  type="range"
-                  min={20}
-                  max={80}
-                  step={1}
-                  value={captionStyle.position}
-                  onChange={(e) =>
-                    setCaptionStyle((s) => ({ ...s, position: parseInt(e.target.value) }))
-                  }
-                  className="mt-2 w-full accent-[var(--color-accent)]"
-                />
-              </div>
-            </div>
-          </section>
         </div>
 
         {/* Clips */}
@@ -502,8 +424,6 @@ function ProjectPage() {
                     onToggle={() => setActiveClip(activeClip === clip.id ? null : clip.id)}
                     onSave={saveClip}
                     onExport={exportClip}
-                    captionStyle={captionStyle}
-                    presetId={presetId}
                   />
                 </motion.div>
               ))}
@@ -523,8 +443,6 @@ function ClipCard({
   onToggle,
   onSave,
   onExport,
-  captionStyle,
-  presetId,
 }: {
   clip: Clip;
   mediaUrl: string | null;
@@ -532,8 +450,6 @@ function ClipCard({
   onToggle: () => void;
   onSave: (clip: Clip, patch: Partial<Clip>) => void;
   onExport: (clip: Clip, kind: "srt" | "ass" | "ffmpeg") => void;
-  captionStyle: CaptionStyle;
-  presetId: string;
 }) {
   const words = (clip.caption_words as unknown as { word: string; start: number; end: number }[]) ?? [];
   const duration = clip.end_time - clip.start_time;
@@ -542,46 +458,58 @@ function ClipCard({
   const [previewBusy, setPreviewBusy] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
+  // ---- Editor subtitle PER-KLIP ----
+  const [presetId, setPresetId] = useState(DEFAULT_SUBTITLE_PRESET);
+  // fontScale 0.5..2 (multiplier dari fontSize preset) & posisi 20..80 %dari atas
+  const [fontScale, setFontScale] = useState(1);
+  const [position, setPosition] = useState<number | null>(null); // null = default preset
+  const preset = getPreset(presetId);
+  const effPosition = position ?? preset.style.position;
+  const effFontSize = Math.round(preset.style.fontSize * fontScale);
+
+  /** caption_style yang dikirim ke backend (preview & render final SAMA). */
+  function buildCaptionStyle() {
+    return {
+      preset: presetId,
+      accent: preset.style.accent,
+      base: preset.style.base,
+      outline: preset.style.outline,
+      fontSize: effFontSize,
+      fontName: preset.style.fontName,
+      maxChars: preset.style.maxChars,
+      maxDuration: preset.style.maxDuration,
+      position: effPosition,
+      stroke: preset.style.stroke,
+      bold: preset.style.bold,
+      uppercase: preset.style.uppercase,
+      italic: preset.style.italic,
+      effect: preset.style.effect,
+      opacity: preset.style.opacity,
+      borderWidth: preset.style.borderWidth,
+    };
+  }
+
   // Preview VPS instan: render pipeline ASLI (ASS burn + face tracking) 360x640.
-  // caption_style dikirim supaya preview == hasil unduhan; hash style di backend
-  // bikin preview otomatis re-render saat user ganti gaya/ukuran/posisi.
   async function ensurePreview(force = false) {
     if (previewBusy) return;
     if (!force && clip.preview_ready) return;
     setPreviewBusy(true);
     try {
       const { renderClipPreview } = await import("@/lib/backend-api");
-      const preset = getPreset(presetId).style;
       const result = await renderClipPreview({
         projectId: clip.project_id,
         clipId: clip.id,
-        captionStyle: {
-          preset: presetId,
-          fontSize: Math.round((captionStyle.fontSize / 30) * 40),
-          position: captionStyle.position,
-          accent: preset.accent,
-          base: preset.base,
-          outline: preset.outline,
-          fontName: preset.fontName,
-          wordsPerLine: preset.wordsPerLine,
-          stroke: preset.stroke,
-          bold: preset.bold,
-          uppercase: preset.uppercase,
-          italic: preset.italic,
-          effect: preset.effect,
-          opacity: preset.opacity,
-        },
+        captionStyle: buildCaptionStyle(),
       });
       onSave(clip, { preview_url: result.url, preview_ready: true });
     } catch (error) {
       console.warn("Preview gagal dibuat:", error);
-      // preview gagal → fallback ke video sumber (lambat tapi tetap jalan)
     } finally {
       setPreviewBusy(false);
     }
   }
 
-  // Saat kartu dibuka (expanded) dan klip punya video tapi preview belum ada → bikin instan
+  // Saat kartu dibuka & preview belum ada → bikin instan
   useEffect(() => {
     if (expanded && mediaUrl && !clip.preview_ready && !previewBusy) {
       void ensurePreview();
@@ -589,12 +517,16 @@ function ClipCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expanded, mediaUrl]);
 
-  // Ganti gaya/ukuran/posisi → re-render preview supaya selalu == hasil
-  const styleKey = `${presetId}:${captionStyle.fontSize}:${captionStyle.position}`;
+  // Ganti gaya/ukuran/posisi → re-render preview (debounce 800ms biar slider
+  // tidak spam render tiap tick — VPS render ~5-10s per preview)
+  const styleKey = `${presetId}:${fontScale}:${effPosition}`;
+  const styleKeyRef = useRef(styleKey);
   useEffect(() => {
-    if (expanded && clip.preview_ready && !previewBusy) {
-      void ensurePreview(true);
-    }
+    if (styleKeyRef.current === styleKey) return;
+    styleKeyRef.current = styleKey;
+    if (!expanded || !clip.preview_ready || previewBusy) return;
+    const t = setTimeout(() => void ensurePreview(true), 800);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [styleKey]);
 
@@ -605,28 +537,12 @@ function ClipCard({
     try {
       toast.info("Mengirim klip ke server untuk render MP4…");
       const { renderClipServerSide } = await import("@/lib/backend-api");
-      const preset = getPreset(presetId).style;
       const result = await renderClipServerSide({
         projectId: clip.project_id,
         clipId: clip.id,
-        captionStyle: {
-          preset: presetId, // 8 gaya subtitle — backend apply STYLE_PRESETS
-          accent: preset.accent,
-          base: preset.base,
-          outline: preset.outline,
-          fontSize: Math.round((captionStyle.fontSize / 30) * 40), // skala agar proporsional
-          fontName: preset.fontName,
-          wordsPerLine: preset.wordsPerLine,
-          position: captionStyle.position,
-          stroke: preset.stroke,
-          bold: preset.bold,
-          uppercase: preset.uppercase,
-          italic: preset.italic,
-          effect: preset.effect,
-          opacity: preset.opacity,
-        },
+        captionStyle: buildCaptionStyle(),
         resolution: "1080x1920",
-        faceTracking: true, // auto-framing wajah SELALU aktif
+        faceTracking: true, // auto-framing wajah SELALU aktif (wajib, tanpa toggle)
       });
       setRenderProgress(1);
       toast.success("MP4 berhasil dirender di server!");
@@ -684,81 +600,133 @@ function ClipCard({
           initial={{ opacity: 0, height: 0 }}
           animate={{ opacity: 1, height: "auto" }}
           transition={{ duration: 0.3 }}
-          className="mt-5 grid gap-6 md:grid-cols-[220px_1fr]"
+          className="mt-5 space-y-5"
         >
-          <div className="mx-auto w-[200px]">
-            {mediaUrl || clip.preview_url ? (
-              <ClipVideoPreview
-                src={mediaUrl}
-                previewUrl={clip.preview_url}
-                start={clip.start_time}
-                end={clip.end_time}
-              />
-            ) : words.length > 0 ? (
-              <CaptionPreview
-                clip={{
-                  id: clip.id,
-                  title: clip.title,
-                  description: clip.description ?? "",
-                  hashtags: clip.hashtags ?? [],
-                  score: clip.virality_score,
-                  range: `${formatClock(clip.start_time)} - ${formatClock(clip.end_time)}`,
-                  duration: Math.max(...words.map((w) => w.end), 1),
-                  hook: clip.hook_type ?? "",
-                  captions: toCaptionWords(words),
-                  overlays: [],
-                }}
-                style={captionStyle}
-              />
-            ) : (
-              <p className="text-xs text-muted-foreground">Belum ada caption.</p>
-            )}
+          {/* ===== SUBTITLE SETTINGS (di atas, per-klip) ===== */}
+          <div className="rounded-xl border border-border bg-background/50 p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Subtitle
+              </span>
+              {previewBusy ? (
+                <span className="inline-flex items-center gap-1.5 text-[11px] text-accent">
+                  <Loader2 className="size-3 animate-spin" /> memperbarui preview…
+                </span>
+              ) : null}
+            </div>
+            <div className="mt-3">
+              <SubtitleStylePicker value={presetId} onChange={setPresetId} />
+            </div>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="text-[11px] text-muted-foreground">
+                  Ukuran · {Math.round(fontScale * 100)}%
+                </label>
+                <input
+                  type="range"
+                  min={0.6}
+                  max={1.8}
+                  step={0.05}
+                  value={fontScale}
+                  onChange={(e) => setFontScale(parseFloat(e.target.value))}
+                  className="mt-1.5 w-full accent-[var(--color-accent)]"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] text-muted-foreground">
+                  Posisi {effPosition <= 50 ? "atas" : "bawah"} · {effPosition}%
+                </label>
+                <input
+                  type="range"
+                  min={20}
+                  max={80}
+                  step={1}
+                  value={effPosition}
+                  onChange={(e) => setPosition(parseInt(e.target.value))}
+                  className="mt-1.5 w-full accent-[var(--color-accent)]"
+                />
+              </div>
+            </div>
           </div>
 
-          <div className="space-y-4">
-            <div>
-              <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Deskripsi
-              </label>
-              <textarea
-                value={clip.description ?? ""}
-                onChange={(e) => onSave(clip, { description: e.target.value })}
-                rows={3}
-                className="mt-1 w-full rounded-xl border border-border bg-background p-3 text-sm outline-none transition-colors focus:border-accent"
-              />
+          {/* ===== Preview + deskripsi/hashtag (di bawah) ===== */}
+          <div className="grid gap-6 md:grid-cols-[220px_1fr]">
+            <div className="mx-auto w-[200px]">
+              {mediaUrl || clip.preview_url ? (
+                <ClipVideoPreview
+                  src={mediaUrl}
+                  previewUrl={clip.preview_url}
+                  start={clip.start_time}
+                  end={clip.end_time}
+                />
+              ) : words.length > 0 ? (
+                <CaptionPreview
+                  clip={{
+                    id: clip.id,
+                    title: clip.title,
+                    description: clip.description ?? "",
+                    hashtags: clip.hashtags ?? [],
+                    score: clip.virality_score,
+                    range: `${formatClock(clip.start_time)} - ${formatClock(clip.end_time)}`,
+                    duration: Math.max(...words.map((w) => w.end), 1),
+                    hook: clip.hook_type ?? "",
+                    captions: toCaptionWords(words),
+                    overlays: [],
+                  }}
+                  style={{
+                    ...defaultCaptionStyle,
+                    preset: presetId,
+                    accent: preset.style.accent,
+                    base: preset.style.base,
+                    uppercase: preset.style.uppercase,
+                  }}
+                />
+              ) : (
+                <p className="text-xs text-muted-foreground">Belum ada caption.</p>
+              )}
             </div>
-            <div>
-              <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Hashtag
-              </label>
-              <input
-                value={(clip.hashtags ?? []).join(" ")}
-                onChange={(e) =>
-                  onSave(clip, { hashtags: e.target.value.split(/\s+/).filter(Boolean) })
-                }
-                className="mt-1 w-full rounded-xl border border-border bg-background p-3 text-sm outline-none transition-colors focus:border-accent"
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <Button
-                variant="accent"
-                size="sm"
-                onClick={renderServerMp4}
-                disabled={rendering}
-                className="min-w-[160px]"
-                title="Render MP4 vertikal di server VPS (ffmpeg + karaoke + auto-framing wajah) lalu otomatis unduh"
-              >
-                {rendering ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
-                {rendering ? `Merender… ${Math.round(renderProgress * 100)}%` : "Unduh"}
-              </Button>
-              {rendering ? (
-                <Button variant="ghost" size="sm" onClick={() => abortRef.current?.abort()}>
-                  Batalkan
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  Deskripsi
+                </label>
+                <textarea
+                  value={clip.description ?? ""}
+                  onChange={(e) => onSave(clip, { description: e.target.value })}
+                  rows={3}
+                  className="mt-1 w-full rounded-xl border border-border bg-background p-3 text-sm outline-none transition-colors focus:border-accent"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  Hashtag
+                </label>
+                <input
+                  value={(clip.hashtags ?? []).join(" ")}
+                  onChange={(e) =>
+                    onSave(clip, { hashtags: e.target.value.split(/\s+/).filter(Boolean) })
+                  }
+                  className="mt-1 w-full rounded-xl border border-border bg-background p-3 text-sm outline-none transition-colors focus:border-accent"
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  variant="accent"
+                  size="sm"
+                  onClick={renderServerMp4}
+                  disabled={rendering}
+                  className="min-w-[160px]"
+                >
+                  {rendering ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+                  {rendering ? `Merender… ${Math.round(renderProgress * 100)}%` : "Unduh"}
                 </Button>
-              ) : null}
-              <span className="text-xs text-muted-foreground">
-                &lt;MP4 9:16 · auto-framing wajah aktif&gt;
-              </span>
+                {rendering ? (
+                  <Button variant="ghost" size="sm" onClick={() => abortRef.current?.abort()}>
+                    Batalkan
+                  </Button>
+                ) : null}
+              </div>
             </div>
           </div>
         </motion.div>
