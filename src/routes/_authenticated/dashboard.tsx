@@ -15,6 +15,7 @@ import {
   Video,
   CheckCircle2,
   Wand2,
+  Download,
 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -188,6 +189,13 @@ function Dashboard() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/unduh">
+                <Download className="size-4" />
+                <span className="hidden sm:inline">Riwayat klip yang pernah kamu unduh</span>
+                <span className="sm:hidden">Unduhan</span>
+              </Link>
+            </Button>
             {profile?.avatar_url ? (
               <img src={profile.avatar_url} alt="Avatar" className="size-9 rounded-full border border-border" />
             ) : (

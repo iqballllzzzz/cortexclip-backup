@@ -1,4 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useEffect } from "react";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { Hero } from "@/components/hero";
@@ -6,6 +7,7 @@ import { Features } from "@/components/features";
 import { Pipeline } from "@/components/pipeline";
 import { ClipShowcase } from "@/components/clip-showcase";
 import { PricingFaq } from "@/components/pricing-faq";
+import { supabase } from "@/integrations/supabase/client";
 
 const title = "CortexClip — AI Auto Clipper Video Panjang Jadi Klip Viral";
 const description =
@@ -26,6 +28,21 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
+  const navigate = useNavigate();
+
+  // Sudah login → jangan tampilkan landing page, langsung dashboard
+  useEffect(() => {
+    let cancelled = false;
+    supabase.auth.getSession().then(({ data }) => {
+      if (!cancelled && data.session) {
+        navigate({ to: "/dashboard", replace: true });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+
   return (
     <div className="min-h-screen bg-background">
       <SiteHeader />

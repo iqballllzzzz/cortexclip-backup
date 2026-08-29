@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import {
   ArrowLeft,
+  CheckCircle2,
   Download,
   Loader2,
   Play,
@@ -81,6 +82,38 @@ function ProjectPage() {
   const [localFile, setLocalFile] = useState<File | null>(null);
   const [activeClip, setActiveClip] = useState<string | null>(null);
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
+  // job render selesai yang BELUM dilihat user (banner /unduh)
+  const [renderDoneCount, setRenderDoneCount] = useState(0);
+  const seenJobsRef = useRef<Set<string>>(new Set());
+
+  // Deteksi render selesai — poll job render project ini (user boleh balik
+  // kapan saja setelah keluar/pindah tab)
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const { listProjectRenderJobs } = await import("@/lib/backend-api");
+        const jobs = await listProjectRenderJobs(projectId);
+        if (cancelled) return;
+        const fresh = jobs.filter(
+          (j) => j.status === "completed" && !seenJobsRef.current.has(j.id),
+        );
+        // job yang selesai SETELAH user terakhir lihat halaman → banner
+        if (seenJobsRef.current.size > 0 || jobs.some((j) => j.status === "completed")) {
+          setRenderDoneCount(fresh.length);
+          for (const j of jobs) seenJobsRef.current.add(j.id);
+        }
+      } catch {
+        // abaikan — backend mungkin belum siap
+      }
+    };
+    void check();
+    const iv = setInterval(check, 8000);
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+    };
+  }, [projectId]);
 
   useEffect(() => {
     if (localFile) {
@@ -340,6 +373,24 @@ function ProjectPage() {
           </motion.div>
         ) : null}
 
+        {/* Banner: render selesai (dideteksi saat user balik ke halaman project) */}
+        {renderDoneCount > 0 ? (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mt-6 flex flex-wrap items-center gap-2 rounded-2xl border border-accent/40 bg-accent/5 p-4 text-sm shadow-sm"
+          >
+            <CheckCircle2 className="size-4 text-accent" />
+            <span>
+              {renderDoneCount > 1 ? `${renderDoneCount} klip berhasil` : "Project berhasil"} dirender — masuk ke dalam halaman{" "}
+              <Link to="/unduh" className="font-semibold text-accent underline decoration-accent/40 underline-offset-2 transition-colors hover:text-accent/80">
+                /unduh
+              </Link>{" "}
+              untuk mengunduh video yang pernah kamu render.
+            </span>
+          </motion.div>
+        ) : null}
+
         {project.status === "failed" && project.error_message ? (
           <div className="mt-6 rounded-2xl border border-red-500/40 bg-red-500/5 p-4 text-sm text-red-500">
             {project.error_message}
@@ -540,26 +591,20 @@ function ClipCard({
   async function renderServerMp4() {
     if (rendering) return;
     setRendering(true);
-    setRenderProgress(0);
+    setRenderProgress(0.2);
     try {
-      toast.info("Mengirim klip ke server untuk render MP4…");
-      const { renderClipServerSide } = await import("@/lib/backend-api");
-      const result = await renderClipServerSide({
+      // BACKGROUND JOB — user boleh keluar/pindah tab, hasil via halaman /unduh
+      const { startRenderJob } = await import("@/lib/backend-api");
+      await startRenderJob({
         projectId: clip.project_id,
         clipId: clip.id,
+        clipTitle: clip.title,
         captionStyle: buildCaptionStyle(),
-        resolution: "1080x1920",
-        faceTracking: true, // auto-framing wajah SELALU aktif (wajib, tanpa toggle)
       });
       setRenderProgress(1);
-      toast.success("MP4 berhasil dirender di server!");
-      const a = document.createElement("a");
-      a.href = result.url;
-      a.download = result.file;
-      a.target = "_blank";
-      a.click();
+      toast.success("Render dimulai! Kamu boleh keluar dari halaman ini — klip akan muncul di halaman Unduhan saat selesai.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Render server gagal.");
+      toast.error(error instanceof Error ? error.message : "Gagal memulai render.");
     } finally {
       setRendering(false);
       setRenderProgress(0);

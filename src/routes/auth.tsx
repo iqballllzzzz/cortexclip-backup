@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { ArrowRight, Lock, Mail, User, CheckCircle2, Captions, TrendingUp, Zap } from "lucide-react";
 
@@ -43,6 +43,19 @@ function AuthPage() {
   const [displayName, setDisplayName] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirmSent, setConfirmSent] = useState(false);
+
+  // Sudah login → langsung dashboard (jangan tampilkan halaman auth lagi)
+  useEffect(() => {
+    let cancelled = false;
+    supabase.auth.getSession().then(({ data }) => {
+      if (!cancelled && data.session) {
+        navigate({ to: "/dashboard", replace: true });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
