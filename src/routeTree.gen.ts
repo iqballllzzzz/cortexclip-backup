@@ -16,6 +16,7 @@ import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as StudioRouteImport } from './routes/studio'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedUnduhRouteImport } from './routes/_authenticated/unduh'
+import { Route as AuthenticatedEditorClipIdRouteImport } from './routes/_authenticated/editor.$clipId'
 import { Route as AuthenticatedProjectsProjectIdRouteImport } from './routes/_authenticated/projects.$projectId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -52,6 +53,12 @@ const AuthenticatedUnduhRoute = AuthenticatedUnduhRouteImport.update({
   path: '/unduh',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedEditorClipIdRoute =
+  AuthenticatedEditorClipIdRouteImport.update({
+    id: '/editor/$clipId',
+    path: '/editor/$clipId',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedProjectsProjectIdRoute =
   AuthenticatedProjectsProjectIdRouteImport.update({
     id: '/projects/$projectId',
@@ -66,6 +73,7 @@ export interface FileRoutesByFullPath {
   '/studio': typeof StudioRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/unduh': typeof AuthenticatedUnduhRoute
+  '/editor/$clipId': typeof AuthenticatedEditorClipIdRoute
   '/projects/$projectId': typeof AuthenticatedProjectsProjectIdRoute
 }
 export interface FileRoutesByTo {
@@ -75,6 +83,7 @@ export interface FileRoutesByTo {
   '/studio': typeof StudioRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/unduh': typeof AuthenticatedUnduhRoute
+  '/editor/$clipId': typeof AuthenticatedEditorClipIdRoute
   '/projects/$projectId': typeof AuthenticatedProjectsProjectIdRoute
 }
 export interface FileRoutesById {
@@ -86,6 +95,7 @@ export interface FileRoutesById {
   '/studio': typeof StudioRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/unduh': typeof AuthenticatedUnduhRoute
+  '/_authenticated/editor/$clipId': typeof AuthenticatedEditorClipIdRoute
   '/_authenticated/projects/$projectId': typeof AuthenticatedProjectsProjectIdRoute
 }
 export interface FileRouteTypes {
@@ -97,6 +107,7 @@ export interface FileRouteTypes {
     | '/studio'
     | '/dashboard'
     | '/unduh'
+    | '/editor/$clipId'
     | '/projects/$projectId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -106,6 +117,7 @@ export interface FileRouteTypes {
     | '/studio'
     | '/dashboard'
     | '/unduh'
+    | '/editor/$clipId'
     | '/projects/$projectId'
   id:
     | '__root__'
@@ -116,6 +128,7 @@ export interface FileRouteTypes {
     | '/studio'
     | '/_authenticated/dashboard'
     | '/_authenticated/unduh'
+    | '/_authenticated/editor/$clipId'
     | '/_authenticated/projects/$projectId'
   fileRoutesById: FileRoutesById
 }
@@ -178,6 +191,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedUnduhRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/editor/$clipId': {
+      id: '/_authenticated/editor/$clipId'
+      path: '/editor/$clipId'
+      fullPath: '/editor/$clipId'
+      preLoaderRoute: typeof AuthenticatedEditorClipIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/projects/$projectId': {
       id: '/_authenticated/projects/$projectId'
       path: '/projects/$projectId'
@@ -191,12 +211,14 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedUnduhRoute: typeof AuthenticatedUnduhRoute
+  AuthenticatedEditorClipIdRoute: typeof AuthenticatedEditorClipIdRoute
   AuthenticatedProjectsProjectIdRoute: typeof AuthenticatedProjectsProjectIdRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedUnduhRoute: AuthenticatedUnduhRoute,
+  AuthenticatedEditorClipIdRoute: AuthenticatedEditorClipIdRoute,
   AuthenticatedProjectsProjectIdRoute: AuthenticatedProjectsProjectIdRoute,
 }
 

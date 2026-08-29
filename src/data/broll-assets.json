@@ -1,0 +1,652 @@
+{
+  "version": 1,
+  "generatedAt": "2026-08-29",
+  "brollSource": "Mixkit (assets.mixkit.co) — Mixkit Stock Video Free License: gratis komersial, tanpa atribusi",
+  "iconSource": "lucide-react@0.575.0 (3872 ikon tersedia di node_modules)",
+  "categories": [
+    {
+      "id": "money",
+      "label": "Uang & Bisnis",
+      "keywords": [
+        "money",
+        "cash",
+        "rich",
+        "business",
+        "invest",
+        "profit",
+        "dollar",
+        "finance",
+        "salary",
+        "income"
+      ],
+      "icons": [
+        "dollar-sign",
+        "banknote",
+        "trending-up",
+        "briefcase",
+        "coins",
+        "piggy-bank",
+        "wallet",
+        "chart-line",
+        "hand-coins",
+        "landmark",
+        "gem",
+        "chart-pie",
+        "receipt",
+        "credit-card",
+        "target",
+        "building-2"
+      ],
+      "brolls": [
+        {
+          "url": "https://assets.mixkit.co/videos/47005/47005-720.mp4",
+          "source": "mixkit",
+          "label": "Money & business clip #47005/47005"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/12748/12748-360.mp4",
+          "source": "mixkit",
+          "label": "Money & business clip #12748/12748"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/151/151-360.mp4",
+          "source": "mixkit",
+          "label": "Money & business clip #151/151"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/1781/1781-360.mp4",
+          "source": "mixkit",
+          "label": "Money & business clip #1781/1781"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/221/221-360.mp4",
+          "source": "mixkit",
+          "label": "Money & business clip #221/221"
+        }
+      ]
+    },
+    {
+      "id": "fire",
+      "label": "Api & Hype",
+      "keywords": [
+        "fire",
+        "hype",
+        "burn",
+        "hot",
+        "viral",
+        "flame",
+        "lit",
+        "explosive",
+        "trending"
+      ],
+      "icons": [
+        "flame",
+        "zap",
+        "rocket",
+        "trending-up",
+        "sparkles",
+        "star",
+        "battery-charging",
+        "flame-kindling",
+        "sun",
+        "activity",
+        "gauge",
+        "siren",
+        "megaphone",
+        "party-popper",
+        "crown",
+        "gem"
+      ],
+      "brolls": [
+        {
+          "url": "https://assets.mixkit.co/videos/45676/45676-720.mp4",
+          "source": "mixkit",
+          "label": "Fire & hype clip #45676/45676"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/11028/11028-360.mp4",
+          "source": "mixkit",
+          "label": "Fire & hype clip #11028/11028"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/1243/1243-1080.mp4",
+          "source": "mixkit",
+          "label": "Fire & hype clip #1243/1243"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/1243/1243-360.mp4",
+          "source": "mixkit",
+          "label": "Fire & hype clip #1243/1243"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/18052/18052-360.mp4",
+          "source": "mixkit",
+          "label": "Fire & hype clip #18052/18052"
+        }
+      ]
+    },
+    {
+      "id": "success",
+      "label": "Sukses & Kemenangan",
+      "keywords": [
+        "success",
+        "win",
+        "achieve",
+        "goal",
+        "trophy",
+        "champion",
+        "victory",
+        "celebrate",
+        "award",
+        "milestone"
+      ],
+      "icons": [
+        "trophy",
+        "medal",
+        "award",
+        "crown",
+        "target",
+        "circle-check-big",
+        "thumbs-up",
+        "star",
+        "flag",
+        "party-popper",
+        "handshake",
+        "sparkles",
+        "badge-check",
+        "graduation-cap",
+        "chart-bar"
+      ],
+      "brolls": [
+        {
+          "url": "https://assets.mixkit.co/videos/31135/31135-720.mp4",
+          "source": "mixkit",
+          "label": "Success & celebration clip #31135/31135"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/33031/33031-720.mp4",
+          "source": "mixkit",
+          "label": "Success & celebration clip #33031/33031"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/35587/35587-720.mp4",
+          "source": "mixkit",
+          "label": "Success & celebration clip #35587/35587"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/37013/37013-720.mp4",
+          "source": "mixkit",
+          "label": "Success & celebration clip #37013/37013"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/45417/45417-720.mp4",
+          "source": "mixkit",
+          "label": "Success & celebration clip #45417/45417"
+        }
+      ]
+    },
+    {
+      "id": "tech",
+      "label": "Teknologi & AI",
+      "keywords": [
+        "tech",
+        "ai",
+        "technology",
+        "computer",
+        "code",
+        "software",
+        "robot",
+        "data",
+        "digital",
+        "startup",
+        "machine",
+        "algorithm"
+      ],
+      "icons": [
+        "cpu",
+        "brain-circuit",
+        "bot",
+        "code",
+        "terminal",
+        "database",
+        "cloud",
+        "server",
+        "circuit-board",
+        "brain",
+        "wifi",
+        "settings",
+        "smartphone",
+        "layers",
+        "binary"
+      ],
+      "brolls": [
+        {
+          "url": "https://assets.mixkit.co/videos/46635/46635-720.mp4",
+          "source": "mixkit",
+          "label": "Technology & ai clip #46635/46635"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/9757/9757-720.mp4",
+          "source": "mixkit",
+          "label": "Technology & ai clip #9757/9757"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/1140/1140-360.mp4",
+          "source": "mixkit",
+          "label": "Technology & ai clip #1140/1140"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/12748/12748-360.mp4",
+          "source": "mixkit",
+          "label": "Technology & ai clip #12748/12748"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/221/221-360.mp4",
+          "source": "mixkit",
+          "label": "Technology & ai clip #221/221"
+        }
+      ]
+    },
+    {
+      "id": "city",
+      "label": "Kota & Urban",
+      "keywords": [
+        "city",
+        "urban",
+        "street",
+        "building",
+        "skyline",
+        "traffic",
+        "metropolis",
+        "downtown",
+        "skyscraper"
+      ],
+      "icons": [
+        "building-2",
+        "map-pin",
+        "navigation",
+        "building",
+        "train-front",
+        "car",
+        "bus",
+        "traffic-cone",
+        "route",
+        "globe",
+        "plane",
+        "camera",
+        "signal-high",
+        "network",
+        "hash",
+        "gauge"
+      ],
+      "brolls": [
+        {
+          "url": "https://assets.mixkit.co/active_storage/video_items/100417/1724199603/100417-video-360.mp4",
+          "source": "mixkit",
+          "label": "City & urban clip #https://assets.mixkit.co/active_storage/video_items/100417/1724199603/100417"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/11/11-360.mp4",
+          "source": "mixkit",
+          "label": "City & urban clip #11/11"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/151/151-360.mp4",
+          "source": "mixkit",
+          "label": "City & urban clip #151/151"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/1606/1606-1080.mp4",
+          "source": "mixkit",
+          "label": "City & urban clip #1606/1606"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/1606/1606-360.mp4",
+          "source": "mixkit",
+          "label": "City & urban clip #1606/1606"
+        }
+      ]
+    },
+    {
+      "id": "nature",
+      "label": "Alam & Relaks",
+      "keywords": [
+        "nature",
+        "calm",
+        "relax",
+        "forest",
+        "ocean",
+        "mountain",
+        "peaceful",
+        "scenic",
+        "water",
+        "sky",
+        "meditate"
+      ],
+      "icons": [
+        "leaf",
+        "trees",
+        "mountain-snow",
+        "waves",
+        "sun",
+        "cloud",
+        "flower-2",
+        "bird",
+        "sprout",
+        "sunrise",
+        "moon",
+        "wind",
+        "snowflake",
+        "droplets",
+        "tree-pine",
+        "mountain"
+      ],
+      "brolls": [
+        {
+          "url": "https://assets.mixkit.co/active_storage/video_items/100195/1721338072/100195-video-360.mp4",
+          "source": "mixkit",
+          "label": "Nature & relaxing clip #https://assets.mixkit.co/active_storage/video_items/100195/1721338072/100195"
+        },
+        {
+          "url": "https://assets.mixkit.co/active_storage/video_items/100223/1721860447/100223-video-360.mp4",
+          "source": "mixkit",
+          "label": "Nature & relaxing clip #https://assets.mixkit.co/active_storage/video_items/100223/1721860447/100223"
+        },
+        {
+          "url": "https://assets.mixkit.co/active_storage/video_items/100228/1721863931/100228-video-360.mp4",
+          "source": "mixkit",
+          "label": "Nature & relaxing clip #https://assets.mixkit.co/active_storage/video_items/100228/1721863931/100228"
+        },
+        {
+          "url": "https://assets.mixkit.co/active_storage/video_items/100415/1724198576/100415-video-1080.mp4",
+          "source": "mixkit",
+          "label": "Nature & relaxing clip #https://assets.mixkit.co/active_storage/video_items/100415/1724198576/100415"
+        },
+        {
+          "url": "https://assets.mixkit.co/active_storage/video_items/100415/1724198576/100415-video-360.mp4",
+          "source": "mixkit",
+          "label": "Nature & relaxing clip #https://assets.mixkit.co/active_storage/video_items/100415/1724198576/100415"
+        }
+      ]
+    },
+    {
+      "id": "fitness",
+      "label": "Fitnes & Olahraga",
+      "keywords": [
+        "fitness",
+        "gym",
+        "workout",
+        "sport",
+        "exercise",
+        "training",
+        "muscle",
+        "run",
+        "health",
+        "athlete"
+      ],
+      "icons": [
+        "dumbbell",
+        "heart-pulse",
+        "activity",
+        "biceps-flexed",
+        "footprints",
+        "timer",
+        "medal",
+        "flame",
+        "battery-charging",
+        "zap",
+        "gauge",
+        "stethoscope",
+        "salad",
+        "apple",
+        "move"
+      ],
+      "brolls": [
+        {
+          "url": "https://assets.mixkit.co/videos/23056/23056-720.mp4",
+          "source": "mixkit",
+          "label": "Fitness & workout clip #23056/23056"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/45874/45874-720.mp4",
+          "source": "mixkit",
+          "label": "Fitness & workout clip #45874/45874"
+        },
+        {
+          "url": "https://assets.mixkit.co/active_storage/video_items/100520/1725382896/100520-video-360.mp4",
+          "source": "mixkit",
+          "label": "Fitness & workout clip #https://assets.mixkit.co/active_storage/video_items/100520/1725382896/100520"
+        },
+        {
+          "url": "https://assets.mixkit.co/active_storage/video_items/100522/1725383001/100522-video-360.mp4",
+          "source": "mixkit",
+          "label": "Fitness & workout clip #https://assets.mixkit.co/active_storage/video_items/100522/1725383001/100522"
+        },
+        {
+          "url": "https://assets.mixkit.co/active_storage/video_items/100523/1725383056/100523-video-360.mp4",
+          "source": "mixkit",
+          "label": "Fitness & workout clip #https://assets.mixkit.co/active_storage/video_items/100523/1725383056/100523"
+        }
+      ]
+    },
+    {
+      "id": "food",
+      "label": "Makanan & Kuliner",
+      "keywords": [
+        "food",
+        "eat",
+        "cook",
+        "recipe",
+        "restaurant",
+        "meal",
+        "delicious",
+        "kitchen",
+        "snack",
+        "coffee"
+      ],
+      "icons": [
+        "utensils",
+        "coffee",
+        "pizza",
+        "chef-hat",
+        "egg-fried",
+        "salad",
+        "cake-slice",
+        "cup-soda",
+        "apple",
+        "wheat",
+        "wine",
+        "ice-cream-cone",
+        "sandwich",
+        "soup",
+        "croissant",
+        "beef"
+      ],
+      "brolls": [
+        {
+          "url": "https://assets.mixkit.co/videos/49231/49231-720.mp4",
+          "source": "mixkit",
+          "label": "Food & cooking clip #49231/49231"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/10419/10419-360.mp4",
+          "source": "mixkit",
+          "label": "Food & cooking clip #10419/10419"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/10420/10420-360.mp4",
+          "source": "mixkit",
+          "label": "Food & cooking clip #10420/10420"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/10424/10424-360.mp4",
+          "source": "mixkit",
+          "label": "Food & cooking clip #10424/10424"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/10428/10428-360.mp4",
+          "source": "mixkit",
+          "label": "Food & cooking clip #10428/10428"
+        }
+      ]
+    },
+    {
+      "id": "travel",
+      "label": "Perjalanan & Petualangan",
+      "keywords": [
+        "travel",
+        "trip",
+        "vacation",
+        "adventure",
+        "journey",
+        "explore",
+        "holiday",
+        "flight",
+        "tour",
+        "destination"
+      ],
+      "icons": [
+        "plane",
+        "map",
+        "compass",
+        "luggage",
+        "globe",
+        "map-pin",
+        "camera",
+        "tent",
+        "mountain",
+        "sailboat",
+        "car-front",
+        "ticket",
+        "sunrise",
+        "route",
+        "backpack",
+        "palmtree"
+      ],
+      "brolls": [
+        {
+          "url": "https://assets.mixkit.co/active_storage/video_items/100223/1721860447/100223-video-360.mp4",
+          "source": "mixkit",
+          "label": "Travel & adventure clip #https://assets.mixkit.co/active_storage/video_items/100223/1721860447/100223"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/39912/39912-1080.mp4",
+          "source": "mixkit",
+          "label": "Travel & adventure clip #39912/39912"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/39912/39912-360.mp4",
+          "source": "mixkit",
+          "label": "Travel & adventure clip #39912/39912"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/40102/40102-360.mp4",
+          "source": "mixkit",
+          "label": "Travel & adventure clip #40102/40102"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/4028/4028-360.mp4",
+          "source": "mixkit",
+          "label": "Travel & adventure clip #4028/4028"
+        }
+      ]
+    },
+    {
+      "id": "people",
+      "label": "Orang & Percakapan",
+      "keywords": [
+        "people",
+        "talking",
+        "conversation",
+        "interview",
+        "podcast",
+        "discussion",
+        "team",
+        "crowd",
+        "meeting",
+        "speaking"
+      ],
+      "icons": [
+        "users",
+        "message-circle",
+        "mic",
+        "messages-square",
+        "user-round",
+        "speech",
+        "headphones",
+        "podcast",
+        "video",
+        "phone",
+        "user-check",
+        "smile",
+        "handshake",
+        "users-round",
+        "megaphone",
+        "contact"
+      ],
+      "brolls": [
+        {
+          "url": "https://assets.mixkit.co/videos/151/151-360.mp4",
+          "source": "mixkit",
+          "label": "People talking & interview clip #151/151"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/221/221-360.mp4",
+          "source": "mixkit",
+          "label": "People talking & interview clip #221/221"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/3428/3428-1080.mp4",
+          "source": "mixkit",
+          "label": "People talking & interview clip #3428/3428"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/3428/3428-360.mp4",
+          "source": "mixkit",
+          "label": "People talking & interview clip #3428/3428"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/3469/3469-360.mp4",
+          "source": "mixkit",
+          "label": "People talking & interview clip #3469/3469"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/4000/4000-360.mp4",
+          "source": "mixkit",
+          "label": "People talking & interview clip #4000/4000"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/49252/49252-720.mp4",
+          "source": "mixkit",
+          "label": "People talking & interview clip #49252/49252"
+        },
+        {
+          "url": "https://assets.mixkit.co/videos/49470/49470-720.mp4",
+          "source": "mixkit",
+          "label": "People talking & interview clip #49470/49470"
+        }
+      ]
+    }
+  ],
+  "apiFallback": {
+    "pexels": {
+      "note": "Pexels Video API gratis (unlimited requests). Daftar di https://www.pexels.com/api/ untuk mendapatkan API key, lalu GET https://api.pexels.com/videos/search?query=<kategori>&per_page=15 dengan header Authorization: <API_KEY>. Respon berisi field video.files[].link (URL mp4 CDN, hotlink stabil). Tanpa key, asset CDN Pexels tetap bisa diakses langsung jika URL-nya diketahui.",
+      "signup": "https://www.pexels.com/api/",
+      "docs": "https://www.pexels.com/api/documentation/"
+    },
+    "pixabay": {
+      "note": "Pixabay API gratis (key otomatis setelah daftar). GET https://pixabay.com/api/videos/?key=<KEY>&q=<kategori> mengembalikan field hits[].videos.<res>.url (mp4 CDN, hotlink stabil). Rate limit: 100 request/menit, 5000/jam.",
+      "signup": "https://pixabay.com/api/docs/"
+    },
+    "mixkit": {
+      "note": "Mixkit tidak punya API resmi, tapi seluruh asset di assets.mixkit.co bisa di-hotlink langsung tanpa key (Mixkit License: gratis untuk komersial, tanpa atribusi). URL stabil dengan pola https://assets.mixkit.co/videos/<id>/<id>-<res>.mp4.",
+      "license": "https://mixkit.co/license/"
+    },
+    "coverr": {
+      "note": "Coverr menyediakan beberapa video via CDN domain coverr.co yang bisa di-hotlink. Tidak ada API publik resmi; daftar video dapat diambil dari https://coverr.co/sitemap.xml atau JSON list dari https://coverr.co/data.json (struktur dapat berubah)."
+    },
+    "videvo": {
+      "note": "Videvo punya API untuk akun berbayar; vide gratis di situs memerlukan atribusi tergantung lisensi. Tidak direkomendasikan untuk hotlink otomatis."
+    }
+  }
+}

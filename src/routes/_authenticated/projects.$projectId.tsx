@@ -637,13 +637,15 @@ function ClipCard({
           </p>
         </div>
         <Button
-          variant={expanded ? "secondary" : "ghost"}
+          variant="ghost"
           size="sm"
-          onClick={onToggle}
+          asChild
           className="group"
         >
-          <Play className="size-4" /> {expanded ? "Tutup" : "Buka editor"}
-          <ChevronDown className={`ml-0.5 size-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} />
+          <Link to="/editor/$clipId" params={{ clipId: clip.id }}>
+            <Play className="size-4" /> Buka editor
+            <ChevronDown className="ml-0.5 size-3.5 transition-transform group-hover:translate-x-0.5" />
+          </Link>
         </Button>
       </div>
 
