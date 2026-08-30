@@ -342,11 +342,11 @@ function EditorPage() {
 
             {/* watermark preview (visualisasi) */}
             {!watermarkRemoved ? (
-              <div className="pointer-events-none absolute left-[5.5%] top-[4.5%] flex items-center gap-2 opacity-65">
-                <img src="/favicon.png" alt="" className="h-7 w-7 rounded-md object-contain" />
+              <div className="pointer-events-none absolute left-[5.5%] top-[4.5%] flex items-center gap-2.5 opacity-65">
+                <img src="/watermark-logo.png" alt="" className="h-12 w-12 object-contain" />
                 <div className="leading-tight">
-                  <p className="text-[13px] font-bold text-white">CortexClipAI</p>
-                  <p className="text-[6.5px] text-white/90">AI that can help many people, made in Indonesia</p>
+                  <p className="text-lg font-bold text-white">CortexClipAI</p>
+                  <p className="text-[8.5px] text-white/90">AI that can help many people, made in Indonesia</p>
                 </div>
               </div>
             ) : null}
