@@ -52,6 +52,32 @@ const POWER_WORDS = new Set([
   "benar", "salah", "penting", "wajib", "terbaik", "terbesar", "cepat",
 ]);
 
+/** Emoji per kata kunci (EN + ID) — mirror kecil dari backend overlay_to_ass. */
+const WORD_EMOJI: Record<string, string> = {
+  money: "💰", cash: "💰", rich: "💰", uang: "💰", duit: "💰", cuan: "💰",
+  kaya: "💰", juta: "💰", miliar: "💰", rupiah: "💰", gaji: "💰", harga: "💰",
+  fire: "🔥", api: "🔥", panas: "🔥", viral: "🔥", gila: "🔥", heboh: "🔥",
+  win: "🏆", menang: "🏆", juara: "🏆", sukses: "🏆", berhasil: "🏆",
+  best: "⭐", terbaik: "⭐", bagus: "⭐", keren: "⭐", top: "⭐",
+  love: "❤️", cinta: "❤️", hati: "❤️",
+  rocket: "🚀", naik: "🚀", gas: "🚀", terbang: "🚀",
+  brain: "🧠", pintar: "🧠", cerdas: "🧠", pikir: "🧠",
+  fast: "⚡", cepat: "⚡", kilat: "⚡",
+  strong: "💪", kuat: "💪", otot: "💪",
+  laugh: "😂", lucu: "😂", haha: "😂", ketawa: "😂",
+  sad: "😢", nangis: "😢", sedih: "😢",
+  angry: "😡", marah: "😡", emosi: "😡",
+  food: "🍽️", makan: "🍽️", makanan: "🍽️", enak: "🍽️",
+  gym: "🏋️", olahraga: "🏋️", latihan: "🏋️",
+  travel: "✈️", liburan: "✈️", jalan: "✈️",
+  king: "👑", raja: "👑", boss: "👑",
+  idea: "💡", solusi: "💡", trik: "💡",
+  warning: "⚠️", hatihati: "⚠️", bahaya: "⚠️", awas: "⚠️",
+  yes: "✅", bener: "✅", betul: "✅", setuju: "✅",
+  no: "❌", salah: "❌", jangan: "❌",
+  shock: "😱", kaget: "😱", kagetbanget: "😱",
+};
+
 function normalizeToken(text: string) {
   return (text || "").toLowerCase().replace(/[^a-z0-9%]/g, "");
 }
@@ -60,6 +86,12 @@ function isEmphasis(word: string) {
   const t = normalizeToken(word);
   if (!t) return false;
   return POWER_WORDS.has(t) || /\d/.test(t);
+}
+
+/** Emoji utk kata (kalau ada di map), null kalau bukan kata kunci. */
+export function wordEmoji(word: string): string | null {
+  const t = normalizeToken(word);
+  return WORD_EMOJI[t] ?? null;
 }
 
 /** Bagi kata jadi baris (maxWords per baris — mirror backend). */
@@ -77,6 +109,7 @@ export function LiveCaptionOverlay({
   style,
   containerWidth = 360,
   className,
+  showEmoji = false,
 }: {
   words: LiveWord[];
   /** waktu video saat ini (detik, relatif klip) */
@@ -85,6 +118,8 @@ export function LiveCaptionOverlay({
   /** lebar container preview (px) — untuk skala font */
   containerWidth?: number;
   className?: string;
+  /** tampilkan emoji di samping kata kunci (fitur "Tambahkan Emoji") */
+  showEmoji?: boolean;
 }) {
   const scale = containerWidth / 360;
 
@@ -153,6 +188,14 @@ export function LiveCaptionOverlay({
               }}
             >
               {text}
+              {showEmoji && isActive ? (
+                <span
+                  className="ml-[0.15em] align-middle"
+                  style={{ fontSize: `${fontSize * 0.9}px`, display: "inline-block" }}
+                >
+                  {wordEmoji(w.word)}
+                </span>
+              ) : null}
             </span>
           );
         })}

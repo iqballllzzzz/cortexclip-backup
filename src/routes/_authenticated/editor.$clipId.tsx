@@ -63,6 +63,7 @@ function EditorPage() {
   // video player state
   const videoRef = useRef<HTMLVideoElement>(null);
   const fitRef = useRef<HTMLDivElement>(null);
+  const lastTimeRef = useRef(0);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   // ukuran canvas 9:16 hasil hitung fit (selalu terlihat di semua viewport)
@@ -79,6 +80,10 @@ function EditorPage() {
   const [brollEnabled, setBrollEnabled] = useState(false);
   const [brollSearching, setBrollSearching] = useState(false);
   const [emojiEnabled, setEmojiEnabled] = useState(false);
+  // hasil AI placement (momen ikon/b-roll) — tampil live di canvas
+  const [livePlacements, setLivePlacements] = useState<
+    { time_start: number; time_end: number; category: string; iconEmoji?: string; side: string; animation: string }[]
+  >([]);
 
   // watermark ads
   const [adsWatched, setAdsWatched] = useState(0);
@@ -180,26 +185,8 @@ function EditorPage() {
     return () => ro.disconnect();
   }, [loading]);
 
-  // rAF time sync — update hanya kalau beda >90ms (hindari re-render 60fps
-  // yang bikin HP lemot dan karaoke kayak "diem"; karaoke cukup ~11fps)
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    let raf = 0;
-    let last = -1;
-    const tick = () => {
-      if (!video.paused) {
-        const t = video.currentTime;
-        if (Math.abs(t - last) > 0.09) {
-          last = t;
-          setTime(t);
-        }
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [clip?.preview_url]);
+  // time sync via onTimeUpdate di <video> (React handler — anti stale element).
+  // rAF loop lama dihapus: nge-refer elemen video lama hasil remount → time beku.
 
   const preset = getPreset(presetId);
   const effPosition = position ?? preset.style.position;
@@ -331,6 +318,15 @@ function EditorPage() {
                 className="absolute inset-0 size-full object-cover"
                 onClick={togglePlay}
                 onEnded={() => setPlaying(false)}
+                onPlay={() => setPlaying(true)}
+                onPause={() => setPlaying(false)}
+                onTimeUpdate={(e) => {
+                  const t = e.currentTarget.currentTime;
+                  if (Math.abs(t - lastTimeRef.current) > 0.09) {
+                    lastTimeRef.current = t;
+                    setTime(t);
+                  }
+                }}
               />
             ) : (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-neutral-500">
@@ -345,8 +341,34 @@ function EditorPage() {
               </div>
             )}
 
-            {/* LIVE subtitle overlay */}
-            <LiveCaptionOverlay words={words} time={time} style={liveStyle} containerWidth={fit.w} />
+            {/* LIVE subtitle overlay (+ emoji pada kata kunci) */}
+            <LiveCaptionOverlay words={words} time={time} style={liveStyle} containerWidth={fit.w} showEmoji={emojiEnabled} />
+
+            {/* IKON & B-ROLL overlay live (dari AI placement — muncul animasi) */}
+            {brollEnabled && livePlacements.length > 0
+              ? livePlacements
+                  .filter((p) => time >= p.time_start && time <= p.time_end)
+                  .map((p, idx) => {
+                    const t = Math.min(1, (time - p.time_start) / 0.45);
+                    const dx = (1 - t) * (p.side === "left" ? -fit.w * 0.6 : fit.w * 0.6);
+                    const dy = p.animation === "slide-up" ? (1 - t) * fit.h * 0.2 : p.animation === "slide-down" ? -(1 - t) * fit.h * 0.2 : 0;
+                    const emoji = p.iconEmoji ?? "✨";
+                    return (
+                      <div
+                        key={`${p.time_start}-${idx}`}
+                        className="pointer-events-none absolute flex items-center justify-center"
+                        style={{
+                          left: `${p.side === "left" ? 20 : 80}%`,
+                          top: "38%",
+                          transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`,
+                          opacity: Math.min(1, t * 1.4),
+                        }}
+                      >
+                        <span style={{ fontSize: fit.w * 0.16, filter: "drop-shadow(0 2px 6px rgba(0,0,0,0.5))" }}>{emoji}</span>
+                      </div>
+                    );
+                  })
+              : null}
 
             {/* watermark preview (visualisasi) — skala PROPORTIONAL ke canvas (32% lebar) */}
             {!watermarkRemoved ? (
@@ -438,9 +460,23 @@ function EditorPage() {
                     enabled={brollEnabled}
                     onChange={async (v) => {
                       setBrollEnabled(v);
-                      if (v) {
+                      if (v && clip) {
                         setBrollSearching(true);
-                        setTimeout(() => setBrollSearching(false), 2200);
+                        try {
+                          const token = await getAccessToken();
+                          const res = await fetch("http://178.128.82.140:8787/api/broll/placements", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                            body: JSON.stringify({ project_id: clip.project_id, clip_id: clip.id }),
+                          });
+                          if (res.ok) {
+                            const d = await res.json();
+                            setLivePlacements(d.placements ?? []);
+                          }
+                        } catch { /* offline: coba lagi nanti */ }
+                        finally { setTimeout(() => setBrollSearching(false), 600); }
+                      } else {
+                        setLivePlacements([]);
                       }
                     }}
                   />
