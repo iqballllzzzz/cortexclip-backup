@@ -62,10 +62,11 @@ function EditorPage() {
 
   // video player state
   const videoRef = useRef<HTMLVideoElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const fitRef = useRef<HTMLDivElement>(null);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [containerW, setContainerW] = useState(360);
+  // ukuran canvas 9:16 hasil hitung fit (selalu terlihat di semua viewport)
+  const [fit, setFit] = useState({ w: 216, h: 384 });
 
   // tool state
   const [activeTool, setActiveTool] = useState<ToolId>("subtitle");
@@ -160,11 +161,19 @@ function EditorPage() {
     [clip],
   );
 
-  // measure container
+  // measure container — hitung ukuran canvas 9:16 yang fit di area canvas
   useEffect(() => {
-    const el = containerRef.current;
+    const el = fitRef.current;
     if (!el) return;
-    const update = () => setContainerW(el.clientWidth || 360);
+    const update = () => {
+      const availW = el.clientWidth;
+      const availH = el.clientHeight;
+      if (availW < 40 || availH < 40) return;
+      // 9:16 → h = w × 16/9; fit BOTH dims + sisakan ruang timeline (~44px)
+      const h = Math.min(availH - 44, (availW * 16) / 9);
+      const w = (h * 9) / 16;
+      setFit({ w: Math.round(w), h: Math.round(h) });
+    };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
@@ -297,16 +306,13 @@ function EditorPage() {
         </Button>
       </header>
 
-      {/* ===== BODY: canvas kiri + panel kanan ===== */}
-      <div className="flex min-h-0 flex-1">
-        {/* Canvas area */}
-        <div className="flex min-w-0 flex-1 flex-col items-center justify-center overflow-hidden p-4 lg:p-8">
+      {/* ===== BODY: canvas + track area (mobile: bawah kecil; desktop: panel kanan) ===== */}
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+        {/* Canvas area — fitRef mengukur ruang; canvas 9:16 fit sempurna di semua viewport */}
+        <div ref={fitRef} className="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 overflow-hidden p-3 lg:p-6">
           <div
-            ref={containerRef}
-            className="relative overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl"
-            // height-driven 9:16: tinggi mengikuti ruang tersedia (h-full container),
-            // lebar = tinggi × 9/16 — canvas SELALU terlihat, tidak collapse
-            style={{ height: "min(100%, calc((100vw - 384px) * 16 / 9))", aspectRatio: "9 / 16", maxWidth: "100%" }}
+            className="relative shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl"
+            style={{ width: fit.w, height: fit.h }}
           >
             {clip.preview_url ? (
               <video
@@ -332,7 +338,7 @@ function EditorPage() {
             )}
 
             {/* LIVE subtitle overlay */}
-            <LiveCaptionOverlay words={words} time={time} style={liveStyle} containerWidth={containerW} />
+            <LiveCaptionOverlay words={words} time={time} style={liveStyle} containerWidth={fit.w} />
 
             {/* watermark preview (visualisasi) */}
             {!watermarkRemoved ? (
@@ -369,10 +375,9 @@ function EditorPage() {
           </div>
         </div>
 
-        {/* ===== RIGHT PANEL (track area) ===== */}
-        {/* Panel kanan (desktop) / bottom-sheet (mobile) — SELALU TERLIHAT */}
-        <aside className="fixed inset-x-0 bottom-16 z-30 max-h-[55vh] overflow-y-auto border-t border-white/10 bg-neutral-900/95 p-4 backdrop-blur md:static md:z-auto md:max-h-none md:w-[340px] md:shrink-0 md:border-l md:border-t-0 md:bg-neutral-900/60 md:p-4 md:backdrop-blur-none md:flex">
-          <div className="flex-1 overflow-y-auto p-4">
+        {/* ===== TRACK AREA — kecil, scroll DI DALAM (mobile: bawah; desktop: kanan) ===== */}
+        <aside className="h-[190px] w-full shrink-0 border-t border-white/10 bg-neutral-900/95 md:h-auto md:w-[300px] md:border-l md:border-t-0 md:bg-neutral-900/60">
+          <div className="h-full overflow-y-auto overscroll-contain p-3">
             <AnimatePresence mode="wait">
               {activeTool === "info" ? (
                 <motion.div key="info" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className="space-y-4">
