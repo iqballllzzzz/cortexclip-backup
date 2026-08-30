@@ -188,7 +188,7 @@ export function LiveCaptionOverlay({
               }}
             >
               {text}
-              {showEmoji && isActive ? (
+              {showEmoji && isActive && wordEmoji(w.word) ? (
                 <span
                   className="ml-[0.15em] align-middle"
                   style={{ fontSize: `${fontSize * 0.9}px`, display: "inline-block" }}
@@ -200,6 +200,30 @@ export function LiveCaptionOverlay({
           );
         })}
       </div>
+      {/* Emoji terpisah dari flow teks — subtitle TIDAK bergeser saat muncul */}
+      {showEmoji && activeLine
+        ? (() => {
+            const em = activeLine.find((w) => {
+              const e = wordEmoji(w.word);
+              return e && time >= w.start && time < w.end;
+            });
+            if (!em) return null;
+            const emoji = wordEmoji(em.word);
+            return (
+              <span
+                className="pointer-events-none absolute"
+                style={{
+                  right: "4%",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  fontSize: `${fontSize * 1.1}px`,
+                }}
+              >
+                {emoji}
+              </span>
+            );
+          })()
+        : null}
     </div>
   );
 }

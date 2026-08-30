@@ -18,6 +18,7 @@ import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
 import { getPreset, SubtitleStylePicker, DEFAULT_SUBTITLE_PRESET } from "@/components/subtitle-styles";
+import { ColoredIcon } from "@/components/colored-icon";
 import { LiveCaptionOverlay, type LiveCaptionStyle, type LiveWord } from "@/components/live-caption-overlay";
 import { startRenderJob, getAccessToken } from "@/lib/backend-api";
 import { Button } from "@/components/ui/button";
@@ -82,7 +83,7 @@ function EditorPage() {
   const [emojiEnabled, setEmojiEnabled] = useState(false);
   // hasil AI placement (momen ikon/b-roll) — tampil live di canvas
   const [livePlacements, setLivePlacements] = useState<
-    { time_start: number; time_end: number; category: string; iconEmoji?: string; side: string; animation: string }[]
+    { time_start: number; time_end: number; category: string; icon?: string | null; iconEmoji?: string; side: string; animation: string }[]
   >([]);
 
   // watermark ads
@@ -229,6 +230,18 @@ function EditorPage() {
     if (!clip || submitting) return;
     setSubmitting(true);
     try {
+      // cek antrean dulu: kalau ada render lain jalan → pesan nomor antrean
+      let queueNote = "";
+      try {
+        const tokenQ = await getAccessToken();
+        const res = await fetch("http://178.128.82.140:8787/api/render-jobs/queue-position/x", {
+          headers: { Authorization: `Bearer ${tokenQ}` },
+        });
+        if (res.ok) {
+          const d = await res.json();
+          if (d.total_active > 0) queueNote = ` Anda ada di nomor antrean ke ${d.total_active + 1}.`;
+        }
+      } catch { /* abaikan */ }
       await startRenderJob({
         projectId: clip.project_id,
         clipId: clip.id,
@@ -248,7 +261,11 @@ function EditorPage() {
           broll: brollEnabled,
         },
       });
-      toast.success("Render dimulai! Hasilnya muncul di halaman /unduh saat selesai.");
+      toast.success(
+        queueNote
+          ? `Sedang mengantri untuk merender video.${queueNote}`
+          : "Merender video agar siap di unduh — hasilnya muncul di halaman /unduh."
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Gagal memulai render");
     } finally {
@@ -344,30 +361,27 @@ function EditorPage() {
             {/* LIVE subtitle overlay (+ emoji pada kata kunci) */}
             <LiveCaptionOverlay words={words} time={time} style={liveStyle} containerWidth={fit.w} showEmoji={emojiEnabled} />
 
-            {/* IKON & B-ROLL overlay live (dari AI placement — muncul animasi) */}
+            {/* IKON & B-ROLL overlay live — SVG berwarna, animasi CSS SMOOTH */}
             {brollEnabled && livePlacements.length > 0
-              ? livePlacements
-                  .filter((p) => time >= p.time_start && time <= p.time_end)
-                  .map((p, idx) => {
-                    const t = Math.min(1, (time - p.time_start) / 0.45);
-                    const dx = (1 - t) * (p.side === "left" ? -fit.w * 0.6 : fit.w * 0.6);
-                    const dy = p.animation === "slide-up" ? (1 - t) * fit.h * 0.2 : p.animation === "slide-down" ? -(1 - t) * fit.h * 0.2 : 0;
-                    const emoji = p.iconEmoji ?? "✨";
-                    return (
-                      <div
-                        key={`${p.time_start}-${idx}`}
-                        className="pointer-events-none absolute flex items-center justify-center"
-                        style={{
-                          left: `${p.side === "left" ? 20 : 80}%`,
-                          top: "38%",
-                          transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`,
-                          opacity: Math.min(1, t * 1.4),
-                        }}
-                      >
-                        <span style={{ fontSize: fit.w * 0.16, filter: "drop-shadow(0 2px 6px rgba(0,0,0,0.5))" }}>{emoji}</span>
+              ? livePlacements.map((p, idx) => {
+                  const active = time >= p.time_start && time <= p.time_end;
+                  return (
+                    <div
+                      key={`${p.time_start}-${idx}`}
+                      className="pointer-events-none absolute flex items-center justify-center transition-[transform,opacity] duration-500 ease-out"
+                      style={{
+                        left: p.side === "left" ? "20%" : "80%",
+                        top: "38%",
+                        transform: `translate(-50%, -50%) translateX(${active ? 0 : (p.side === "left" ? -1 : 1) * fit.w * 0.7}px)`,
+                        opacity: active ? 1 : 0,
+                      }}
+                    >
+                      <div style={{ width: fit.w * 0.24, height: fit.w * 0.24 }}>
+                        <ColoredIcon category={p.category} icon={p.icon ?? undefined} />
                       </div>
-                    );
-                  })
+                    </div>
+                  );
+                })
               : null}
 
             {/* watermark preview (visualisasi) — skala PROPORTIONAL ke canvas (32% lebar) */}

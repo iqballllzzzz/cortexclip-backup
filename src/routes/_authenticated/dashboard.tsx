@@ -19,11 +19,16 @@ import {
   FolderOpen,
   Youtube,
   FileVideo,
+  MoreVertical,
+  Share2,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { shareProject, renameProject, deleteProject, processYoutube } from "@/lib/project-api";
 import type { Database } from "@/integrations/supabase/types";
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
@@ -77,6 +82,13 @@ function Dashboard() {
   const [creating, setCreating] = useState(false);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [ytBusy, setYtBusy] = useState(false);
+  // menu konteks per project (titik tiga)
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<Project | null>(null);
+  const [renameTarget, setRenameTarget] = useState<Project | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [sharing, setSharing] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const uploadRef = useRef<XMLHttpRequest | null>(null);
 
@@ -140,24 +152,57 @@ function Dashboard() {
 
   async function createFromYoutube() {
     const url = youtubeUrl.trim();
-    if (!url) {
-      toast.error("Tempel link YouTube dulu.");
+    if (!/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(url)) {
+      toast.error("Masukkan link YouTube yang valid.");
       return;
     }
-    setCreating(true);
+    setYtBusy(true);
     try {
-      const { data, error } = await supabase
-        .from("projects")
-        .insert({ user_id: user.id, title: "Video YouTube", source_type: "youtube", source_url: url, status: "processing" })
-        .select()
-        .single();
-      if (error || !data) throw error ?? new Error("Gagal membuat proyek");
-      toast.success("Proyek YouTube dibuat — AI mulai memproses.");
-      window.location.reload();
+      await processYoutube(url);
+      toast.success("Video YouTube diunduh di server — AI langsung memproses. Pantau di Proyek Terbaru.");
+      setYoutubeUrl("");
+      setTimeout(() => window.location.reload(), 1200);
     } catch (err) {
-      console.error(err);
-      toast.error(err instanceof Error ? err.message : "Gagal membuat proyek");
-      setCreating(false);
+      toast.error(err instanceof Error ? err.message : "Gagal memproses YouTube");
+      setYtBusy(false);
+    }
+  }
+
+  async function handleShare(p: Project) {
+    setSharing(true);
+    try {
+      const r = await shareProject(p.id);
+      await navigator.clipboard.writeText(r.url);
+      toast.success("Link dibuat (berlaku 1 minggu) & tersalin ke clipboard — tinggal kirim!");
+    } catch {
+      toast.error("Gagal membuat link share");
+    } finally {
+      setSharing(false);
+      setMenuFor(null);
+    }
+  }
+
+  async function handleRename() {
+    if (!renameTarget) return;
+    try {
+      await renameProject(renameTarget.id, renameValue.trim() || renameTarget.title);
+      toast.success("Nama proyek diubah.");
+      setRenameTarget(null);
+      window.location.reload();
+    } catch {
+      toast.error("Gagal mengubah nama");
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirmDelete) return;
+    try {
+      await deleteProject(confirmDelete.id);
+      toast.success("Proyek dihapus sepenuhnya dari server.");
+      setConfirmDelete(null);
+      window.location.reload();
+    } catch {
+      toast.error("Gagal menghapus proyek");
     }
   }
 
@@ -448,14 +493,14 @@ function Dashboard() {
                     <Link
                       to="/projects/$projectId"
                       params={{ projectId: p.id }}
-                      className="group flex items-center gap-4 rounded-2xl border border-white/8 bg-card p-4 transition-all hover:border-accent/40 hover:bg-accent/3"
+                      className="group flex min-w-0 items-center gap-3 rounded-2xl border border-white/8 bg-card p-4 transition-all hover:border-accent/40 hover:bg-accent/3 sm:gap-4"
                     >
                       <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-foreground/5 text-accent">
                         {p.source_type === "youtube" ? <Youtube className="size-5" /> : <Film className="size-5" />}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <h3 className="truncate font-semibold tracking-tight">{p.title}</h3>
-                        <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                        <h3 className="truncate font-semibold tracking-tight" title={p.title}>{p.title}</h3>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
                           <span className="flex items-center gap-1.5">
                             <span className={`size-1.5 rounded-full ${meta.dot}`} />
                             {meta.label}
@@ -464,10 +509,48 @@ function Dashboard() {
                           <span>{p.source_type === "youtube" ? "YouTube" : "Unggahan"}</span>
                           <span className="opacity-50">·</span>
                           <span>{timeAgo(p.created_at)}</span>
+                          {p.shared_from ? (
+                            <span className="rounded-full bg-accent/12 px-2 py-0.5 text-[10px] font-semibold text-accent">
+                              Proyek yang dibagikan
+                            </span>
+                          ) : null}
                         </div>
                       </div>
-                      <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-all group-hover:translate-x-0.5 group-hover:text-accent" />
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuFor(menuFor === p.id ? null : p.id); }}
+                        className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-black/5 hover:text-foreground dark:hover:bg-white/10"
+                        aria-label="Menu proyek"
+                      >
+                        <MoreVertical className="size-4" />
+                      </button>
                     </Link>
+                    {/* dropdown titik tiga */}
+                    {menuFor === p.id ? (
+                      <motion.div
+                        initial={{ opacity: 0, y: -6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="z-20 -mt-2 ml-auto mr-4 w-44 overflow-hidden rounded-xl border border-white/10 bg-neutral-900 shadow-xl"
+                      >
+                        {[
+                          { label: sharing ? "Membuat link…" : "Bagikan proyek", icon: Share2, fn: () => void handleShare(p), disabled: sharing },
+                          { label: "Ubah nama proyek", icon: Pencil, fn: () => { setRenameTarget(p); setRenameValue(p.title); setMenuFor(null); } },
+                          { label: "Hapus proyek", icon: Trash2, fn: () => { setConfirmDelete(p); setMenuFor(null); }, danger: true },
+                        ].map((item) => (
+                          <button
+                            key={item.label}
+                            type="button"
+                            disabled={item.disabled}
+                            onClick={item.fn}
+                            className={`flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] transition-colors ${
+                              item.danger ? "text-red-400 hover:bg-red-500/10" : "text-neutral-200 hover:bg-white/8"
+                            } disabled:opacity-50`}
+                          >
+                            <item.icon className="size-4" /> {item.label}
+                          </button>
+                        ))}
+                      </motion.div>
+                    ) : null}
                   </motion.div>
                 );
               })}
@@ -475,6 +558,56 @@ function Dashboard() {
           )}
         </section>
       </main>
+
+      {/* ===== Dialog: hapus proyek ===== */}
+      {confirmDelete ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5" onClick={() => setConfirmDelete(null)}>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-3xl border border-white/10 bg-neutral-900 p-6"
+          >
+            <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-red-500/15 text-red-500">
+              <Trash2 className="size-6" />
+            </span>
+            <h3 className="mt-4 text-center font-display text-lg font-bold">Apakah anda setuju ingin menghapus proyek ini?</h3>
+            <p className="mt-2 text-center text-sm leading-relaxed text-muted-foreground">
+              Jika anda menghapusnya, proyek ini akan dihapus sepenuhnya di server kami dan tidak bisa dikembalikan —
+              semua klip, video panjang, cache, dan data proyek akan hilang. Ini dilakukan untuk menjaga kestabilan server.
+            </p>
+            <div className="mt-6 flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setConfirmDelete(null)}>Batalkan</Button>
+              <Button variant="destructive" className="flex-1" onClick={() => void handleDelete()}>Setuju</Button>
+            </div>
+          </motion.div>
+        </div>
+      ) : null}
+
+      {/* ===== Dialog: ubah nama proyek ===== */}
+      {renameTarget ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5" onClick={() => setRenameTarget(null)}>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-3xl border border-white/10 bg-neutral-900 p-6"
+          >
+            <h3 className="text-center font-display text-lg font-bold">Ubah nama proyek</h3>
+            <input
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              autoFocus
+              className="mt-4 w-full rounded-xl border border-white/10 bg-neutral-950 p-3 text-sm outline-none focus:border-amber-500/60"
+              placeholder="Judul proyek"
+            />
+            <div className="mt-5 flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setRenameTarget(null)}>Batalkan</Button>
+              <Button variant="accent" className="flex-1" onClick={() => void handleRename()}>Simpan</Button>
+            </div>
+          </motion.div>
+        </div>
+      ) : null}
     </div>
   );
 }

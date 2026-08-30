@@ -16,6 +16,7 @@ import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as StudioRouteImport } from './routes/studio'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedUnduhRouteImport } from './routes/_authenticated/unduh'
+import { Route as ShareTokenRouteImport } from './routes/share.$token'
 import { Route as AuthenticatedEditorClipIdRouteImport } from './routes/_authenticated/editor.$clipId'
 import { Route as AuthenticatedProjectsProjectIdRouteImport } from './routes/_authenticated/projects.$projectId'
 
@@ -53,6 +54,11 @@ const AuthenticatedUnduhRoute = AuthenticatedUnduhRouteImport.update({
   path: '/unduh',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const ShareTokenRoute = ShareTokenRouteImport.update({
+  id: '/share/$token',
+  path: '/share/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedEditorClipIdRoute =
   AuthenticatedEditorClipIdRouteImport.update({
     id: '/editor/$clipId',
@@ -73,6 +79,7 @@ export interface FileRoutesByFullPath {
   '/studio': typeof StudioRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/unduh': typeof AuthenticatedUnduhRoute
+  '/share/$token': typeof ShareTokenRoute
   '/editor/$clipId': typeof AuthenticatedEditorClipIdRoute
   '/projects/$projectId': typeof AuthenticatedProjectsProjectIdRoute
 }
@@ -83,6 +90,7 @@ export interface FileRoutesByTo {
   '/studio': typeof StudioRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/unduh': typeof AuthenticatedUnduhRoute
+  '/share/$token': typeof ShareTokenRoute
   '/editor/$clipId': typeof AuthenticatedEditorClipIdRoute
   '/projects/$projectId': typeof AuthenticatedProjectsProjectIdRoute
 }
@@ -95,6 +103,7 @@ export interface FileRoutesById {
   '/studio': typeof StudioRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/unduh': typeof AuthenticatedUnduhRoute
+  '/share/$token': typeof ShareTokenRoute
   '/_authenticated/editor/$clipId': typeof AuthenticatedEditorClipIdRoute
   '/_authenticated/projects/$projectId': typeof AuthenticatedProjectsProjectIdRoute
 }
@@ -107,6 +116,7 @@ export interface FileRouteTypes {
     | '/studio'
     | '/dashboard'
     | '/unduh'
+    | '/share/$token'
     | '/editor/$clipId'
     | '/projects/$projectId'
   fileRoutesByTo: FileRoutesByTo
@@ -117,6 +127,7 @@ export interface FileRouteTypes {
     | '/studio'
     | '/dashboard'
     | '/unduh'
+    | '/share/$token'
     | '/editor/$clipId'
     | '/projects/$projectId'
   id:
@@ -128,6 +139,7 @@ export interface FileRouteTypes {
     | '/studio'
     | '/_authenticated/dashboard'
     | '/_authenticated/unduh'
+    | '/share/$token'
     | '/_authenticated/editor/$clipId'
     | '/_authenticated/projects/$projectId'
   fileRoutesById: FileRoutesById
@@ -138,6 +150,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   StudioRoute: typeof StudioRoute
+  ShareTokenRoute: typeof ShareTokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -191,6 +204,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedUnduhRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/share/$token': {
+      id: '/share/$token'
+      path: '/share/$token'
+      fullPath: '/share/$token'
+      preLoaderRoute: typeof ShareTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/editor/$clipId': {
       id: '/_authenticated/editor/$clipId'
       path: '/editor/$clipId'
@@ -231,6 +251,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   StudioRoute: StudioRoute,
+  ShareTokenRoute: ShareTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
