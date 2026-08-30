@@ -304,14 +304,12 @@ function ProjectPage() {
     <div className="min-h-screen bg-background text-foreground antialiased">
       {/* ===== Floating glass nav ===== */}
       <header className="fixed inset-x-0 top-0 z-50">
-        <div className="mx-auto mt-4 flex max-w-6xl items-center justify-between rounded-2xl border border-white/8 bg-white/70 px-4 py-3 shadow-sm backdrop-blur-xl dark:bg-neutral-950/70">
-          <Link to="/dashboard" className="flex items-center gap-2.5">
-            <span className="flex size-8 items-center justify-center rounded-xl bg-foreground text-background">
-              <Sparkles className="size-4" />
-            </span>
-            <span className="font-display text-[15px] font-bold tracking-tight">CortexClip</span>
+        <div className="mx-auto mt-3 flex max-w-6xl items-center justify-between rounded-2xl border border-white/8 bg-white/70 px-3 py-2.5 shadow-sm backdrop-blur-xl sm:mt-4 sm:px-4 sm:py-3 dark:bg-neutral-950/70">
+          <Link to="/dashboard" className="flex min-w-0 items-center gap-2">
+            <img src="/favicon.png" alt="Logo CortexClip" className="size-7 shrink-0 object-contain sm:size-8" />
+            <span className="truncate font-display text-[14px] font-bold tracking-tight sm:text-[15px]">CortexClip</span>
           </Link>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-card px-2.5 py-1 text-xs text-muted-foreground">
               <span className={`size-1.5 rounded-full ${status.dot} ${project.status === "transcribing" || project.status === "analyzing" ? "animate-pulse" : ""}`} />
               {status.label}
@@ -327,7 +325,7 @@ function ProjectPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-5 pb-24 pt-28">
+      <main className="mx-auto max-w-6xl px-4 pb-24 pt-24 sm:px-5 sm:pt-28">
         {/* ===== Header proyek ===== */}
         <motion.header
           initial={{ opacity: 0, y: 14 }}
@@ -341,7 +339,7 @@ function ProjectPage() {
           </p>
           <div className="mt-4 flex flex-wrap items-end justify-between gap-5">
             <div className="min-w-0">
-              <h1 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">{project.title}</h1>
+              <h1 className="font-display text-2xl font-bold tracking-tight sm:text-4xl">{project.title}</h1>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 {project.duration_seconds ? (
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-card px-2.5 py-1 text-xs text-muted-foreground">

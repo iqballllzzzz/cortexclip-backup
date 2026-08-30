@@ -193,11 +193,11 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
   },
 ];
 
-export const DEFAULT_SUBTITLE_PRESET = "hormozi";
+export const DEFAULT_SUBTITLE_PRESET = "default";
 
-/** Ambil preset via id, default fallback hormozi. */
+/** Ambil preset via id, fallback = preset default. */
 export function getPreset(id: string): SubtitlePreset {
-  return SUBTITLE_PRESETS.find((p) => p.id === id) ?? SUBTITLE_PRESETS[1]!;
+  return SUBTITLE_PRESETS.find((p) => p.id === id) ?? SUBTITLE_PRESETS[0]!;
 }
 
 /** Animasi khas per gaya untuk kata "Halo" mini. */

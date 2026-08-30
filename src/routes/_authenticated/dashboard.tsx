@@ -188,17 +188,15 @@ function Dashboard() {
     <div className="min-h-screen bg-background text-foreground antialiased">
       {/* ===== Floating glass nav ===== */}
       <header className="fixed inset-x-0 top-0 z-50">
-        <div className="mx-auto mt-4 flex max-w-6xl items-center justify-between rounded-2xl border border-white/8 bg-white/70 px-4 py-3 shadow-sm backdrop-blur-xl dark:bg-neutral-950/70">
-          <Link to="/dashboard" className="flex items-center gap-2.5">
-            <span className="flex size-8 items-center justify-center rounded-xl bg-foreground text-background">
-              <Sparkles className="size-4" />
-            </span>
-            <span className="font-display text-[15px] font-bold tracking-tight">CortexClip</span>
+        <div className="mx-auto mt-3 flex max-w-6xl items-center justify-between rounded-2xl border border-white/8 bg-white/70 px-3 py-2.5 shadow-sm backdrop-blur-xl sm:mt-4 sm:px-4 sm:py-3 dark:bg-neutral-950/70">
+          <Link to="/dashboard" className="flex min-w-0 items-center gap-2">
+            <img src="/favicon.png" alt="Logo CortexClip" className="size-7 shrink-0 object-contain sm:size-8" />
+            <span className="truncate font-display text-[14px] font-bold tracking-tight sm:text-[15px]">CortexClip</span>
           </Link>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
             <Link
               to="/unduh"
-              className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-black/5 hover:text-foreground dark:hover:bg-white/10"
+              className="flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-black/5 hover:text-foreground dark:hover:bg-white/10"
             >
               <Download className="size-3.5" />
               <span className="hidden sm:inline">Unduhan</span>
@@ -206,7 +204,7 @@ function Dashboard() {
             {profile?.avatar_url ? (
               <img src={profile.avatar_url} alt="Avatar" className="size-8 rounded-full border border-border" />
             ) : (
-              <span className="flex size-8 items-center justify-center rounded-full bg-accent/15 text-sm font-bold text-accent">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent/15 text-sm font-bold text-accent">
                 {displayName.charAt(0).toUpperCase()}
               </span>
             )}
@@ -222,7 +220,7 @@ function Dashboard() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-5 pb-24 pt-28">
+      <main className="mx-auto max-w-6xl px-4 pb-24 pt-24 sm:px-5 sm:pt-28">
         {/* ===== Hero ===== */}
         <motion.div
           initial={{ opacity: 0, y: 14 }}
@@ -234,11 +232,11 @@ function Dashboard() {
             <span className="size-1.5 rounded-full bg-accent" />
             Dashboard
           </p>
-          <div className="mt-5 flex flex-wrap items-end justify-between gap-6">
-            <h1 className="font-display text-4xl font-bold tracking-tight sm:text-5xl">
+          <div className="mt-4 flex flex-wrap items-end justify-between gap-x-6 gap-y-3 sm:mt-5">
+            <h1 className="font-display text-2xl font-bold tracking-tight sm:text-5xl">
               Halo, <span className="text-accent">{displayName}</span>
             </h1>
-            <p className="max-w-xs pb-1.5 text-sm leading-relaxed text-muted-foreground">
+            <p className="max-w-xs pb-1 text-[13px] leading-relaxed text-muted-foreground sm:pb-1.5 sm:text-sm">
               Ubah video panjang jadi klip viral. AI memilih momen terbaik, menulis caption & hashtag.
             </p>
           </div>
@@ -256,7 +254,7 @@ function Dashboard() {
             <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               <FolderOpen className="size-3.5 text-accent" /> Total Proyek
             </div>
-            <p className="mt-6 font-display text-6xl font-bold tracking-tight">{projects.length}</p>
+            <p className="mt-6 font-display text-4xl font-bold tracking-tight sm:text-6xl">{projects.length}</p>
             <p className="mt-1 text-xs text-muted-foreground">semua proyek kamu</p>
           </motion.div>
 
@@ -270,7 +268,7 @@ function Dashboard() {
             <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               <Wand2 className="size-3.5 text-accent" /> Sedang Diproses
             </div>
-            <p className="mt-6 font-display text-6xl font-bold tracking-tight">{activeCount}</p>
+            <p className="mt-6 font-display text-4xl font-bold tracking-tight sm:text-6xl">{activeCount}</p>
             <p className="mt-1 text-xs text-muted-foreground">diproses AI saat ini</p>
             <div className="mt-4 h-1 w-full overflow-hidden rounded-full bg-border">
               <div className="h-full rounded-full bg-accent transition-[width]" style={{ width: projects.length ? `${(activeCount / projects.length) * 100}%` : "0%" }} />
@@ -287,7 +285,7 @@ function Dashboard() {
             <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               <CheckCircle2 className="size-3.5 text-accent" /> Klip Selesai
             </div>
-            <p className="mt-6 font-display text-6xl font-bold tracking-tight">{doneCount}</p>
+            <p className="mt-6 font-display text-4xl font-bold tracking-tight sm:text-6xl">{doneCount}</p>
             <p className="mt-1 text-xs text-muted-foreground">siap didownload</p>
             <Link
               to="/unduh"
@@ -306,7 +304,7 @@ function Dashboard() {
           >
             <div className="flex flex-col gap-6 md:flex-row md:items-center">
               <div className="min-w-0 flex-1">
-                <h2 className="font-display text-xl font-bold tracking-tight">Mulai Proyek Baru</h2>
+                <h2 className="font-display text-lg font-bold tracking-tight sm:text-xl">Mulai Proyek Baru</h2>
                 <p className="mt-1.5 max-w-md text-sm leading-relaxed text-muted-foreground">
                   Unggah video atau tempel link YouTube. AI mentranskrip, memilih momen terbaik, lalu
                   menulis judul, deskripsi, hashtag, dan skor viralitas.
