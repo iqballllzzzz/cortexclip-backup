@@ -301,72 +301,77 @@ function ProjectPage() {
   const status = STATUS_META[project.status] ?? { label: "Menunggu", dot: "bg-muted-foreground" };
 
   return (
-    <div className="min-h-screen bg-background">
-      <SiteHeader />
-      <main className="mx-auto max-w-5xl px-5 pb-16 pt-28">
+    <div className="min-h-screen bg-background text-foreground antialiased">
+      {/* ===== Floating glass nav ===== */}
+      <header className="fixed inset-x-0 top-0 z-50">
+        <div className="mx-auto mt-4 flex max-w-6xl items-center justify-between rounded-2xl border border-white/8 bg-white/70 px-4 py-3 shadow-sm backdrop-blur-xl dark:bg-neutral-950/70">
+          <Link to="/dashboard" className="flex items-center gap-2.5">
+            <span className="flex size-8 items-center justify-center rounded-xl bg-foreground text-background">
+              <Sparkles className="size-4" />
+            </span>
+            <span className="font-display text-[15px] font-bold tracking-tight">CortexClip</span>
+          </Link>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-card px-2.5 py-1 text-xs text-muted-foreground">
+              <span className={`size-1.5 rounded-full ${status.dot} ${project.status === "transcribing" || project.status === "analyzing" ? "animate-pulse" : ""}`} />
+              {status.label}
+            </span>
+            <Link
+              to="/dashboard"
+              className="flex size-8 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-black/5 hover:text-foreground dark:hover:bg-white/10"
+              title="Kembali ke dashboard"
+            >
+              <ArrowLeft className="size-4" />
+            </Link>
+          </div>
+        </div>
+      </header>
 
-        <Link
-          to="/dashboard"
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ArrowLeft className="size-4" /> Dashboard
-        </Link>
-
+      <main className="mx-auto max-w-6xl px-5 pb-24 pt-28">
+        {/* ===== Header proyek ===== */}
         <motion.header
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mt-4 flex flex-wrap items-end justify-between gap-4"
+          transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+          className="relative"
         >
-          <div className="min-w-0">
-            <p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-accent">
-              {project.source_type === "youtube" ? <Link2 className="size-3.5" /> : <Upload className="size-3.5" />}
-              {project.source_type === "youtube" ? "Sumber YouTube" : "Unggahan"}
-            </p>
-            <h1 className="mt-2 text-3xl font-bold sm:text-4xl">{project.title}</h1>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground">
-                <span className={`size-1.5 rounded-full ${status.dot} ${project.status === "transcribing" || project.status === "analyzing" ? "animate-pulse" : ""}`} />
-                {status.label}
-              </span>
-              {project.duration_seconds ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground">
-                  <Clock className="size-3" />
-                  {formatClock(project.duration_seconds)}
-                </span>
-              ) : null}
-              {clips.length > 0 ? (
-                <>
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground">
-                    <Clapperboard className="size-3" /> {clips.length} klip
+          <p className="inline-flex items-center gap-2 rounded-full border border-accent/25 bg-accent/8 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-accent">
+            {project.source_type === "youtube" ? <Link2 className="size-3" /> : <Upload className="size-3" />}
+            {project.source_type === "youtube" ? "Sumber YouTube" : "Unggahan"}
+          </p>
+          <div className="mt-4 flex flex-wrap items-end justify-between gap-5">
+            <div className="min-w-0">
+              <h1 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">{project.title}</h1>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {project.duration_seconds ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-card px-2.5 py-1 text-xs text-muted-foreground">
+                    <Clock className="size-3" /> {formatClock(project.duration_seconds)}
                   </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-2.5 py-1 text-xs font-medium text-accent">
-                    <Flame className="size-3" /> Rerata skor {avgScore}
-                  </span>
-                </>
-              ) : null}
+                ) : null}
+                {clips.length > 0 ? (
+                  <>
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-card px-2.5 py-1 text-xs text-muted-foreground">
+                      <Clapperboard className="size-3" /> {clips.length} klip
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-2.5 py-1 text-xs font-medium text-accent">
+                      <Flame className="size-3" /> Rerata skor {avgScore}
+                    </span>
+                  </>
+                ) : null}
+              </div>
             </div>
-            {project.source_url ? (
-              <a
-                href={project.source_url}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-2 inline-block max-w-full truncate text-sm text-muted-foreground underline transition-colors hover:text-accent"
-              >
-                {project.source_url}
-              </a>
-            ) : null}
+            <Button variant="accent" onClick={runPipeline} disabled={running} className="group">
+              {running ? <Loader2 className="size-4 animate-spin" /> : <Wand2 className="size-4 transition-transform group-hover:rotate-12" />}
+              {clips.length > 0 ? "Proses Ulang" : "Mulai Proses AI"}
+            </Button>
           </div>
-          <Button variant="accent" onClick={runPipeline} disabled={running} className="group">
-            {running ? <Loader2 className="size-4 animate-spin" /> : <Wand2 className="size-4 transition-transform group-hover:rotate-12" />}
-            {clips.length > 0 ? "Proses Ulang" : "Mulai Proses AI"}
-          </Button>
         </motion.header>
 
         {running ? (
           <motion.div
             initial={{ opacity: 0, y: -6 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mt-6 flex items-center gap-3 rounded-2xl border border-accent/40 bg-accent/5 p-4 text-sm shadow-sm"
+            className="mt-8 flex items-center gap-3 rounded-2xl border border-accent/40 bg-accent/5 p-4 text-sm"
           >
             <Loader2 className="size-4 animate-spin text-accent" />
             <span>{progress || "Memproses…"}</span>
@@ -378,7 +383,7 @@ function ProjectPage() {
           <motion.div
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mt-6 flex flex-wrap items-center gap-2 rounded-2xl border border-accent/40 bg-accent/5 p-4 text-sm shadow-sm"
+            className="mt-8 flex flex-wrap items-center gap-2 rounded-2xl border border-accent/40 bg-accent/5 p-4 text-sm"
           >
             <CheckCircle2 className="size-4 text-accent" />
             <span>
@@ -461,7 +466,7 @@ function ProjectPage() {
               </Button>
             </div>
           ) : (
-            <div className="mt-4 space-y-4">
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
               {clips.map((clip, i) => (
                 <motion.div
                   key={clip.id}
@@ -612,15 +617,19 @@ function ClipCard({
   }
 
   return (
-    <div className={`rounded-2xl border bg-card p-5 transition-shadow hover:shadow-md ${expanded ? "border-accent/50 shadow-md" : "border-border"}`}>
+    <div className={`group rounded-2xl border bg-card p-5 transition-colors ${expanded ? "border-accent/40" : "border-white/8 hover:border-accent/30"}`}>
       <div className="flex flex-wrap items-start gap-4">
-        <div className={`relative flex size-14 shrink-0 flex-col items-center justify-center rounded-xl border border-accent/20 bg-accent/10 ${clip.virality_score >= 85 ? "ring-1 ring-accent/40" : ""}`}>
+        <button
+          type="button"
+          onClick={onToggle}
+          className={`flex size-14 shrink-0 flex-col items-center justify-center rounded-xl border transition-colors ${clip.virality_score >= 85 ? "border-accent/40 bg-accent/12" : "border-white/10 bg-foreground/4"}`}
+        >
           <span className="font-display text-xl font-bold text-accent">{clip.virality_score}</span>
           <span className="text-[9px] font-semibold uppercase tracking-wider opacity-80">viral</span>
           {clip.virality_score >= 85 ? (
             <Flame className="absolute -right-1.5 -top-1.5 size-4 rounded-full bg-background p-0.5 text-accent" />
           ) : null}
-        </div>
+        </button>
         <div className="min-w-0 flex-1">
           <input
             value={clip.title}

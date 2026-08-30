@@ -198,7 +198,7 @@ function EditorPage() {
     strokeWidth: preset.style.word_box ? 0 : 3,
     shadow: true,
     wordBox: preset.style.word_box ?? false,
-    wordBoxColor: preset.style.word_box_color,
+    wordBoxColor: preset.style.word_box_color ?? undefined,
     uppercase: preset.style.uppercase ?? false,
     opacity,
     position: effPosition,
@@ -300,11 +300,13 @@ function EditorPage() {
       {/* ===== BODY: canvas kiri + panel kanan ===== */}
       <div className="flex min-h-0 flex-1">
         {/* Canvas area */}
-        <div className="flex min-w-0 flex-1 flex-col items-center justify-center p-4 lg:p-8">
+        <div className="flex min-w-0 flex-1 flex-col items-center justify-center overflow-hidden p-4 lg:p-8">
           <div
             ref={containerRef}
-            className="relative aspect-[9/16] max-h-full overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl"
-            style={{ maxHeight: "100%" }}
+            className="relative overflow-hidden rounded-2xl border border-white/10 bg-black shadow-2xl"
+            // height-driven 9:16: tinggi mengikuti ruang tersedia (h-full container),
+            // lebar = tinggi × 9/16 — canvas SELALU terlihat, tidak collapse
+            style={{ height: "min(100%, calc((100vw - 384px) * 16 / 9))", aspectRatio: "9 / 16", maxWidth: "100%" }}
           >
             {clip.preview_url ? (
               <video
@@ -368,7 +370,8 @@ function EditorPage() {
         </div>
 
         {/* ===== RIGHT PANEL (track area) ===== */}
-        <aside className="hidden w-[340px] shrink-0 flex-col border-l border-white/10 bg-neutral-900/60 md:flex">
+        {/* Panel kanan (desktop) / bottom-sheet (mobile) — SELALU TERLIHAT */}
+        <aside className="fixed inset-x-0 bottom-16 z-30 max-h-[55vh] overflow-y-auto border-t border-white/10 bg-neutral-900/95 p-4 backdrop-blur md:static md:z-auto md:max-h-none md:w-[340px] md:shrink-0 md:border-l md:border-t-0 md:bg-neutral-900/60 md:p-4 md:backdrop-blur-none md:flex">
           <div className="flex-1 overflow-y-auto p-4">
             <AnimatePresence mode="wait">
               {activeTool === "info" ? (
