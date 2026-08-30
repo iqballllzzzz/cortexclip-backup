@@ -9,14 +9,17 @@ import {
   Film,
   Loader2,
   RefreshCw,
+  Trash2,
   XCircle,
 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { listRenderJobs, type RenderJob } from "@/lib/backend-api";
+import { deleteRenderJob } from "@/lib/project-api";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/unduh")({
   head: () => ({
@@ -54,6 +57,10 @@ function DownloadsPage() {
   const [jobs, setJobs] = useState<RenderJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [projectNames, setProjectNames] = useState<Record<string, string>>({});
+  // mode hapus: pilih klip utk dihapus
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -109,10 +116,50 @@ function DownloadsPage() {
               Semua klip yang pernah kamu render — siap diunduh kapan saja.
             </p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => void refresh()} disabled={loading}>
-            <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
-            Muat ulang
-          </Button>
+          <div className="flex items-center gap-2">
+            {selectMode ? (
+              <>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={selected.size === 0 || deleting}
+                  onClick={async () => {
+                    setDeleting(true);
+                    try {
+                      for (const id of selected) await deleteRenderJob(id);
+                      toast.success(`${selected.size} unduhan dihapus dari server.`);
+                      setSelected(new Set());
+                      setSelectMode(false);
+                      await refresh();
+                    } catch {
+                      toast.error("Gagal menghapus sebagian unduhan");
+                    } finally {
+                      setDeleting(false);
+                    }
+                  }}
+                >
+                  {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+                  Hapus {selected.size > 0 ? `(${selected.size})` : ""}
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => { setSelectMode(false); setSelected(new Set()); }}>
+                  Batal
+                </Button>
+              </>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={jobs.length === 0}
+                onClick={() => setSelectMode(true)}
+              >
+                <Trash2 className="size-4" /> Hapus unduhan
+              </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={() => void refresh()} disabled={loading}>
+              <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
+              Muat ulang
+            </Button>
+          </div>
         </div>
 
         {/* Bento ringkasan */}
@@ -182,6 +229,23 @@ function DownloadsPage() {
                     transition={{ delay: Math.min(i * 0.03, 0.3) }}
                     className="flex flex-wrap items-center gap-4 rounded-2xl border border-border bg-card p-4"
                   >
+                    {selectMode ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = new Set(selected);
+                          if (next.has(job.id)) next.delete(job.id);
+                          else next.add(job.id);
+                          setSelected(next);
+                        }}
+                        className={`flex size-6 shrink-0 items-center justify-center rounded-md border-2 transition-colors ${
+                          selected.has(job.id) ? "border-accent bg-accent text-accent-foreground" : "border-border"
+                        }`}
+                        aria-label="Pilih untuk dihapus"
+                      >
+                        {selected.has(job.id) ? <CheckCircle2 className="size-4" /> : null}
+                      </button>
+                    ) : null}
                     <div className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${meta.bg}`}>
                       <meta.Icon className={`size-5 ${meta.tone} ${meta.spin ? "animate-spin" : ""}`} />
                     </div>

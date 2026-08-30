@@ -188,14 +188,6 @@ export function LiveCaptionOverlay({
               }}
             >
               {text}
-              {showEmoji && isActive && wordEmoji(w.word) ? (
-                <span
-                  className="ml-[0.15em] align-middle"
-                  style={{ fontSize: `${fontSize * 0.9}px`, display: "inline-block" }}
-                >
-                  {wordEmoji(w.word)}
-                </span>
-              ) : null}
             </span>
           );
         })}

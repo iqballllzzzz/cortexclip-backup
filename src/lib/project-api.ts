@@ -62,3 +62,9 @@ export async function processYoutube(url: string): Promise<{ project_id: string 
   }
   return res.json();
 }
+
+export async function deleteRenderJob(jobId: string): Promise<void> {
+  const h = await authHeaders();
+  const res = await fetch(`${API}/api/render-jobs/${jobId}`, { method: "DELETE", headers: h });
+  if (!res.ok) throw new Error("Gagal menghapus unduhan");
+}

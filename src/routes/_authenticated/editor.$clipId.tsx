@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowLeft,
+  Clock,
   Download,
   Hash,
   Loader2,
@@ -90,6 +91,47 @@ function EditorPage() {
   const [adsWatched, setAdsWatched] = useState(0);
   const [watermarkRemoved, setWatermarkRemoved] = useState(false);
   const [adPlaying, setAdPlaying] = useState(false);
+
+  // unduhan: lock tombol sampai render selesai + GUI info
+  const [downloadLocked, setDownloadLocked] = useState(false);
+  const [downloadInfo, setDownloadInfo] = useState<string | null>(null);
+
+  // ---- MEMORI EDITOR: simpan/muat setting per-clip (persist antar kunjungan) ----
+  const memKey = `cc_editor_mem_${clipId}`;
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(memKey);
+      if (!raw) return;
+      const m = JSON.parse(raw);
+      if (m.presetId) setPresetId(m.presetId);
+      if (typeof m.fontScale === "number") setFontScale(m.fontScale);
+      if (typeof m.position === "number") setPosition(m.position);
+      if (typeof m.opacity === "number") setOpacity(m.opacity);
+      if (typeof m.brollEnabled === "boolean") {
+        setBrollEnabled(m.brollEnabled);
+        if (m.brollEnabled && Array.isArray(m.livePlacements)) setLivePlacements(m.livePlacements);
+      }
+      if (typeof m.emojiEnabled === "boolean") setEmojiEnabled(m.emojiEnabled);
+    } catch { /* korup → abaikan */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clipId]);
+
+  function saveEditorMemory() {
+    try {
+      localStorage.setItem(memKey, JSON.stringify({
+        presetId, fontScale, position, opacity,
+        brollEnabled, emojiEnabled, livePlacements,
+        savedAt: Date.now(),
+      }));
+    } catch { /* storage penuh → abaikan */ }
+  }
+
+  // auto-save memori tiap setting berubah (debounce 800ms)
+  useEffect(() => {
+    const t = setTimeout(() => saveEditorMemory(), 800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetId, fontScale, position, opacity, brollEnabled, emojiEnabled, livePlacements]);
 
   // load clip + project
   useEffect(() => {
@@ -227,11 +269,12 @@ function EditorPage() {
   const duration = clip ? clip.end_time - clip.start_time : 0;
 
   async function handleDownload() {
-    if (!clip || submitting) return;
+    if (!clip || submitting || downloadLocked) return;
     setSubmitting(true);
     try {
       // cek antrean dulu: kalau ada render lain jalan → pesan nomor antrean
       let queueNote = "";
+      let queueN = 0;
       try {
         const tokenQ = await getAccessToken();
         const res = await fetch("http://178.128.82.140:8787/api/render-jobs/queue-position/x", {
@@ -239,6 +282,7 @@ function EditorPage() {
         });
         if (res.ok) {
           const d = await res.json();
+          queueN = d.total_active;
           if (d.total_active > 0) queueNote = ` Anda ada di nomor antrean ke ${d.total_active + 1}.`;
         }
       } catch { /* abaikan */ }
@@ -261,16 +305,37 @@ function EditorPage() {
           broll: brollEnabled,
         },
       });
-      toast.success(
-        queueNote
-          ? `Sedang mengantri untuk merender video.${queueNote}`
-          : "Merender video agar siap di unduh — hasilnya muncul di halaman /unduh."
-      );
+      // kunci tombol sampai render job ini selesai (poll /api/render-jobs)
+      setDownloadLocked(true);
+      pollRenderDone();
+      setDownloadInfo(queueNote);
+      // simpan memori setting saat unduh
+      void saveEditorMemory();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Gagal memulai render");
     } finally {
       setSubmitting(false);
     }
+  }
+
+  // poll job render terakhir klip ini → unlock tombol saat selesai
+  function pollRenderDone() {
+    const iv = setInterval(async () => {
+      try {
+        const token = await getAccessToken();
+        const res = await fetch(`http://178.128.82.140:8787/api/render-jobs/project/${clip!.project_id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const d = await res.json();
+        const mine = (d.jobs ?? []).filter((j: { clip_id?: string }) => j.clip_id === clip!.id);
+        const latest = mine[0];
+        if (latest && (latest.status === "completed" || latest.status === "failed")) {
+          clearInterval(iv);
+          setDownloadLocked(false);
+        }
+      } catch { /* keep polling */ }
+    }, 8000);
   }
 
   async function handleAdWatched() {
@@ -312,9 +377,9 @@ function EditorPage() {
             <p className="text-[11px] text-neutral-500">{project?.title ?? "Project"}</p>
           </div>
         </div>
-        <Button variant="accent" size="sm" onClick={handleDownload} disabled={submitting} className="gap-2">
-          {submitting ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
-          Unduh
+        <Button variant="accent" size="sm" onClick={handleDownload} disabled={submitting || downloadLocked} className="gap-2">
+          {submitting ? <Loader2 className="size-4 animate-spin" /> : downloadLocked ? <Clock className="size-4" /> : <Download className="size-4" />}
+          {downloadLocked ? "Merender…" : "Unduh"}
         </Button>
       </header>
 
@@ -569,6 +634,34 @@ function EditorPage() {
           </button>
         ))}
       </nav>
+
+      {/* ===== GUI KONFIRMASI UNDUH ===== */}
+      <AnimatePresence>
+        {downloadInfo !== null ? (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          >
+            <motion.div
+              initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
+              className="w-full max-w-md rounded-2xl border border-white/10 bg-neutral-900 p-6 text-center"
+            >
+              <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-accent/15 text-accent">
+                <Download className="size-6" />
+              </span>
+              <h3 className="mt-4 font-display text-lg font-bold">Video yang ingin anda unduh akan tersedia di halaman <button type="button" onClick={() => { setDownloadInfo(null); navigate({ to: "/unduh" }); }} className="text-amber-600 underline decoration-amber-600/50 underline-offset-2 hover:text-amber-500">/unduh</button></h3>
+              <p className="mt-2 text-sm text-neutral-400">
+                {downloadInfo
+                  ? `Sedang mengantri untuk merender video.${downloadInfo}`
+                  : "Merender video agar siap di unduh — proses berjalan di cloud meski kamu keluar dari halaman ini."}
+              </p>
+              <Button variant="accent" size="sm" className="mt-5 w-full" onClick={() => setDownloadInfo(null)}>
+                Mengerti
+              </Button>
+            </motion.div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       {/* ===== AD POPUP (placeholder Google Ads — user urus nanti) ===== */}
       <AnimatePresence>
