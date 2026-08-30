@@ -185,7 +185,7 @@ function Dashboard() {
   const activeCount = projects.filter((p) => p.status !== "completed" && p.status !== "failed").length;
 
   return (
-    <div className="min-h-screen bg-background text-foreground antialiased">
+    <div className="min-h-screen overflow-x-hidden bg-background text-foreground antialiased">
       {/* ===== Floating glass nav ===== */}
       <header className="fixed inset-x-0 top-0 z-50">
         <div className="mx-auto mt-3 flex max-w-6xl items-center justify-between rounded-2xl border border-white/8 bg-white/70 px-3 py-2.5 shadow-sm backdrop-blur-xl sm:mt-4 sm:px-4 sm:py-3 dark:bg-neutral-950/70">
