@@ -180,13 +180,21 @@ function EditorPage() {
     return () => ro.disconnect();
   }, [loading]);
 
-  // rAF time sync
+  // rAF time sync — update hanya kalau beda >90ms (hindari re-render 60fps
+  // yang bikin HP lemot dan karaoke kayak "diem"; karaoke cukup ~11fps)
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     let raf = 0;
+    let last = -1;
     const tick = () => {
-      if (!video.paused) setTime(video.currentTime);
+      if (!video.paused) {
+        const t = video.currentTime;
+        if (Math.abs(t - last) > 0.09) {
+          last = t;
+          setTime(t);
+        }
+      }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -340,13 +348,21 @@ function EditorPage() {
             {/* LIVE subtitle overlay */}
             <LiveCaptionOverlay words={words} time={time} style={liveStyle} containerWidth={fit.w} />
 
-            {/* watermark preview (visualisasi) */}
+            {/* watermark preview (visualisasi) — skala PROPORTIONAL ke canvas (32% lebar) */}
             {!watermarkRemoved ? (
-              <div className="pointer-events-none absolute left-[6%] top-[5%] flex items-center gap-2 opacity-65">
-                <img src="/watermark-logo.png" alt="" className="h-8 w-8 object-contain" />
-                <div className="leading-tight">
-                  <p className="text-[13px] font-bold text-white">CortexClipAI</p>
-                  <p className="text-[7px] text-white/90">AI that can help many people, made in Indonesia</p>
+              <div
+                className="pointer-events-none absolute left-[6%] top-[5%] flex items-center opacity-65"
+                style={{ gap: Math.max(2, fit.w * 0.012) }}
+              >
+                <img
+                  src="/watermark-logo.png"
+                  alt=""
+                  className="shrink-0 object-contain"
+                  style={{ width: fit.w * 0.095, height: fit.w * 0.095 }}
+                />
+                <div className="min-w-0 leading-tight">
+                  <p className="font-bold text-white" style={{ fontSize: Math.max(7, fit.w * 0.036) }}>CortexClipAI</p>
+                  <p className="text-white/90" style={{ fontSize: Math.max(4, fit.w * 0.017) }}>AI that can help many people, made in Indonesia</p>
                 </div>
               </div>
             ) : null}
