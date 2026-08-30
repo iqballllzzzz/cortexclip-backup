@@ -37,8 +37,8 @@ export async function touchProject(projectId: string): Promise<void> {
 }
 
 export async function shareInfo(token: string): Promise<{ project_title: string; owner_name: string; expired: boolean }> {
-  const h = await authHeaders();
-  const res = await fetch(`${API}/api/share/${token}`, { headers: h });
+  // endpoint PUBLIK — penerima belum tentu login
+  const res = await fetch(`${API}/api/share/${token}`);
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail ?? "Link tidak ditemukan");
   return res.json();
 }

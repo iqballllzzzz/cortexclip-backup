@@ -89,6 +89,29 @@ function Dashboard() {
   const [renameTarget, setRenameTarget] = useState<Project | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [sharing, setSharing] = useState(false);
+  const [sharedLink, setSharedLink] = useState<string | null>(null);
+
+  async function copyText(text: string): Promise<boolean> {
+    // navigator.clipboard butuh HTTPS — di HTTP (IP:8080) pakai fallback
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+        return ok;
+      } catch {
+        return false;
+      }
+    }
+  }
   const fileInput = useRef<HTMLInputElement>(null);
   const uploadRef = useRef<XMLHttpRequest | null>(null);
 
@@ -172,8 +195,13 @@ function Dashboard() {
     setSharing(true);
     try {
       const r = await shareProject(p.id);
-      await navigator.clipboard.writeText(r.url);
-      toast.success("Link dibuat (berlaku 1 minggu) & tersalin ke clipboard — tinggal kirim!");
+      const ok = await copyText(r.url);
+      setSharedLink(r.url);
+      if (ok) {
+        toast.success("Link dibuat (berlaku 1 minggu) & tersalin ke clipboard!");
+      } else {
+        toast.info("Link siap — salin manual dari kotak yang muncul.");
+      }
     } catch {
       toast.error("Gagal membuat link share");
     } finally {
@@ -489,11 +517,12 @@ function Dashboard() {
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.35, delay: 0.04 * i }}
+                    className="relative min-w-0"
                   >
                     <Link
                       to="/projects/$projectId"
                       params={{ projectId: p.id }}
-                      className="group flex min-w-0 items-center gap-3 rounded-2xl border border-white/8 bg-card p-4 transition-all hover:border-accent/40 hover:bg-accent/3 sm:gap-4"
+                      className="group flex min-w-0 items-center gap-3 rounded-2xl border border-white/8 bg-card p-4 pr-1 transition-all hover:border-accent/40 hover:bg-accent/3 sm:gap-4 sm:pr-4"
                     >
                       <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-foreground/5 text-accent">
                         {p.source_type === "youtube" ? <Youtube className="size-5" /> : <Film className="size-5" />}
@@ -519,19 +548,21 @@ function Dashboard() {
                       <button
                         type="button"
                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuFor(menuFor === p.id ? null : p.id); }}
-                        className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-black/5 hover:text-foreground dark:hover:bg-white/10"
+                        className="relative z-10 flex size-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-black/5 hover:text-foreground dark:hover:bg-white/10"
                         aria-label="Menu proyek"
                       >
-                        <MoreVertical className="size-4" />
+                        <MoreVertical className="size-5" />
                       </button>
                     </Link>
-                    {/* dropdown titik tiga */}
+                    {/* dropdown titik tiga — ABSOLUTE dalam card (anti kepotong) */}
                     {menuFor === p.id ? (
-                      <motion.div
-                        initial={{ opacity: 0, y: -6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="z-20 -mt-2 ml-auto mr-4 w-44 overflow-hidden rounded-xl border border-white/10 bg-neutral-900 shadow-xl"
-                      >
+                      <>
+                        <div className="fixed inset-0 z-20" onClick={() => setMenuFor(null)} />
+                        <motion.div
+                          initial={{ opacity: 0, y: -6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="absolute right-2 top-14 z-30 w-48 overflow-hidden rounded-xl border border-white/10 bg-neutral-900 shadow-xl"
+                        >
                         {[
                           { label: sharing ? "Membuat link…" : "Bagikan proyek", icon: Share2, fn: () => void handleShare(p), disabled: sharing },
                           { label: "Ubah nama proyek", icon: Pencil, fn: () => { setRenameTarget(p); setRenameValue(p.title); setMenuFor(null); } },
@@ -549,7 +580,8 @@ function Dashboard() {
                             <item.icon className="size-4" /> {item.label}
                           </button>
                         ))}
-                      </motion.div>
+                        </motion.div>
+                      </>
                     ) : null}
                   </motion.div>
                 );
@@ -558,6 +590,36 @@ function Dashboard() {
           )}
         </section>
       </main>
+
+      {/* ===== Dialog: link share siap ===== */}
+      {sharedLink ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-5" onClick={() => setSharedLink(null)}>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-3xl border border-white/10 bg-neutral-900 p-6"
+          >
+            <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-accent/15 text-accent">
+              <Share2 className="size-6" />
+            </span>
+            <h3 className="mt-4 text-center font-display text-lg font-bold">Link share dibuat</h3>
+            <p className="mt-1 text-center text-xs text-muted-foreground">Berlaku 1 minggu — kirim ke siapa saja</p>
+            <div className="mt-4 flex gap-2">
+              <input
+                readOnly
+                value={sharedLink}
+                onFocus={(e) => e.currentTarget.select()}
+                className="min-w-0 flex-1 rounded-xl border border-white/10 bg-neutral-950 p-3 text-xs text-neutral-300 outline-none"
+              />
+              <Button variant="accent" size="sm" onClick={() => void copyText(sharedLink).then((ok) => toast[ok ? "success" : "error"](ok ? "Tersalin!" : "Salin manual: tekan lama link"))}>
+                Salin
+              </Button>
+            </div>
+            <Button variant="outline" className="mt-3 w-full" onClick={() => setSharedLink(null)}>Tutup</Button>
+          </motion.div>
+        </div>
+      ) : null}
 
       {/* ===== Dialog: hapus proyek ===== */}
       {confirmDelete ? (

@@ -361,10 +361,24 @@ function EditorPage() {
             {/* LIVE subtitle overlay (+ emoji pada kata kunci) */}
             <LiveCaptionOverlay words={words} time={time} style={liveStyle} containerWidth={fit.w} showEmoji={emojiEnabled} />
 
-            {/* IKON & B-ROLL overlay live — SVG berwarna, animasi CSS SMOOTH */}
+            {/* IKON & B-ROLL overlay live — SVG berwarna, 10 animasi CSS */}
             {brollEnabled && livePlacements.length > 0
               ? livePlacements.map((p, idx) => {
                   const active = time >= p.time_start && time <= p.time_end;
+                  const dist = fit.w * 0.7;
+                  let hidden = `translate(-50%, -50%) `;
+                  switch (p.animation) {
+                    case "slide-right": hidden += `translateX(${-dist}px)`; break;
+                    case "slide-up": hidden += `translateY(${dist}px)`; break;
+                    case "slide-down": hidden += `translateY(${-dist}px)`; break;
+                    case "zoom-in": hidden += `scale(0) rotate(-90deg)`; break;
+                    case "pop-bounce": hidden += `scale(0)`; break;
+                    case "flip-in": hidden += `perspective(600px) rotateY(90deg)`; break;
+                    case "drop-in": hidden += `translateY(${-fit.h * 0.5}px) rotate(-20deg)`; break;
+                    case "swing-in": hidden += `translateX(${dist}px) rotate(25deg)`; break;
+                    case "rotate-in": hidden += `scale(0) rotate(270deg)`; break;
+                    default: hidden += `translateX(${dist}px)`; // slide-left
+                  }
                   return (
                     <div
                       key={`${p.time_start}-${idx}`}
@@ -372,7 +386,7 @@ function EditorPage() {
                       style={{
                         left: p.side === "left" ? "20%" : "80%",
                         top: "38%",
-                        transform: `translate(-50%, -50%) translateX(${active ? 0 : (p.side === "left" ? -1 : 1) * fit.w * 0.7}px)`,
+                        transform: active ? "translate(-50%, -50%)" : hidden,
                         opacity: active ? 1 : 0,
                       }}
                     >
