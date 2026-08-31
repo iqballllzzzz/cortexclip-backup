@@ -46,6 +46,49 @@ def yt_video_id(url: str) -> Optional[str]:
     return None
 
 
+def _pick_media_pair(medias: list[dict[str, Any]], title: str, duration: float) -> dict[str, Any]:
+    """Pilih format terbaik dari daftar medias (nexray/autolink style):
+    1) progressive (video+audio satu file, biasanya itag 18, 360p)
+    2) video mp4 <=720p + audio m4a tertinggi → merge ffmpeg
+    """
+    vids = [m for m in medias if m.get("type") == "video" and m.get("url")
+            and str(m.get("ext", "mp4")) == "mp4"]
+    auds = [m for m in medias if m.get("type") == "audio" and m.get("url")
+            and str(m.get("ext", "")) == "m4a"]
+
+    def _h(m: dict[str, Any]) -> int:
+        try:
+            return int(m.get("height") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    # 1) progressive: video yang punya audio (itag 18/22)
+    progressive = [m for m in vids if m.get("formatId") in (18, 22)]
+    if progressive:
+        best = max(progressive, key=_h)
+        return {"title": title, "duration": duration, "url": best["url"],
+                "provider": "x-progressive", "needs_merge": False}
+
+    # 2) DASH: video <=720p + audio m4a (harus di-merge)
+    if vids:
+        cand = [m for m in vids if 0 < _h(m) <= 720] or [min(vids, key=_h)]
+        v = max(cand, key=_h)
+        out: dict[str, Any] = {"title": title, "duration": duration, "url": v["url"],
+                               "provider": "x-dash", "needs_merge": False}
+        if auds:
+            def _kb(m: dict[str, Any]) -> int:
+                q = str(m.get("quality", ""))
+                try:
+                    return int(q.split("(")[1].split("kb")[0])
+                except (IndexError, ValueError):
+                    return 0
+            a = max(auds, key=_kb)
+            out["audio_url"] = a["url"]
+            out["needs_merge"] = True
+        return out
+    raise RuntimeError("tidak ada media video mp4")
+
+
 # --------------------------------------------------------------------------
 # Provider 1: RapidAPI autolink (all-in-one)
 # --------------------------------------------------------------------------
@@ -63,17 +106,10 @@ async def _prov_autolink(url: str) -> dict[str, Any]:
         )
     r.raise_for_status()
     d = r.json()
-    medias = [m for m in (d.get("medias") or []) if m.get("type") == "video" and m.get("url")]
+    medias = d.get("medias") or []
     if not medias:
-        raise RuntimeError("autolink: tidak ada media video")
-    best = max(medias, key=lambda m: (m.get("height") or 0) if (m.get("height") or 0) <= 720 else 0)
-    return {
-        "title": d.get("title") or "video",
-        "duration": float(d.get("duration") or 0),
-        "url": best["url"],
-        "provider": "rapidapi-autolink",
-        "needs_merge": False,
-    }
+        raise RuntimeError("autolink: tidak ada media")
+    return _pick_media_pair(medias, d.get("title") or "video", float(d.get("duration") or 0))
 
 
 # --------------------------------------------------------------------------
@@ -144,17 +180,7 @@ async def _prov_nexray(url: str) -> dict[str, Any]:
     if not d.get("status") or not (d.get("result") or {}).get("medias"):
         raise RuntimeError("nexray: status gagal")
     res = d["result"]
-    medias = [m for m in res["medias"] if m.get("type") == "video" and m.get("url")]
-    if not medias:
-        raise RuntimeError("nexray: tidak ada media video")
-    best = max(medias, key=lambda m: (m.get("height") or 0) if (m.get("height") or 0) <= 720 else 0)
-    return {
-        "title": res.get("title") or "video",
-        "duration": float(res.get("duration") or 0),
-        "url": best["url"],
-        "provider": "nexray-aio",
-        "needs_merge": False,
-    }
+    return _pick_media_pair(res["medias"], res.get("title") or "video", float(res.get("duration") or 0))
 
 
 # --------------------------------------------------------------------------
@@ -177,9 +203,86 @@ def _prov_ytdlp(url: str, out_path: str) -> None:
 # --------------------------------------------------------------------------
 # Download + verifikasi
 # --------------------------------------------------------------------------
+def _content_length(url: str) -> int:
+    """Total ukuran file via Range request (Content-Range)."""
+    try:
+        with httpx.Client(timeout=30, follow_redirects=True) as client:
+            r = client.get(url, headers={"User-Agent": UA_BROWSER, "Range": "bytes=0-0"})
+            cr = r.headers.get("content-range", "")
+            if "/" in cr:
+                return int(cr.rsplit("/", 1)[1])
+            return int(r.headers.get("content-length") or 0)
+    except Exception:
+        return 0
+
+
+def _download_stream(url: str, out_path: str, chunk_mb: int = 8, workers: int = 6) -> None:
+    """Paralel range-download (bypass throttle googlevideo yang membatasi
+    koneksi full-download ~300KB/s, range 2MB/s) + verifikasi ukuran total."""
+    import shutil
+    total = _content_length(url)
+    if total <= chunk_mb << 20:
+        # file kecil: langsung streaming biasa
+        tmp = out_path + ".part"
+        with httpx.Client(timeout=httpx.Timeout(60.0, read=180.0), follow_redirects=True) as client:
+            with client.stream("GET", url, headers={"User-Agent": UA_BROWSER}) as r:
+                r.raise_for_status()
+                with open(tmp, "wb") as f:
+                    for chunk in r.iter_bytes(1 << 20):
+                        f.write(chunk)
+        os.replace(tmp, out_path)
+        return
+
+    step = chunk_mb << 20
+    ranges = [(s, min(s + step, total) - 1) for s in range(0, total, step)]
+    parts_dir = out_path + ".parts"
+    os.makedirs(parts_dir, exist_ok=True)
+
+    async def _grab(client: httpx.AsyncClient, idx: int, s: int, e: int) -> None:
+        for attempt in range(3):
+            try:
+                r = await client.get(url, headers={"User-Agent": UA_BROWSER, "Range": f"bytes={s}-{e}"})
+                r.raise_for_status()
+                data = r.content
+                if len(data) != e - s + 1:
+                    raise RuntimeError(f"chunk {idx}: {len(data)} != {e - s + 1}")
+                with open(f"{parts_dir}/{idx:05d}", "wb") as f:
+                    f.write(data)
+                return
+            except Exception:
+                if attempt == 2:
+                    raise
+                await asyncio.sleep(1.5 * (attempt + 1))
+
+    async def _run() -> None:
+        limits = httpx.Limits(max_connections=workers + 2)
+        async with httpx.AsyncClient(timeout=httpx.Timeout(60, read=240),
+                                     follow_redirects=True, limits=limits) as client:
+            sem = asyncio.Semaphore(workers)
+
+            async def _wrap(i: int, s: int, e: int) -> None:
+                async with sem:
+                    await _grab(client, i, s, e)
+
+            await asyncio.gather(*[_wrap(i, s, e) for i, (s, e) in enumerate(ranges)])
+
+    asyncio.run(_run())
+
+    with open(out_path, "wb") as out:
+        for i in range(len(ranges)):
+            p = f"{parts_dir}/{i:05d}"
+            with open(p, "rb") as f:
+                shutil.copyfileobj(f, out, 1 << 20)
+    shutil.rmtree(parts_dir, ignore_errors=True)
+
+    got = os.path.getsize(out_path)
+    if got != total:
+        raise RuntimeError(f"ukuran beda: {got} vs {total}")
+
+
 def _ffmpeg_download(url: str, out_path: str, extra: Optional[list[str]] = None) -> None:
-    cmd = ["ffmpeg", "-y", "-user_agent", UA_BROWSER, "-i", url, *(extra or []),
-           "-c", "copy", "-movflags", "+faststart", out_path]
+    cmd = ["ffmpeg", "-y", "-rw_timeout", "30000000", "-user_agent", UA_BROWSER, "-i", url,
+           *(extra or []), "-c", "copy", "-movflags", "+faststart", out_path]
     subprocess.run(cmd, check=True, capture_output=True, timeout=1800)
 
 
@@ -194,27 +297,32 @@ def _ffprobe_duration(path: str) -> float:
         return 0.0
 
 
-def _verify(path: str) -> bool:
+def _verify(path: str, expected_duration: float = 0.0) -> bool:
     if not os.path.isfile(path) or os.path.getsize(path) < 500_000:
         return False
-    return _ffprobe_duration(path) > 5.0
+    dur = _ffprobe_duration(path)
+    if dur <= 5.0:
+        return False
+    # file kepotong? durasi harus >= 90% durasi yang dijanjikan provider
+    if expected_duration > 0 and dur < expected_duration * 0.9:
+        print(f"[youtube-hydra] file terpotong: {dur:.0f}s vs ekspektasi {expected_duration:.0f}s")
+        return False
+    return True
 
 
 async def hydra_download(url: str, out_path: str) -> dict[str, Any]:
     """Coba 3 provider API → direct download; gagal semua → yt-dlp.
     Return {title, duration, provider}."""
-    meta: dict[str, Any] = {}
     errors: list[str] = []
     for prov in (_prov_autolink, _prov_ytstream, _prov_nexray):
         name = prov.__name__.replace("_prov_", "")
         try:
             info = await prov(url)
-            meta = info
             base = out_path.rsplit(".", 1)[0]
-            await asyncio.to_thread(_ffmpeg_download, info["url"], out_path)
+            await asyncio.to_thread(_download_stream, info["url"], out_path)
             if info.get("needs_merge") and info.get("audio_url"):
                 audio_tmp = base + "_audio.m4a"
-                await asyncio.to_thread(_ffmpeg_download, info["audio_url"], audio_tmp)
+                await asyncio.to_thread(_download_stream, info["audio_url"], audio_tmp)
                 merged = base + "_merged.mp4"
                 def _merge():
                     subprocess.run(
@@ -224,10 +332,10 @@ async def hydra_download(url: str, out_path: str) -> dict[str, Any]:
                     os.replace(merged, out_path)
                     os.unlink(audio_tmp)
                 await asyncio.to_thread(_merge)
-            if await asyncio.to_thread(_verify, out_path):
+            if await asyncio.to_thread(_verify, out_path, info.get("duration") or 0.0):
                 return {"title": info["title"], "duration": info.get("duration") or 0.0,
                         "provider": info["provider"]}
-            errors.append(f"{name}: file tidak valid")
+            errors.append(f"{name}: file tidak valid/terpotong")
         except Exception as exc:
             errors.append(f"{name}: {exc}")
             print(f"[youtube-hydra] {name} gagal: {exc}")
