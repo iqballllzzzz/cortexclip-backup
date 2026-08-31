@@ -29,3 +29,4 @@ ALTER TABLE public.share_tokens ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.render_jobs ADD COLUMN IF NOT EXISTS clip_title text;
 ALTER TABLE public.render_jobs ADD COLUMN IF NOT EXISTS completed_at timestamptz;
+ALTER TABLE public.clips ADD COLUMN IF NOT EXISTS ass_content text;

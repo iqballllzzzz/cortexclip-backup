@@ -10,6 +10,7 @@ because not all Hydra providers support response_format schemas.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 import os
@@ -85,7 +86,56 @@ def _parse_json(raw: str) -> Any:
     end = max(raw.rfind("]"), raw.rfind("}"))
     if end <= start:
         raise ValueError("no JSON found")
-    return json.loads(raw[start:end + 1])
+    body = raw[start:end + 1]
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError:
+        pass
+    # JSON kepotong (max_tokens): petik objek-objek yang masih utuh dari
+    # dalam array — objek terakhir yang setengah jalan otomatis gugur.
+    import re as _re
+    m = _re.search(r'"(shorts|windows)"\s*:\s*\[', body)
+    arr = body[m.end():] if m else body
+    objs: list[dict[str, Any]] = []
+    depth = 0
+    in_str = False
+    esc = False
+    obj_start = None
+    for i, ch in enumerate(arr):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            if depth == 0:
+                obj_start = i
+            depth += 1
+        elif ch == "}":
+            if depth > 0:
+                depth -= 1
+                if depth == 0 and obj_start is not None:
+                    try:
+                        o = json.loads(arr[obj_start:i + 1])
+                        if isinstance(o, dict):
+                            objs.append(o)
+                    except Exception:
+                        pass
+                    obj_start = None
+    if not objs:
+        raise ValueError("tidak ada objek JSON utuh")
+    if m:
+        key = m.group(1)
+    elif any("id" in o for o in objs):
+        key = "windows"
+    else:
+        key = "shorts"
+    return {key: objs}
 
 
 async def score_windows(windows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -160,7 +210,7 @@ async def detail_pass(
     content = await gateway.chat(
         [{"role": "system", "content": DETAIL_SYSTEM},
          {"role": "user", "content": prompt}],
-        temperature=0.4, max_tokens=4096,
+        temperature=0.4, max_tokens=8000,
     )
     try:
         data = _parse_json(content)
@@ -251,7 +301,14 @@ async def detect_clips(transcript: dict[str, Any], target_count: int = 10) -> li
         return []
     scored = await score_windows(windows)
     shortlist = scored[: max(3, math.ceil(len(scored) * 0.5))]
-    clips = await detail_pass(transcript, shortlist, target_count)
+    # detail_pass bisa gagal parse (provider garbage / rate-limit) — retry 3x
+    clips: list[dict[str, Any]] = []
+    for attempt in range(3):
+        clips = await detail_pass(transcript, shortlist, target_count)
+        if clips:
+            break
+        print(f"[clip_selection] detail_pass kosong (attempt {attempt + 1}/3), retry 20s…")
+        await asyncio.sleep(20)
     out = []
     for c in clips:
         c = snap_clip_to_words(c, transcript)

@@ -184,16 +184,25 @@ class HydraGateway:
         by_provider: dict[str, list[Endpoint]] = {}
         for e in pool:
             by_provider.setdefault(e.provider, []).append(e)
-        providers = list(by_provider)
-        out: list[Endpoint] = []
-        if providers:
-            offset = int(time.time() // 10) % len(providers)
-            providers = providers[offset:] + providers[:offset]
-        while any(by_provider.values()):
-            for p in providers:
-                if by_provider[p]:
-                    out.append(by_provider[p].pop(0))
-        return out
+        # Provider BER-KEY selalu didahulukan (paling awal di pool); provider
+        # anonim/unlimited cuma jadi jaring pengaman terakhir. Rotasi tetap
+        # jalan di dalam masing-masing tier.
+        keyed = [p for p in by_provider if by_provider[p] and by_provider[p][0].key]
+        anon = [p for p in by_provider if by_provider[p] and not by_provider[p][0].key]
+
+        def _rotate(names: list[str]) -> list[Endpoint]:
+            if not names:
+                return []
+            offset = int(time.time() // 10) % len(names)
+            names = names[offset:] + names[:offset]
+            out: list[Endpoint] = []
+            while any(by_provider[n] for n in names):
+                for n in names:
+                    if by_provider[n]:
+                        out.append(by_provider[n].pop(0))
+            return out
+
+        return _rotate(keyed) + _rotate(anon)
 
     def _fail(self, ep: Endpoint, status: int, body: str) -> None:
         ep.failures += 1
@@ -381,8 +390,23 @@ class HydraGateway:
                             )
                         # some reasoning models put output in reasoning; skip
                         if content and content.strip():
-                            self._ok(ep)
-                            return content
+                            # response sampah dari provider anonim (limit pesan
+                            # panjang, banner, dsb) BUKAN jawaban — perlakukan
+                            # sebagai error supaya failover ke endpoint berikutnya
+                            low = content.strip().lower()
+                            junk_markers = (
+                                "batas untuk pengguna anonim",
+                                "login untuk melanjutkan",
+                                "masuk untuk melanjutkan",
+                                "sign in to continue",
+                                "rate limit exceeded",
+                            )
+                            if len(content) < 400 and any(m in low for m in junk_markers):
+                                self._fail(ep, 503, f"junk response: {content[:80]}")
+                                last_err = f"{ep.provider}/{ep.model}: junk response"
+                            else:
+                                self._ok(ep)
+                                return content
                         self._fail(ep, 500, "empty content")
                     else:
                         self._fail(ep, resp.status_code, resp.text)
