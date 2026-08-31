@@ -167,7 +167,7 @@ function EditorPage() {
     (async () => {
       try {
         const token = await getAccessToken();
-        const res = await fetch("http://178.128.82.140:8787/api/ads/status", {
+        const res = await fetch("/api/ads/status", {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (res.ok) {
@@ -185,7 +185,7 @@ function EditorPage() {
     setPreviewBusy(true);
     try {
       const token = await getAccessToken();
-      const res = await fetch("http://178.128.82.140:8787/api/preview-clip", {
+      const res = await fetch("/api/preview-clip", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ project_id: clip.project_id, clip_id: clip.id }),
@@ -277,7 +277,7 @@ function EditorPage() {
       let queueN = 0;
       try {
         const tokenQ = await getAccessToken();
-        const res = await fetch("http://178.128.82.140:8787/api/render-jobs/queue-position/x", {
+        const res = await fetch("/api/render-jobs/queue-position/x", {
           headers: { Authorization: `Bearer ${tokenQ}` },
         });
         if (res.ok) {
@@ -323,7 +323,7 @@ function EditorPage() {
     const iv = setInterval(async () => {
       try {
         const token = await getAccessToken();
-        const res = await fetch(`http://178.128.82.140:8787/api/render-jobs/project/${clip!.project_id}`, {
+        const res = await fetch(`/api/render-jobs/project/${clip!.project_id}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!res.ok) return;
@@ -342,7 +342,7 @@ function EditorPage() {
     setAdPlaying(false);
     try {
       const token = await getAccessToken();
-      const res = await fetch("http://178.128.82.140:8787/api/ads/watched", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch("/api/ads/watched", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) {
         const d = await res.json();
         setAdsWatched(d.ads_watched);
@@ -557,7 +557,7 @@ function EditorPage() {
                         setBrollSearching(true);
                         try {
                           const token = await getAccessToken();
-                          const res = await fetch("http://178.128.82.140:8787/api/broll/placements", {
+                          const res = await fetch("/api/broll/placements", {
                             method: "POST",
                             headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
                             body: JSON.stringify({ project_id: clip.project_id, clip_id: clip.id }),

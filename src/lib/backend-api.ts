@@ -5,7 +5,7 @@
 import { supabase } from "@/integrations/supabase/client";
 
 const BACKEND_URL =
-  import.meta.env.VITE_BACKEND_URL ?? "http://178.128.82.140:8787";
+  import.meta.env.VITE_BACKEND_URL ?? "";
 
 export interface RenderResult {
   file: string;

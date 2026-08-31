@@ -1,6 +1,6 @@
 /** API client untuk fitur project management (share/rename/delete/touch/queue). */
 
-const API = "http://178.128.82.140:8787";
+const API = "";
 
 export async function authHeaders(): Promise<Record<string, string>> {
   const { supabase } = await import("@/integrations/supabase/client");

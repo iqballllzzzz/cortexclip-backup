@@ -13,6 +13,7 @@ Endpoints (all auth via Supabase user JWT, validated against auth service):
 from __future__ import annotations
 
 import os
+import re
 import json
 import base64
 import binascii
@@ -120,6 +121,15 @@ class JobIn(BaseModel):
 class AdminLogin(BaseModel):
     username: str
     password: str
+
+
+class YoutubeIn(BaseModel):
+    url: str
+    target_count: Optional[int] = None
+
+
+class CheckoutIn(BaseModel):
+    plan: str
 
 
 class AssIn(BaseModel):
@@ -531,6 +541,139 @@ async def admin_overview(authorization: str = Header(None)):
         "hydra": gateway.status(),
         "output_dir": jobs_mod.OUTPUT_DIR,
     }
+
+
+# ---------------------------------------------------------------------------
+# YouTube (hydra downloader) + share + quota + premium (Pakasir)
+# ---------------------------------------------------------------------------
+
+@app.post("/api/youtube/process")
+async def api_youtube_process(body: YoutubeIn, request: Request, authorization: str | None = Header(None)):
+    user = await get_user(request, authorization)
+    url = body.url.strip()
+    if not re.match(r"^https?://", url):
+        raise HTTPException(400, "URL tidak valid")
+    from .premium import quota_check_project, limits_for, MSG_LIMIT_PROJECT
+    quota = await quota_check_project(user["id"])
+    if not quota["ok"]:
+        raise HTTPException(429, quota["message"] or MSG_LIMIT_PROJECT)
+    lim = await limits_for(user["id"])
+    target = body.target_count or lim["clips_per_video"]
+    target = min(target, lim["clips_per_video"])
+    # buat project row (status downloading) langsung dari server
+    from .premium import sb
+    rows = await sb("POST", "projects", json_body=[{
+        "user_id": user["id"], "title": "Memuat video YouTube…",
+        "source_type": "youtube", "source_url": url, "status": "downloading",
+    }])
+    project_id = rows[0]["id"]
+    asyncio.create_task(_youtube_task(project_id, user["id"], url, target))
+    return {"project_id": project_id, "plan": quota["plan"], "target_clips": target}
+
+
+async def _youtube_task(project_id: str, user_id: str, url: str, target: int) -> None:
+    from .youtube import run_youtube_pipeline
+    await run_youtube_pipeline(project_id, user_id, url, target)
+
+
+@app.get("/api/quota")
+async def api_quota(request: Request, authorization: str | None = Header(None)):
+    user = await get_user(request, authorization)
+    from .premium import quota_check_project
+    return await quota_check_project(user["id"])
+
+
+@app.post("/api/projects/{project_id}/share")
+async def api_project_share(project_id: str, request: Request, authorization: str | None = Header(None)):
+    user = await get_user(request, authorization)
+    from .premium import create_share
+    try:
+        return await create_share(user["id"], project_id)
+    except PermissionError as exc:
+        raise HTTPException(404, str(exc))
+
+
+@app.get("/api/share/{token}")
+async def api_share_view(token: str):
+    from .premium import get_shared
+    try:
+        return await get_shared(token)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+
+
+@app.post("/api/share/{token}/accept")
+async def api_share_accept(token: str, request: Request, authorization: str | None = Header(None)):
+    user = await get_user(request, authorization)
+    from .premium import accept_share
+    try:
+        return await accept_share(token, user["id"])
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+
+
+@app.get("/api/premium/plans")
+async def api_premium_plans():
+    from .premium import PLANS
+    return {"plans": [
+        {"key": k, "label": v["label"], "amount": v["amount"], "days": v["days"]}
+        for k, v in PLANS.items()
+    ]}
+
+
+@app.post("/api/premium/checkout")
+async def api_premium_checkout(body: CheckoutIn, request: Request, authorization: str | None = Header(None)):
+    user = await get_user(request, authorization)
+    from .premium import create_checkout
+    try:
+        return await create_checkout(user["id"], body.plan)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception as exc:
+        raise HTTPException(502, f"Pakasir: {exc}")
+
+
+@app.get("/api/premium/qr/{order_id}")
+async def api_premium_qr(order_id: str):
+    """QR PNG untuk order (verifikasi service-role: order_id + amount rahasia)."""
+    import io
+    from .premium import sb, PAKASIR_API_KEY
+    rows = await sb("GET", f"premium_orders?order_id=eq.{order_id}&select=amount")
+    if not rows:
+        raise HTTPException(404, "order tidak ditemukan")
+    from .premium import pakasir_create_qris
+    pay = await pakasir_create_qris(order_id, rows[0]["amount"]) if PAKASIR_API_KEY else {}
+    qris = pay.get("payment_number") or ""
+    if not qris:
+        raise HTTPException(404, "QRIS tidak tersedia")
+    import qrcode
+    img = qrcode.make(qris)
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    from fastapi.responses import Response
+    return Response(content=buf.getvalue(), media_type="image/png")
+
+
+@app.post("/app/webhook")
+async def api_pakasir_webhook(request: Request):
+    """Webhook Pakasir — TANPA auth (dipanggil server Pakasir)."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "body bukan JSON")
+    from .premium import handle_webhook
+    result = await handle_webhook(body)
+    return result
+
+
+@app.get("/api/premium/order/{order_id}")
+async def api_premium_order(order_id: str, request: Request, authorization: str | None = Header(None)):
+    user = await get_user(request, authorization)
+    from .premium import get_order_status
+    try:
+        return await get_order_status(user["id"], order_id)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
 
 
 @app.get("/")

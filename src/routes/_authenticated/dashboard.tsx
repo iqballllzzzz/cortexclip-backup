@@ -23,7 +23,10 @@ import {
   Share2,
   Pencil,
   Trash2,
+  Crown,
 } from "lucide-react";
+
+import { PremiumDialog } from "@/components/premium-dialog";
 
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -90,6 +93,9 @@ function Dashboard() {
   const [renameValue, setRenameValue] = useState("");
   const [sharing, setSharing] = useState(false);
   const [sharedLink, setSharedLink] = useState<string | null>(null);
+  // premium
+  const [premiumOpen, setPremiumOpen] = useState(false);
+  const [quota, setQuota] = useState<{ plan: string; used: number; limit: number; clips_per_video: number } | null>(null);
 
   async function copyText(text: string): Promise<boolean> {
     // navigator.clipboard butuh HTTPS — di HTTP (IP:8080) pakai fallback
@@ -135,11 +141,34 @@ function Dashboard() {
     });
   }
 
+  async function fetchQuota(): Promise<{ ok: boolean; plan: string; used: number; limit: number; clips_per_video: number; message: string | null }> {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const res = await fetch("/api/quota", {
+      headers: { Authorization: `Bearer ${session?.access_token ?? ""}` },
+    });
+    if (!res.ok) throw new Error("Gagal cek kuota");
+    const d = await res.json();
+    setQuota(d);
+    return d;
+  }
+
+  useEffect(() => {
+    fetchQuota().catch(() => {});
+  }, []);
+
   async function createFromFile(file: File) {
     setCreating(true);
     setUploadPct(0);
     let projectId: string | null = null;
     try {
+      // limit harian (free 2/hari, premium 10/hari) — cek SEBELUM apa pun
+      const q = await fetchQuota();
+      if (!q.ok) {
+        setPremiumOpen(true);
+        throw new Error(q.message ?? "Limit harian tercapai — upgrade ke Premium.");
+      }
       const ext = file.name.split(".").pop() ?? "mp4";
       const { data: project, error } = await supabase
         .from("projects")
@@ -181,12 +210,21 @@ function Dashboard() {
     }
     setYtBusy(true);
     try {
+      // limit harian — cek SEBELUM request (free 2/hari, premium 10/hari)
+      const q = await fetchQuota();
+      if (!q.ok) {
+        setPremiumOpen(true);
+        throw new Error(q.message ?? "Limit harian tercapai — upgrade ke Premium.");
+      }
       await processYoutube(url);
       toast.success("Video YouTube diunduh di server — AI langsung memproses. Pantau di Proyek Terbaru.");
       setYoutubeUrl("");
       setTimeout(() => window.location.reload(), 1200);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Gagal memproses YouTube");
+      toast.error(err instanceof Error ? err.message : "Gagal memproses YouTube", {
+        description: undefined,
+        action: undefined,
+      });
       setYtBusy(false);
     }
   }
@@ -455,10 +493,19 @@ function Dashboard() {
                   </p>
                 </div>
                 <div className="rounded-2xl border border-white/8 bg-background p-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Sumber</p>
-                  <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                    Upload langsung atau link YouTube — bebas pilih.
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    {quota?.plan === "premium" ? "Premium 👑" : "Kuota Gratis"}
                   </p>
+                  <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                    {quota
+                      ? `${quota.used}/${quota.limit} video hari ini · maks ${quota.clips_per_video} klip/video`
+                      : "Memuat kuota…"}
+                  </p>
+                  {quota?.plan !== "premium" && (
+                    <Button variant="accent" size="sm" className="mt-3 w-full" onClick={() => setPremiumOpen(true)}>
+                      <Crown className="size-3.5" /> Upgrade Premium
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
@@ -670,6 +717,14 @@ function Dashboard() {
           </motion.div>
         </div>
       ) : null}
+
+      <PremiumDialog
+        open={premiumOpen}
+        onClose={() => setPremiumOpen(false)}
+        onUpgraded={() => {
+          fetchQuota().catch(() => {});
+        }}
+      />
     </div>
   );
 }
