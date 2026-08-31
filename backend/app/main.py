@@ -23,7 +23,7 @@ import uuid
 from typing import Any, Optional
 
 from dotenv import load_dotenv
-load_dotenv()  # ensure .env is loaded when run via uvicorn
+load_dotenv(override=True)  # ensure .env is loaded even when parent process has empty placeholder vars
 
 import httpx
 import jwt as pyjwt
@@ -35,9 +35,10 @@ from pydantic import BaseModel
 from .hydra import gateway, HydraError
 from . import jobs as jobs_mod
 from .jobs import jobs, run_pipeline, update_project
-from .subtitles import build_ass, build_srt, DEFAULT_STYLE, EFFECTS
+from .subtitles import build_ass, build_srt, DEFAULT_STYLE, EFFECTS, STYLE_PRESETS
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "http://localhost:8000")
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 
 # Admin credentials (env override) — user logs in here for the admin panel.
@@ -61,7 +62,7 @@ app.add_middleware(
 # Auth helpers
 # ---------------------------------------------------------------------------
 
-async def get_user(request: Request, authorization: Optional[str]) -> dict[str, Any]:
+async def get_user(request: Request, authorization: str | None) -> dict[str, Any]:
     """Validate the Supabase user JWT and return {id, email}."""
     token = None
     if authorization and authorization.lower().startswith("bearer "):
@@ -81,7 +82,7 @@ async def get_user(request: Request, authorization: Optional[str]) -> dict[str, 
     return {"id": data["id"], "email": data.get("email", "")}
 
 
-def require_admin(authorization: Optional[str]) -> None:
+def require_admin(authorization: str | None) -> None:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(401, "Missing admin token")
     token = authorization.split(" ", 1)[1]
@@ -146,7 +147,11 @@ async def health():
 
 @app.get("/api/caption-effects")
 async def caption_effects():
-    return {"effects": list(EFFECTS), "default": DEFAULT_STYLE}
+    return {
+        "effects": list(EFFECTS),
+        "default": DEFAULT_STYLE,
+        "presets": STYLE_PRESETS,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -154,9 +159,10 @@ async def caption_effects():
 # ---------------------------------------------------------------------------
 
 @app.post("/api/transcribe/chunk")
-async def transcribe_chunk(body: ChunkIn, request: Request, authorization: str = Header(None)):
+async def transcribe_chunk(body: ChunkIn, request: Request, authorization: str | None = Header(None)):
     await get_user(request, authorization)
     from .transcribe import transcribe_wav_chunk
+    from .limits import TranscribeSlot
     try:
         wav = base64.b64decode(body.audio_base64, validate=False)
     except (binascii.Error, ValueError):
@@ -164,7 +170,9 @@ async def transcribe_chunk(body: ChunkIn, request: Request, authorization: str =
     if len(wav) < 1000:
         raise HTTPException(400, "audio terlalu pendek")
     try:
-        segments = await transcribe_wav_chunk(wav, body.offset, body.duration)
+        # throttle: max N transkripsi concurrent — sisanya antri (gateway AI gak down)
+        with TranscribeSlot():
+            segments = await transcribe_wav_chunk(wav, body.offset, body.duration)
     except HydraError as exc:
         raise HTTPException(503, str(exc))
     # accumulate into job transcript store
@@ -277,14 +285,224 @@ async def api_render_clip(body: RenderClipIn, request: Request, authorization: s
     return result
 
 
+@app.post("/api/preview-clip")
+async def api_preview_clip(body: RenderClipIn, request: Request, authorization: str | None = Header(None)):
+    """Render preview klip resolusi rendah (360x640) dengan cepat — VPS yang nggarap.
+
+    Browser memutar file preview kecil (~100-500KB) ini, bukan streaming seluruh
+    video sumber 43MB → editor preview muncul instan tanpa lag.
+    """
+    await get_user(request, authorization)
+    from .render_clip import render_preview_clip
+    try:
+        result = await render_preview_clip(
+            body.project_id, body.clip_id, token=authorization.split(" ", 1)[1],
+            caption_style=body.caption_style,
+        )
+    except Exception as exc:
+        raise HTTPException(400, str(exc))
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Render jobs background (Unduh async — boleh keluar halaman)
+# ---------------------------------------------------------------------------
+
+class RenderJobIn(BaseModel):
+    project_id: str
+    clip_id: str
+    caption_style: Optional[dict[str, Any]] = None
+
+
+@app.post("/api/render-jobs")
+async def api_start_render_job(body: RenderJobIn, request: Request, authorization: str | None = Header(None)):
+    """Mulai render klip di BACKGROUND. User boleh keluar/pindah tab —
+    hasilnya diambil lewat GET /api/render-jobs (halaman /unduh)."""
+    user = await get_user(request, authorization)
+    token = authorization.split(" ", 1)[1] if authorization and " " in authorization else ""
+
+    # Resource guard — tolak job yang bikin server kritis
+    from .limits import can_accept_render
+    ok, reason = can_accept_render(user["id"])
+    if not ok:
+        raise HTTPException(429, reason)
+
+    # simpan job ke DB
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.post(
+            f"{SUPABASE_URL}/rest/v1/render_jobs",
+            headers={
+                "apikey": SUPABASE_SERVICE_KEY,
+                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                "Content-Type": "application/json",
+                "Prefer": "return=representation",
+            },
+            json={
+                "user_id": user["id"],
+                "project_id": body.project_id,
+                "clip_id": body.clip_id,
+                "status": "pending",
+                "caption_style": body.caption_style or {},
+            },
+        )
+        if r.status_code not in (200, 201):
+            raise HTTPException(500, f"Gagal membuat job render: {r.text[:200]}")
+        job = r.json()[0]
+
+    # jalankan render di background — pakai to_thread supaya subprocess
+    # blocking (ffmpeg) TIDAK menahan event loop (API tetap responsif)
+    async def run_job():
+        from .render_clip import render_clip_server
+        import anyio
+        try:
+            async with httpx.AsyncClient(timeout=15) as c:
+                await c.patch(
+                    f"{SUPABASE_URL}/rest/v1/render_jobs?id=eq.{job['id']}",
+                    headers={"apikey": SUPABASE_SERVICE_KEY,
+                             "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                             "Content-Type": "application/json"},
+                    json={"status": "rendering"},
+                )
+            def _render_blocking():
+                # thread baru + event loop baru — ffmpeg blocking tidak
+                # menahan event loop utama (API tetap responsif).
+                # RenderSlot = queue otomatis: max N render concurrent,
+                # sisanya menunggu sampai slot bebas (server gak down).
+                from .limits import RenderSlot
+                with RenderSlot(job["id"], user["id"]):
+                    return asyncio.run(
+                        render_clip_server(
+                            body.project_id, body.clip_id, token=token,
+                            caption_style=body.caption_style,
+                            resolution="1080x1920",
+                            face_tracking=True,
+                        )
+                    )
+
+            result = await anyio.to_thread.run_sync(_render_blocking)
+            async with httpx.AsyncClient(timeout=15) as c:
+                await c.patch(
+                    f"{SUPABASE_URL}/rest/v1/render_jobs?id=eq.{job['id']}",
+                    headers={"apikey": SUPABASE_SERVICE_KEY,
+                             "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                             "Content-Type": "application/json"},
+                    json={"status": "completed", "rendered_url": result["url"],
+                          "completed_at": "now()"},
+                )
+        except Exception as exc:
+            async with httpx.AsyncClient(timeout=15) as c:
+                await c.patch(
+                    f"{SUPABASE_URL}/rest/v1/render_jobs?id=eq.{job['id']}",
+                    headers={"apikey": SUPABASE_SERVICE_KEY,
+                             "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                             "Content-Type": "application/json"},
+                    json={"status": "failed", "error": str(exc)[:500]},
+                )
+
+    asyncio.create_task(run_job())
+    return {"job_id": job["id"], "status": "pending"}
+
+
+@app.get("/api/render-jobs")
+async def api_list_render_jobs(request: Request, authorization: str | None = Header(None)):
+    """Daftar job render user (terbaru dulu) — dipakai halaman /unduh."""
+    user = await get_user(request, authorization)
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            f"{SUPABASE_URL}/rest/v1/render_jobs?user_id=eq.{user['id']}"
+            f"&select=id,project_id,clip_id,clip_title,status,rendered_url,error,created_at,completed_at"
+            f"&order=created_at.desc&limit=50",
+            headers={"apikey": SUPABASE_SERVICE_KEY,
+                     "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
+        )
+    return {"jobs": r.json()}
+
+
+@app.get("/api/render-jobs/project/{project_id}")
+async def api_project_render_jobs(project_id: str, request: Request, authorization: str | None = Header(None)):
+    """Job render untuk satu project — dipakai deteksi 'render selesai' saat balik ke halaman project."""
+    user = await get_user(request, authorization)
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            f"{SUPABASE_URL}/rest/v1/render_jobs?user_id=eq.{user['id']}&project_id=eq.{project_id}"
+            f"&select=id,clip_id,clip_title,status,rendered_url,created_at"
+            f"&order=created_at.desc&limit=20",
+            headers={"apikey": SUPABASE_SERVICE_KEY,
+                     "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
+        )
+    return {"jobs": r.json()}
+
+
+# ---------------------------------------------------------------------------
+# Ads & watermark (hapus watermark = tonton 4 iklan)
+# ---------------------------------------------------------------------------
+
+@app.post("/api/ads/watched")
+async def api_ad_watched(request: Request, authorization: str | None = Header(None)):
+    """Tandai satu iklan selesai ditonton. Setelah 4x → watermark_removed=true
+    (render berikutnya tanpa watermark)."""
+    user = await get_user(request, authorization)
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            f"{SUPABASE_URL}/rest/v1/profiles?user_id=eq.{user['id']}&select=ads_watched,watermark_removed",
+            headers={"apikey": SUPABASE_SERVICE_KEY,
+                     "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
+        )
+        rows = r.json() if r.status_code == 200 else []
+        watched = int(rows[0].get("ads_watched") or 0) if rows else 0
+        removed = bool(rows[0].get("watermark_removed")) if rows else False
+        watched += 1
+        if watched >= 4:
+            removed = True
+        await client.patch(
+            f"{SUPABASE_URL}/rest/v1/profiles?user_id=eq.{user['id']}",
+            headers={"apikey": SUPABASE_SERVICE_KEY,
+                     "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                     "Content-Type": "application/json"},
+            json={"ads_watched": watched, "watermark_removed": removed},
+        )
+    remaining = max(0, 4 - watched)
+    return {
+        "ads_watched": watched,
+        "watermark_removed": removed,
+        "remaining": remaining,
+        "message": "Watermark dihapus! Render berikutnya bebas watermark." if removed
+                   else f"Iklan {watched}/4 ditonton — {remaining} lagi untuk hapus watermark.",
+    }
+
+
+@app.get("/api/ads/status")
+async def api_ads_status(request: Request, authorization: str | None = Header(None)):
+    """Status iklan & watermark user."""
+    user = await get_user(request, authorization)
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            f"{SUPABASE_URL}/rest/v1/profiles?user_id=eq.{user['id']}&select=ads_watched,watermark_removed",
+            headers={"apikey": SUPABASE_SERVICE_KEY,
+                     "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
+        )
+        rows = r.json() if r.status_code == 200 else []
+    watched = int(rows[0].get("ads_watched") or 0) if rows else 0
+    removed = bool(rows[0].get("watermark_removed")) if rows else False
+    return {"ads_watched": watched, "watermark_removed": removed, "remaining": max(0, 4 - watched)}
+
+
 # ---------------------------------------------------------------------------
 # Hydra / admin
 # ---------------------------------------------------------------------------
 
 @app.get("/api/hydra/status")
-async def hydra_status(request: Request, authorization: str = Header(None)):
+async def hydra_status(request: Request, authorization: str | None = Header(None)):
     await get_user(request, authorization)
     return {"endpoints": gateway.status()}
+
+
+@app.get("/api/admin/resources")
+async def admin_resources(authorization: str | None = Header(None)):
+    """Snapshot resource server + batasan aktif (monitoring admin)."""
+    require_admin(authorization)
+    from .limits import resource_status
+    return resource_status()
 
 
 @app.post("/api/admin/login")

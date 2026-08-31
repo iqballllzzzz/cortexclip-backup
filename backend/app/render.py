@@ -49,6 +49,57 @@ def probe_duration(path: str) -> float:
     return float(json.loads(out)["format"]["duration"])
 
 
+def render_preview(
+    src: str,
+    start: float,
+    end: float,
+    out_path: str,
+    width: int = 360,
+    height: int = 640,
+    max_seconds: float = 12.0,
+) -> str:
+    """Fitur-nya kecil + super cepat (VPS, ditanggung server).
+
+    Bikin klip preview resolusi rendah (360x640) tanpa burn karaoke —
+    cukup potong + crop 9:16 + transkode cepat. Dipakai browser supaya
+    preview editor muncul INSTAN (file kecil, bukan stream 43MB sumber).
+    Durasi di-cap (max_seconds) supaya render cepat & file kecil.
+    """
+    duration = min(end - start, max_seconds)
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height", "-of", "json", src],
+        capture_output=True, text=True,
+    )
+    src_w, src_h = 1080, 1920
+    if probe.returncode == 0:
+        try:
+            d = json.loads(probe.stdout)["streams"][0]
+            src_w, src_h = int(d["width"]), int(d["height"])
+        except Exception:
+            pass
+
+    aspect = width / height
+    # center crop to 9:16
+    if src_w / src_h > aspect:
+        vf = f"crop=w={int(src_h * aspect)}:h={src_h}:x=(iw-ow)/2:y=0,scale={width}:{height}"
+    else:
+        vf = f"crop=w={src_w}:h={int(src_w / aspect)}:x=0:y=(ih-oh)/2,scale={width}:{height}"
+
+    cmd = [
+        "ffmpeg", "-y", "-v", "error",
+        "-ss", f"{start:.3f}", "-t", f"{duration:.3f}", "-i", src,
+        "-vf", vf,
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
+        "-pix_fmt", "yuv420p",
+        "-an",
+        "-movflags", "+faststart",
+        out_path,
+    ]
+    subprocess.run(cmd, check=True, capture_output=True)
+    return out_path
+
+
 def probe_size(path: str) -> tuple[int, int]:
     out = subprocess.run(
         ["ffprobe", "-v", "error", "-select_streams", "v:0",
@@ -178,14 +229,28 @@ def render_clip(
     resolution: str = "1080x1920",
     face_tracking: bool = True,
     camera_trajectory: Optional[list[float]] = None,
+    watermark: bool = True,
+    icon_ass_path: Optional[str] = None,
 ) -> str:
-    """Cut + reframe + burn subtitles -> vertical MP4.
+    """Cut + reframe + burn subtitles (+ ikon overlay) -> vertical MP4.
 
     Resolution choices: 1080x1920, 720x1280, 1080x1080.
+    watermark: bakar watermark CortexClipAI (default ON — dihapus hanya
+    setelah user menonton 4 iklan, via flag dari render_clip.py).
+    icon_ass_path: ASS overlay ikon/b-roll (layer terpisah dari subtitle).
     """
     w, h = map(int, resolution.split("x"))
     aspect = w / h
     src_w, src_h = probe_size(src)
+
+    # watermark PNG komposit (logo+nama+tagline) — skala ke lebar output
+    wm_path = None
+    if watermark:
+        try:
+            from .watermark import build_watermark_png
+            wm_path = build_watermark_png(target_width=w)
+        except Exception:
+            wm_path = None
 
     # already vertical-ish? pass through crop centered
     filters: list[str] = []
@@ -209,19 +274,49 @@ def render_clip(
     # scale to delivery size (never downscale below source quality needlessly)
     vf_parts.append(f"scale={w}:{h}:force_original_aspect_ratio=increase")
     vf_parts.append(f"crop={w}:{h}")
-    if ass_path:
-        # escape path for filter
-        esc = ass_path.replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
-        vf_parts.append(f"ass='{esc}'")
 
-    vf = ",".join(vf_parts)
+    from .subtitles import fonts_dir as subtitle_fonts_dir
+    fonts_dir = subtitle_fonts_dir()
+
+    def ass_filter(p: str) -> str:
+        esc = p.replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
+        return f"ass='{esc}':fontsdir='{fonts_dir}'"
+
+    if ass_path:
+        vf_parts.append(ass_filter(ass_path))
+    if icon_ass_path:
+        vf_parts.append(ass_filter(icon_ass_path))
+
+    # --- watermark overlay (kiri-atas, offset dari pojok biar terbaca) ---
     cmd = [
         "ffmpeg", "-y", "-v", "error",
         "-ss", f"{start:.3f}", "-t", f"{end - start:.3f}", "-i", src,
-        "-vf", vf,
+    ]
+    if wm_path:
+        x = int(w * 0.055)
+        y = int(h * 0.045)
+        wm_w = int(w * 0.30)
+        fc_main = ",".join(vf_parts)
+        filter_complex = (
+            f"[0:v]{fc_main}[vbase];"
+            f"[1:v]scale={wm_w}:-1[wm];"
+            f"[vbase][wm]overlay={x}:{y}:format=auto[vout]"
+        )
+        cmd += [
+            "-i", wm_path,
+            "-filter_complex", filter_complex,
+            "-map", "[vout]",
+            "-map", "0:a?",
+        ]
+    else:
+        cmd += ["-vf", ",".join(vf_parts)]
+
+    cmd += [
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-threads", "2",
         "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "128k",
+        "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
+        "-ac", "2",
         "-movflags", "+faststart",
         "-metadata", "comment=Made with CortexClip AI",
         out_path,

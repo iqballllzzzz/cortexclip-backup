@@ -108,6 +108,7 @@ async def score_windows(windows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     try:
         data = _parse_json(content)
     except Exception:
+        print(f"[clip_selection] score_windows parse gagal, content: {content[:300]!r}")
         # uniform fallback: all windows neutral score
         return [dict(w, score=50, reason="fallback") for w in windows]
     if isinstance(data, list):
@@ -164,6 +165,7 @@ async def detail_pass(
     try:
         data = _parse_json(content)
     except Exception:
+        print(f"[clip_selection] detail_pass parse gagal, content: {content[:300]!r}")
         return []
     if isinstance(data, list):
         data = {"shorts": data}

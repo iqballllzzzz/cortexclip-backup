@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import json
+import hashlib
 import tempfile
 import uuid
 import time
@@ -14,10 +15,16 @@ from typing import Any, Optional
 
 import httpx
 
-from .subtitles import build_ass, build_srt, DEFAULT_STYLE
+from .subtitles import build_ass, build_srt, DEFAULT_STYLE, STYLE_PRESETS
 from . import render as render_mod
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "http://localhost:8000")
+SUPABASE_SERVICE_KEY_ENV = os.environ.get("SUPABASE_SERVICE_KEY", "")
+# Public URL — supabase self-host diakses dari browser user (bukan localhost VPS)
+PUBLIC_SUPABASE_URL = os.environ.get(
+    "PUBLIC_SUPABASE_URL",
+    "http://178.128.82.140:8000",
+)
 SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 BUCKET = "video-uploads"
 
@@ -109,14 +116,41 @@ async def render_clip_server(
         if not isinstance(words, list) or not words:
             raise RuntimeError("Klip belum punya caption words")
 
-        style = dict(DEFAULT_STYLE)
-        if caption_style:
-            style.update(caption_style)
+        # style: cukup pass caption_style — build_ass resolve preset Supoclip.
+        style = dict(caption_style or {})
+        broll_enabled = bool(style.pop("broll", False))
+        emoji_in_subtitle = bool(style.pop("emoji_extra", False))
 
-        ass = build_ass(words, style)
+        # dimensi output utk PlayRes + skala font (ala Supoclip)
+        try:
+            vw, vh = map(int, resolution.split("x"))
+        except Exception:
+            vw, vh = 1080, 1920
+
+        # emoji pada subtitle: aktifkan emoji kontekstual ala Supoclip
+        if emoji_in_subtitle:
+            style.setdefault("emoji", True)
+
+        ass = build_ass(words, style, video_width=vw, video_height=vh)
         ass_path = os.path.join(workdir, "subs.ass")
         with open(ass_path, "w", encoding="utf-8") as f:
             f.write(ass)
+
+        # IKON & B-ROLL overlay (AI pilih momen → ikon emoji animasi via ASS layer)
+        icon_ass_path: Optional[str] = None
+        if broll_enabled:
+            try:
+                from .broll import compute_placements, overlay_to_ass
+                duration = float(clip["end_time"]) - float(clip["start_time"])
+                placements = await compute_placements(words, duration)
+                if placements:
+                    icon_ass = overlay_to_ass(placements, video_width=vw, video_height=vh)
+                    if icon_ass:
+                        icon_ass_path = os.path.join(workdir, "icons.ass")
+                        with open(icon_ass_path, "w", encoding="utf-8") as f:
+                            f.write(icon_ass)
+            except Exception:
+                icon_ass_path = None  # overlay gagal → render tetap jalan
 
         start = float(clip["start_time"])
         end = float(clip["end_time"])
@@ -130,11 +164,29 @@ async def render_clip_server(
             except Exception:
                 traj = None
 
+        # Watermark: ON kecuali user sudah menuntaskan 4 iklan (profiles.ads_watched>=4)
+        watermark_on = True
+        try:
+            user_id = clip.get("user_id") or project.get("user_id")
+            async with httpx.AsyncClient(timeout=10) as c:
+                pr = await c.get(
+                    f"{SUPABASE_URL}/rest/v1/profiles?user_id=eq.{user_id}&select=ads_watched,watermark_removed",
+                    headers={"apikey": SUPABASE_SERVICE_KEY_ENV,
+                             "Authorization": f"Bearer {SUPABASE_SERVICE_KEY_ENV}"},
+                )
+                rows = pr.json() if pr.status_code == 200 else []
+                if rows and (rows[0].get("watermark_removed") or int(rows[0].get("ads_watched") or 0) >= 4):
+                    watermark_on = False
+        except Exception:
+            pass
+
         render_mod.render_clip(
             src, start, end, ass_path, out_path,
             resolution=resolution,
             face_tracking=bool(traj),
             camera_trajectory=traj,
+            watermark=watermark_on,
+            icon_ass_path=icon_ass_path,
         )
 
         # optional hook overlay burn
@@ -147,8 +199,8 @@ async def render_clip_server(
         storage_key = f"{user_id}/rendered/{clip_id}.mp4"
         await upload_to_storage(out_path, storage_key)
 
-        # update clip row: status + rendered url
-        rendered_url = f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET}/{storage_key}"
+        # update clip row: status + rendered url (pakai URL publik, bukan localhost)
+        rendered_url = f"{PUBLIC_SUPABASE_URL}/storage/v1/object/public/{BUCKET}/{storage_key}"
         async with httpx.AsyncClient(timeout=30) as client:
             await client.patch(
                 f"{SUPABASE_URL}/rest/v1/clips?id=eq.{clip_id}",
@@ -160,6 +212,100 @@ async def render_clip_server(
             "file": out_name,
             "storage_path": storage_key,
             "url": rendered_url,
+        }
+    finally:
+        import shutil
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+async def render_preview_clip(
+    project_id: str,
+    clip_id: str,
+    token: str,
+    caption_style: Optional[dict[str, Any]] = None,
+    resolution: str = "360x640",
+    max_seconds: float = 3600.0,  # preview = durasi klip PENUH (bukan 12s)
+) -> dict[str, Any]:
+    """Render preview klip dengan pipeline ASLI (ASS burn + face tracking) resolusi rendah.
+
+    Preview == hasil unduhan (font sama, animasi karaoke sama, framing sama) karena
+    memakai build_ass + render_clip yang identik dengan render final — hanya resolusi
+    lebih kecil (360x640) dan durasi di-cap agar cepat. Browser memutar file kecil
+    ini, bukan streaming video sumber 43MB → instan, tanpa lag.
+    """
+    project, clip = await fetch_project_clip(project_id, clip_id, token)
+    storage_path = project.get("storage_path")
+    if not storage_path:
+        raise RuntimeError("Project belum punya file media di storage")
+
+    # Preview = video MURNI (tanpa subtitle burn) + face tracking.
+    # Subtitle ditangani LIVE OVERLAY HTML5 di browser (instan ikut setting).
+    # Satu render per klip — TIDAK perlu re-render tiap ganti gaya/ukuran/posisi.
+    # Hash hanya dari klip (bukan style) supaya cache selalu hit.
+    style = dict(caption_style or {})
+    style_hash = hashlib.md5(
+        json.dumps({"clip": clip_id, "v": 2}, sort_keys=True).encode()
+    ).hexdigest()[:10]
+
+    if clip.get("preview_style_hash") == style_hash and clip.get("preview_ready"):
+        # cache hit — preview video murni sudah ada (subtitle via live overlay)
+        return {
+            "file": f"{clip_id}.mp4",
+            "storage_path": f"{clip.get('user_id')}/previews/{clip_id}.mp4",
+            "url": clip["preview_url"],
+            "cached": True,
+        }
+
+    workdir = tempfile.mkdtemp(prefix="cortexclip_preview_")
+    try:
+        src = os.path.join(workdir, "source.mp4")
+        await download_from_storage(storage_path, src)
+
+        start = float(clip["start_time"])
+        end = min(float(clip["end_time"]), start + max_seconds)
+        out_name = f"{uuid.uuid4().hex[:10]}.mp4"
+        out_path = os.path.join(workdir, out_name)
+
+        # face tracking SELALU aktif (hukum wajib) — analisis di resolusi rendah cepat
+        traj = None
+        try:
+            traj = render_mod.analyze_face_track(src, start, end)
+        except Exception:
+            traj = None
+
+        # TANPA ass_path → video murni tanpa subtitle (anti double-subtitle:
+        # subtitle sudah dirender live overlay HTML5 di browser)
+        render_mod.render_clip(
+            src, start, end, None, out_path,
+            resolution=resolution,
+            face_tracking=bool(traj),
+            camera_trajectory=traj,
+        )
+
+        user_id = clip.get("user_id") or project.get("user_id")
+        storage_key = f"{user_id}/previews/{clip_id}.mp4"
+        await upload_to_storage(out_path, storage_key)
+        # query param v=style_hash → browser cache-bust versi preview
+        preview_url = (
+            f"{PUBLIC_SUPABASE_URL}/storage/v1/object/public/{BUCKET}/{storage_key}"
+            f"?v={style_hash}"
+        )
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            await client.patch(
+                f"{SUPABASE_URL}/rest/v1/clips?id=eq.{clip_id}",
+                headers=_user_headers(token),
+                json={
+                    "preview_url": preview_url,
+                    "preview_ready": True,
+                    "preview_style_hash": style_hash,
+                },
+            )
+
+        return {
+            "file": out_name,
+            "storage_path": storage_key,
+            "url": preview_url,
         }
     finally:
         import shutil

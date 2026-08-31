@@ -2,10 +2,10 @@
 
 Verified working endpoints on this VPS (2026-08-29):
   groq        /openai/v1        qwen/qwen3.8-27b (chat+json), whisper-large-v3(-turbo) (audio STT)
-  opencode    opencode.ai/zen/v1  *-free models (ling-3.0-flash-fin-free verified; others auto-marked dead)
+  opencode    opencode.ai/zen/v1  *-free models (big-pickle main; ling-3.0-flash-fin-free verified fallback)
   openrouter  /api/v1           :free models (z-ai/glm-5.2:free etc., subject to upstream rate limits)
   tokenrouter api.tokenrouter.com  qwen3.8-max etc. (key has $0 credit -> cooldown; ready when topped up)
-  gemini      generativelanguage  key invalid (AQ.* is not an AI Studio key) -> dead until replaced
+  gemini      native generateContent  AQ.* keys (Google AI Studio new format) via x-goog-api-key, 3.6/3.5-flash
 
 Failover behaviour (user requirement "hydra"):
   - 429 / quota  -> endpoint cooldown 60s, try next
@@ -55,6 +55,8 @@ BASE_URLS = {
     "openrouter": "https://openrouter.ai/api/v1",
     "tokenrouter": "https://api.tokenrouter.com/v1",
     "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "unlimitedai": "https://app.unlimitedai.chat",
+    "publicai": "https://publicai.co",
 }
 
 KEY_ENV = {
@@ -63,6 +65,8 @@ KEY_ENV = {
     "openrouter": "OPENROUTER_API_KEYS",
     "tokenrouter": "TOKENROUTER_API_KEYS",
     "gemini": "GEMINI_API_KEYS",
+    "unlimitedai": "UNLIMITEDAI_ENABLED",
+    "publicai": "PUBLICAI_ENABLED",
 }
 
 # Order matters within a provider. Free models first.
@@ -77,6 +81,7 @@ DEFAULT_MODELS: dict[str, list[str]] = {
         "whisper-large-v3",         # audio
     ],
     "opencode": [
+        "big-pickle",
         "ling-3.0-flash-fin-free",
         "deepseek-v4-flash-free",
         "nemotron-3.5-lightning-free",
@@ -109,8 +114,14 @@ DEFAULT_MODELS: dict[str, list[str]] = {
         "google/gemini-3.5-flash-lite",
     ],
     "gemini": [
-        "gemini-2.0-flash",
-        "gemini-2.5-flash",
+        "gemini-3.6-flash",
+        "gemini-3.5-flash",
+    ],
+    "unlimitedai": [
+        "chat-model-reasoning",
+    ],
+    "publicai": [
+        "publicai-chat",
     ],
 }
 
@@ -144,6 +155,7 @@ class HydraGateway:
         eps: list[Endpoint] = []
         for provider, models in DEFAULT_MODELS.items():
             keys = _keys_from_env(KEY_ENV[provider])
+            print(f"[hydra] {provider}: {len(keys)} key(s) from env")
             for key in keys:
                 for model in models:
                     kind = "audio" if provider == "groq" and model.startswith("whisper") else "chat"
@@ -187,6 +199,12 @@ class HydraGateway:
         ep.failures += 1
         ep.last_error = body[:300]
         text = body.lower()
+        if status in (401, 403) and ep.provider == "gemini":
+            # invalid/expired OAuth-style key ("AQ.*"): don't kill forever — user
+            # may replace the key; short cooldown so it gets retried later.
+            ep.cooldown_until = time.time() + 300
+            print(f"[hydra] {ep.provider}/{ep.model} auth 401/403 -> cooldown 300s")
+            return
         if status == 429 or "rate" in text:
             ep.cooldown_until = time.time() + COOLDOWN_SECONDS
             print(f"[hydra] {ep.provider}/{ep.model} rate-limited -> cooldown {COOLDOWN_SECONDS}s")
@@ -240,19 +258,123 @@ class HydraGateway:
                     "Authorization": f"Bearer {ep.key}",
                     "Content-Type": "application/json",
                 }
+                if ep.provider == "gemini":
+                    # AQ.* keys (Google AI Studio new format) authenticate via
+                    # x-goog-api-key, NOT Bearer, and use the NATIVE
+                    # generateContent endpoint (openai-compat rejects AQ.* keys).
+                    headers = {
+                        "x-goog-api-key": ep.key,
+                        "Content-Type": "application/json",
+                    }
+                if ep.provider in ("unlimitedai", "publicai"):
+                    # free no-key chat endpoints (SSE); body/parse dibedakan
+                    pass  # handler di bawah
                 if ep.provider == "openrouter":
                     headers["HTTP-Referer"] = "https://cortexclip.app"
                     headers["X-Title"] = "CortexClip"
                 try:
                     async with httpx.AsyncClient(timeout=timeout) as client:
-                        resp = await client.post(
-                            f"{ep.base_url}/chat/completions",
-                            json=body, headers=headers,
-                        )
+                        if ep.provider == "unlimitedai":
+                            import uuid as _uuid
+                            user_text = next((m.get("content", "") for m in messages if m.get("role") == "user"), "")
+                            if isinstance(user_text, list):
+                                user_text = "".join(p.get("text", "") for p in user_text if isinstance(p, dict))
+                            now = "2026-08-29T00:00:00.000Z"
+                            gbody2 = {
+                                "chatId": str(_uuid.uuid4()),
+                                "messages": [{"id": str(_uuid.uuid4()), "role": "user", "content": user_text,
+                                              "parts": [{"type": "text", "text": user_text}], "createdAt": now}],
+                                "selectedChatModel": "chat-model-reasoning",
+                                "selectedCharacter": None, "selectedStory": None,
+                                "deviceId": str(_uuid.uuid4()), "locale": "id",
+                            }
+                            resp = await client.post(f"{ep.base_url}/api/chat", json=gbody2, headers={
+                                "origin": "https://app.unlimitedai.chat",
+                                "referer": "https://app.unlimitedai.chat/id",
+                                "user-agent": "Mozilla/5.0 (Linux; Android 15; SM-F958 Build/AP3A.240905.015) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.86 Mobile Safari/537.36",
+                                "x-next-intl-locale": "id",
+                                "content-type": "application/json",
+                            })
+                        elif ep.provider == "publicai":
+                            import os as _os
+                            def _gid(n=16):
+                                return "".join("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"[int.from_bytes(_os.urandom(1), "big") % 62] for _ in range(n))
+                            user_text = next((m.get("content", "") for m in messages if m.get("role") == "user"), "")
+                            if isinstance(user_text, list):
+                                user_text = "".join(p.get("text", "") for p in user_text if isinstance(p, dict))
+                            gbody3 = {
+                                "tools": {}, "id": _gid(),
+                                "messages": [{"id": _gid(), "role": "user", "parts": [{"type": "text", "text": user_text}]}],
+                                "trigger": "submit-message",
+                            }
+                            resp = await client.post(f"{ep.base_url}/api/chat", json=gbody3, headers={
+                                "origin": "https://publicai.co",
+                                "referer": "https://publicai.co/chat",
+                                "user-agent": "Mozilla/5.0 (Linux; Android 15; SM-F958 Build/AP3A.240905.015) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.86 Mobile Safari/537.36",
+                                "content-type": "application/json",
+                            })
+                        elif ep.provider == "gemini":
+                            # Native Gemini API
+                            contents = []
+                            for m in messages:
+                                role = "model" if m.get("role") == "assistant" else "user"
+                                text = m.get("content", "")
+                                if isinstance(text, list):
+                                    text = "".join(p.get("text", "") for p in text if isinstance(p, dict))
+                                contents.append({"role": role, "parts": [{"text": text}]})
+                            gbody: dict[str, Any] = {
+                                "contents": contents,
+                                "generationConfig": {
+                                    "temperature": temperature,
+                                    "maxOutputTokens": max_tokens,
+                                },
+                            }
+                            if json_mode:
+                                gbody["generationConfig"]["responseMimeType"] = "application/json"
+                            resp = await client.post(
+                                f"{ep.base_url}/models/{ep.model}:generateContent",
+                                json=gbody, headers=headers,
+                            )
+                        else:
+                            body: dict[str, Any] = {
+                                "model": ep.model,
+                                "messages": messages,
+                                "temperature": temperature,
+                                "max_tokens": max_tokens,
+                            }
+                            if json_mode:
+                                body["response_format"] = {"type": "json_object"}
+                            resp = await client.post(
+                                f"{ep.base_url}/chat/completions",
+                                json=body, headers=headers,
+                            )
                     if resp.status_code == 200:
-                        data = resp.json()
-                        msg = (data.get("choices") or [{}])[0].get("message", {})
-                        content = msg.get("content")
+                        data = resp.text
+                        if ep.provider == "unlimitedai":
+                            # SSE lines: {"type":"delta","delta":"..."}
+                            import json as _json
+                            content = "".join(
+                                _json.loads(l)["delta"] for l in data.split("\n")
+                                if l.strip().startswith("{") and _json.loads(l).get("type") == "delta"
+                            )
+                        elif ep.provider == "publicai":
+                            import json as _json
+                            content = "".join(
+                                _json.loads(l[6:])["delta"] for l in data.split("\n")
+                                if l.startswith("data: ") and '"text-delta"' in l
+                            )
+                        elif ep.provider == "gemini":
+                            data = resp.json()
+                            candidates = data.get("candidates") or []
+                            if candidates:
+                                parts = (candidates[0].get("content", {}).get("parts") or [])
+                                content = "".join(p.get("text", "") for p in parts if isinstance(p, dict))
+                            else:
+                                content = ""
+                        else:
+                            data = resp.json()
+                            msg = (data.get("choices") or [{}])[0].get("message", {})
+                            content = msg.get("content")
                         if isinstance(content, list):
                             content = "".join(
                                 p.get("text", "") for p in content if isinstance(p, dict)
