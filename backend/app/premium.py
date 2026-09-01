@@ -118,7 +118,12 @@ async def grant_premium(user_id: str, plan_key: str) -> str:
         except Exception:
             pass
     until = (base + timedelta(days=plan["days"])).isoformat()
-    await sb("PATCH", f"profiles?user_id=eq.{user_id}", json_body={"premium_until": until})
+    # Tulis DUA kolom sekaligus. `premium_until` yang dipakai gating (is_premium),
+    # tapi kolom `plan` dibaca view admin_user_overview + tipe frontend. Kalau
+    # hanya premium_until yang ditulis (bug lama), user yang bayar lewat Pakasir
+    # tetap tercatat plan='free' di DB → data drift vs admin.set_plan().
+    await sb("PATCH", f"profiles?user_id=eq.{user_id}",
+             json_body={"plan": "premium", "premium_until": until})
     return until
 
 

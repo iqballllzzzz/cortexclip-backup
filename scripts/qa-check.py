@@ -6,11 +6,15 @@ health backend, rate plan, XSS-ish payload, dan konsistensi data.
 Output: ringkasan PASS/FAIL per kelompok (untuk cron delivery).
 """
 import json
+import os
+import shutil
+import subprocess
 import time
 import urllib.request
 import urllib.error
 import urllib.parse
 import sys
+from datetime import datetime, timedelta, timezone
 
 BASE = "https://clip.aqualibrya.my.id"
 SB = "http://localhost:8000"
@@ -137,6 +141,98 @@ ok("usage_log tak bisa dibaca anon (RLS)", st in (200, 401) and (st == 401 or js
 # admin_actions tidak boleh terbaca via anon
 st, body = get(SB + "/rest/v1/admin_actions?select=id&limit=1", {"apikey": ANON})
 ok("admin_actions terlindungi RLS", st == 401 or json.loads(body) == [], f"HTTP {st}")
+
+# ---- konsistensi plan <-> premium_until (drift billing) ----
+SRK_H = {"apikey": SRK, "Authorization": f"Bearer {SRK}"}
+NOW = datetime.now(timezone.utc)
+
+
+def _dt(v):
+    try:
+        return datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+st, body = get(SB + "/rest/v1/profiles?select=user_id,plan,premium_until&limit=500", SRK_H)
+drift = []
+try:
+    for p in json.loads(body):
+        pu = _dt(p.get("premium_until"))
+        aktif = bool(pu and pu > NOW)
+        if aktif != (p.get("plan") == "premium"):
+            drift.append(f"{p['user_id'][:8]} plan={p.get('plan')} until={p.get('premium_until')}")
+except Exception as exc:
+    drift = [f"parse error: {exc}"]
+ok("plan sinkron dgn premium_until", st == 200 and not drift, "; ".join(drift[:3]))
+
+# order completed BARU (<=6 jam) wajib punya premium_until — deteksi regresi
+# grant_premium. Order lama sengaja dilewati: admin boleh set_plan free / premium
+# bisa dicabut, jadi order lama tanpa premium_until belum tentu bug.
+cutoff = (NOW - timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%S")
+st, body = get(SB + "/rest/v1/premium_orders?select=user_id,order_id,plan,completed_at"
+                    f"&status=eq.completed&completed_at=gte.{cutoff}", SRK_H)
+bad_orders = []
+try:
+    for o in json.loads(body):
+        s2, b2 = get(SB + f"/rest/v1/profiles?select=plan,premium_until&user_id=eq.{o['user_id']}", SRK_H)
+        rows = json.loads(b2) if s2 == 200 else []
+        if not rows or not rows[0].get("premium_until"):
+            bad_orders.append(f"{o['order_id']}({o.get('plan')})")
+except Exception as exc:
+    bad_orders = [f"parse error: {exc}"]
+ok("order completed baru punya premium_until", st == 200 and not bad_orders, "; ".join(bad_orders[:3]))
+
+# ---- lonjakan user baru (indikasi bot) ----
+since = (NOW - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%S")
+st, body = get(SB + f"/rest/v1/profiles?select=user_id&created_at=gte.{since}&limit=200", SRK_H)
+try:
+    n_baru = len(json.loads(body))
+except Exception:
+    n_baru = -1
+ok("user baru 2 jam wajar (<=10)", st == 200 and 0 <= n_baru <= 10, f"{n_baru} user baru")
+
+# ---- kesehatan host & service ----
+for svc in ("cortexclip-backend", "cortexclip-frontend"):
+    r = subprocess.run(["systemctl", "is-active", svc], capture_output=True, text=True)
+    ok(f"service {svc} active", r.stdout.strip() == "active", r.stdout.strip() or "unknown")
+
+free_gb = shutil.disk_usage("/").free / 1024**3
+ok("disk sisa > 5GB", free_gb > 5, f"{free_gb:.1f}GB")
+
+mem_avail = 0
+try:
+    for line in open("/proc/meminfo"):
+        if line.startswith("MemAvailable:"):
+            mem_avail = int(line.split()[1]) / 1024**2
+except Exception:
+    pass
+ok("RAM tersedia > 0.5GB", mem_avail > 0.5, f"{mem_avail:.1f}GB")
+
+# ---- integritas build frontend (asset yg dirujuk manifest harus ada) ----
+MANI_DIR = "/home/muhiqbalsukarno/cortexclip-backup/.output/server"
+mani = ""
+try:
+    for f in os.listdir(MANI_DIR):
+        if f.startswith("_tanstack-start-manifest") and f.endswith(".mjs"):
+            mani = os.path.join(MANI_DIR, f)
+            break
+except OSError:
+    pass
+missing_assets: list[str] = []
+if mani:
+    import re as _re
+    txt = open(mani, encoding="utf-8", errors="ignore").read()
+    for ref in sorted(set(_re.findall(r'"(/assets/[A-Za-z0-9._-]+\.(?:js|css))"', txt))):
+        if not os.path.exists("/home/muhiqbalsukarno/cortexclip-backup/.output/public" + ref):
+            missing_assets.append(ref)
+ok("asset build lengkap (manifest)", bool(mani) and not missing_assets,
+   f"{len(missing_assets)} hilang" if mani else "manifest tak ditemukan")
+
+# ---- route penting tidak 404 ----
+for rp in ("/studio", "/unduh", "/editor/abc", "/projects/abc"):
+    st, _ = get(BASE + rp, timeout=25)
+    ok(f"route {rp} hidup", st == 200, f"HTTP {st}")
 
 # ============ 5. BAN GUARD ============
 st, body = get(SB + "/rest/v1/profiles?select=user_id&limit=1",
