@@ -259,7 +259,14 @@ function EditorPage() {
       if (v && c && !v.paused && v.readyState >= 2) {
         const kind = videoKindRef.current;
         const raw = kind === "source" ? v.currentTime - Number(c.start_time) : v.currentTime;
-        setTime(Math.max(0, Math.min(duration, raw)));
+        if (raw >= duration) {
+          // akhir klip → pause + kunci waktu di durasi
+          v.pause();
+          setPlaying(false);
+          setTime(duration);
+        } else {
+          setTime(Math.max(0, raw));
+        }
       }
       raf = requestAnimationFrame(tick);
     };
@@ -281,6 +288,26 @@ function EditorPage() {
       }
     }
   }
+
+  // === STOP OTOMATIS di akhir klip (video sumber penuh jangan lanjut) ===
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const check = () => {
+      const c = clipRef.current;
+      if (!v.paused && c && videoKindRef.current === "source") {
+        const rel = v.currentTime - Number(c.start_time);
+        if (rel >= duration - 0.05) {
+          v.pause();
+          setPlaying(false);
+          setTime(duration);
+        }
+      }
+    };
+    // cek tiap frame via rAF sudah ada; ini interval cadangan 250ms
+    const iv = setInterval(check, 250);
+    return () => clearInterval(iv);
+  }, [duration]);
 
   const preset = getPreset(presetId);
   const effPosition = position ?? preset.style.position;

@@ -38,6 +38,7 @@ def register_broll_routes(
         token = (authorization.split(" ", 1)[1]
                  if authorization and authorization.lower().startswith("bearer ") else "")
 
+
         async with httpx.AsyncClient(timeout=30) as client:
             cr = await client.get(
                 f"{supabase_url}/rest/v1/clips?id=eq.{body.clip_id}"

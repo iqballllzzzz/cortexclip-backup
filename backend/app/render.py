@@ -231,6 +231,7 @@ def render_clip(
     camera_trajectory: Optional[list[float]] = None,
     watermark: bool = True,
     icon_ass_path: Optional[str] = None,
+    icon_png_overlays: Optional[list[dict[str, Any]]] = None,
 ) -> str:
     """Cut + reframe + burn subtitles (+ ikon overlay) -> vertical MP4.
 
@@ -287,29 +288,57 @@ def render_clip(
     if icon_ass_path:
         vf_parts.append(ass_filter(icon_ass_path))
 
+    # --- ikon & b-roll: overlay PNG per placement (Twemoji pre-render) ---
+    # ASS emoji tidak andal (libass+CBDT/COLRv1 blank di beberapa build);
+    # PNG overlay 100% konsisten antar mesin.
+    png_overlays: list[dict[str, Any]] = []
+    if icon_png_overlays:
+        png_overlays = icon_png_overlays
+
     # --- watermark overlay (kiri-atas, offset dari pojok biar terbaca) ---
     cmd = [
         "ffmpeg", "-y", "-v", "error",
         "-ss", f"{start:.3f}", "-t", f"{end - start:.3f}", "-i", src,
     ]
+
+    # bangun filter_complex bertingkat: [vbase] → overlay PNG → watermark → [vout]
+    fc_parts: list[str] = []
+    cur = "0:v"
+    fc_head = f"{','.join(vf_parts)}" if vf_parts else "null"
+    fc_parts.append(f"[{cur}]{fc_head}[vbase]")
+    cur = "vbase"
+    input_idx = 1
+
+    # ikon & b-roll PNG: enable='between(t,..)' + posisi side (kanan/kiri/tengah)
+    for ov in png_overlays:
+        px = ov.get("x", int(w * 0.62))
+        py = ov.get("y", int(h * 0.30))
+        size = ov.get("size", int(w * 0.20))
+        ts = float(ov.get("t_start", 0))
+        te = float(ov.get("t_end", ts + 2.5))
+        cmd += ["-i", ov["png"]]
+        fc_parts.append(
+            f"[{input_idx}:v]scale={size}:-1[ico{input_idx}];"
+            f"[{cur}][ico{input_idx}]overlay="
+            f"x={px}:y={py}:enable='between(t,{ts:.2f},{te:.2f})'[vo{input_idx}]"
+        )
+        cur = f"vo{input_idx}"
+        input_idx += 1
+
     if wm_path:
         x = int(w * 0.055)
         y = int(h * 0.045)
         wm_w = int(w * 0.30)
-        fc_main = ",".join(vf_parts)
-        filter_complex = (
-            f"[0:v]{fc_main}[vbase];"
-            f"[1:v]scale={wm_w}:-1[wm];"
-            f"[vbase][wm]overlay={x}:{y}:format=auto[vout]"
-        )
-        cmd += [
-            "-i", wm_path,
-            "-filter_complex", filter_complex,
-            "-map", "[vout]",
-            "-map", "0:a?",
-        ]
+        cmd += ["-i", wm_path]
+        fc_parts.append(f"[{input_idx}:v]scale={wm_w}:-1[wm]")
+        fc_parts.append(f"[{cur}][wm]overlay={x}:{y}:format=auto[vout]")
+        cmd += ["-filter_complex", ";".join(fc_parts), "-map", "[vout]", "-map", "0:a?"]
     else:
-        cmd += ["-vf", ",".join(vf_parts)]
+        if png_overlays:
+            fc_parts.append(f"[{cur}]null[vout]")
+            cmd += ["-filter_complex", ";".join(fc_parts), "-map", "[vout]", "-map", "0:a?"]
+        else:
+            cmd += ["-vf", ",".join(vf_parts)] if vf_parts else ["-vf", "null"]
 
     cmd += [
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",

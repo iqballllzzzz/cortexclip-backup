@@ -201,17 +201,7 @@ async def ai_placements(
         return None
 
 
-def overlay_to_ass(
-    placements: list[dict[str, Any]],
-    video_width: int = 1080,
-    video_height: int = 1920,
-) -> str:
-    """Konversi placements → event ASS overlay (emoji besar beranimasi).
-
-    Ikon lucide dirender sebagai emoji padanan (libass + Noto Color Emoji)
-    dengan animasi masuk sesuai 'animation' — translasi via \\move/\\t.
-    """
-    ICON_EMOJI = {
+ICON_EMOJI = {  # noqa: N806 — dipakai juga modul render_clip (PNG overlay)
         "flame": "🔥", "dollar-sign": "💵", "banknote": "💵", "trending-up": "📈",
         "trending-down": "📉", "trophy": "🏆", "rocket": "🚀", "brain": "🧠",
         "heart": "❤️", "zap": "⚡", "star": "⭐", "crown": "👑", "target": "🎯",
@@ -228,6 +218,17 @@ def overlay_to_ass(
         "laugh": "😂", "smile": "😊", "angry": "😡", "sad": "😢", "surprised": "😮",
         "cool": "😎", "party": "🥳", "money": "💰", "bag": "👜", "shirt": "👕",
     }
+
+def overlay_to_ass(
+    placements: list[dict[str, Any]],
+    video_width: int = 1080,
+    video_height: int = 1920,
+) -> str:
+    """Konversi placements → event ASS overlay (emoji besar beranimasi).
+
+    Ikon lucide dirender sebagai emoji padanan (libass + Noto Color Emoji)
+    dengan animasi masuk sesuai 'animation' — translasi via \\move/\\t.
+    """
 
     def ass_time(seconds: float) -> str:
         s = max(0.0, float(seconds))

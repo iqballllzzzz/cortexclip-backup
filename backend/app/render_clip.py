@@ -133,21 +133,36 @@ async def render_clip_server(
         with open(ass_path, "w", encoding="utf-8") as f:
             f.write(ass)
 
-        # IKON & B-ROLL overlay (AI pilih momen → ikon emoji animasi via ASS layer)
+        # IKON & B-ROLL overlay (AI pilih momen → PNG Twemoji via ffmpeg overlay;
+        # ASS emoji tidak andal → PNG 100% konsisten dengan preview browser)
         icon_ass_path: Optional[str] = None
+        icon_png_overlays: list[dict[str, Any]] = []
         if broll_enabled:
             try:
-                from .broll import compute_placements, overlay_to_ass
+                from .broll import compute_placements, ICON_EMOJI
+                from .twemoji import twemoji_png
                 duration = float(clip["end_time"]) - float(clip["start_time"])
                 placements = await compute_placements(words, duration)
                 if placements:
-                    icon_ass = overlay_to_ass(placements, video_width=vw, video_height=vh)
-                    if icon_ass:
-                        icon_ass_path = os.path.join(workdir, "icons.ass")
-                        with open(icon_ass_path, "w", encoding="utf-8") as f:
-                            f.write(icon_ass)
-            except Exception:
-                icon_ass_path = None  # overlay gagal → render tetap jalan
+                    # posisi overlay PNG dalam koordinat OUTPUT (w,h)
+                    for p in placements:
+                        emoji = ICON_EMOJI.get(str(p.get("icon") or ""), "✨")
+                        png = twemoji_png(emoji)
+                        if not png:
+                            continue
+                        ts = float(p.get("time_start", 0))
+                        te = max(ts + 0.5, float(p.get("time_end", ts + 2.5)))
+                        side = str(p.get("side", "right"))
+                        px = int(vw * (0.26 if side == "left" else 0.74 if side == "right" else 0.5))
+                        py = int(vh * 0.30)
+                        icon_png_overlays.append({
+                            "png": png, "x": px - int(vw * 0.10), "y": py,
+                            "size": int(vw * 0.20),
+                            "t_start": ts, "t_end": te,
+                        })
+            except Exception as exc:
+                print(f"[render] broll overlay gagal (render tetap jalan): {exc}")
+                icon_png_overlays = []
 
         start = float(clip["start_time"])
         end = float(clip["end_time"])
