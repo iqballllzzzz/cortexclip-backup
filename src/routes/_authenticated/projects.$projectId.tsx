@@ -1,41 +1,36 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowLeft,
   CheckCircle2,
-  Download,
-  Loader2,
-  Play,
-  Sparkles,
-  Upload,
-  Wand2,
-  Eye,
-  Type,
-  Flame,
-  Clock,
-  Film,
-  Link2,
   ChevronDown,
   Clapperboard,
+  Clock,
+  Download,
+  Flame,
+  Link2,
+  Loader2,
+  Sparkles,
+  Type,
+  Upload,
+  Wand2,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
-import { SiteHeader } from "@/components/site-header";
-import { SiteFooter } from "@/components/site-footer";
+import { AppNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { CaptionPreview, defaultCaptionStyle, type CaptionStyle } from "@/components/caption-preview";
+import { CaptionPreview, defaultCaptionStyle } from "@/components/caption-preview";
 import { extractAudio } from "@/lib/audio-extract";
-import { ClipVideoPreview } from "@/components/clip-video-preview";
 import { VideoWithLiveCaption, type LiveCaptionStyle } from "@/components/live-caption-overlay";
 import { transcribeChunkFn, detectClipsFn } from "@/lib/pipeline.functions";
 import { buildAss, buildFfmpegCommand, buildSrt, download, toCaptionWords } from "@/lib/srt";
 import { getPreset, SubtitleStylePicker, DEFAULT_SUBTITLE_PRESET } from "@/components/subtitle-styles";
+import { useAccountStatus } from "@/hooks/use-account-status";
 import type { Transcript, TranscriptSegment } from "@/lib/pipeline-types";
 import type { Database } from "@/integrations/supabase/types";
-import { Label } from "@/components/ui/label";
 
 type Project = Database["public"]["Tables"]["projects"]["Row"];
 type ClipBase = Database["public"]["Tables"]["clips"]["Row"];
@@ -62,20 +57,39 @@ export const Route = createFileRoute("/_authenticated/projects/$projectId")({
   component: ProjectPage,
 });
 
-const STATUS_META: Record<string, { label: string; dot: string }> = {
-  pending: { label: "Menunggu", dot: "bg-muted-foreground" },
-  uploading: { label: "Mengunggah", dot: "bg-blue-500" },
-  downloading: { label: "Mengunduh", dot: "bg-blue-500" },
-  transcribing: { label: "Transkripsi", dot: "bg-amber-500" },
-  analyzing: { label: "Analisis AI", dot: "bg-purple-500" },
-  rendering: { label: "Render", dot: "bg-purple-500" },
-  completed: { label: "Selesai", dot: "bg-green-500" },
-  failed: { label: "Gagal", dot: "bg-red-500" },
+/* ---------------------------------------------------------------- tahapan */
+
+const PHASES = [
+  { key: "downloading", label: "Ambil media", pct: 12 },
+  { key: "transcribing", label: "Transkripsi", pct: 45 },
+  { key: "analyzing", label: "Pilih momen", pct: 78 },
+  { key: "completed", label: "Selesai", pct: 100 },
+] as const;
+
+const STATUS_LABEL: Record<string, string> = {
+  pending: "Menunggu",
+  uploading: "Mengunggah",
+  downloading: "Mengunduh media",
+  transcribing: "Transkripsi audio",
+  analyzing: "Analisis AI",
+  rendering: "Render",
+  completed: "Selesai",
+  failed: "Gagal",
 };
+
+function formatClock(seconds: number) {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/* ------------------------------------------------------------------- page */
 
 function ProjectPage() {
   const { projectId } = Route.useParams();
   const navigate = useNavigate();
+  const { status: account } = useAccountStatus();
+
   const [project, setProject] = useState<Project | null>(null);
   const [clips, setClips] = useState<Clip[]>([]);
   const [loading, setLoading] = useState(true);
@@ -84,12 +98,10 @@ function ProjectPage() {
   const [localFile, setLocalFile] = useState<File | null>(null);
   const [activeClip, setActiveClip] = useState<string | null>(null);
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
-  // job render selesai yang BELUM dilihat user (banner /unduh)
   const [renderDoneCount, setRenderDoneCount] = useState(0);
   const seenJobsRef = useRef<Set<string>>(new Set());
 
-  // Deteksi render selesai — poll job render project ini (user boleh balik
-  // kapan saja setelah keluar/pindah tab)
+  /* --- deteksi render yang selesai selagi user pergi --- */
   useEffect(() => {
     let cancelled = false;
     const check = async () => {
@@ -97,16 +109,13 @@ function ProjectPage() {
         const { listProjectRenderJobs } = await import("@/lib/backend-api");
         const jobs = await listProjectRenderJobs(projectId);
         if (cancelled) return;
-        const fresh = jobs.filter(
-          (j) => j.status === "completed" && !seenJobsRef.current.has(j.id),
-        );
-        // job yang selesai SETELAH user terakhir lihat halaman → banner
+        const fresh = jobs.filter((j) => j.status === "completed" && !seenJobsRef.current.has(j.id));
         if (seenJobsRef.current.size > 0 || jobs.some((j) => j.status === "completed")) {
           setRenderDoneCount(fresh.length);
           for (const j of jobs) seenJobsRef.current.add(j.id);
         }
       } catch {
-        // abaikan — backend mungkin belum siap
+        /* backend mungkin belum siap */
       }
     };
     void check();
@@ -117,6 +126,7 @@ function ProjectPage() {
     };
   }, [projectId]);
 
+  /* --- URL media (file lokal atau signed URL storage) --- */
   useEffect(() => {
     if (localFile) {
       const url = URL.createObjectURL(localFile);
@@ -158,32 +168,21 @@ function ProjectPage() {
     void load();
   }, [load]);
 
-  // === Polling pipeline status (upload/youtube server-side) ===
-  // Selama status "downloading/transcribing/analyzing", refresh tiap 6 detik.
-  const busyStatus =
+  const busy =
     project?.status === "downloading" ||
     project?.status === "transcribing" ||
     project?.status === "analyzing";
 
   useEffect(() => {
-    if (!busyStatus) return;
+    if (!busy) return;
     const iv = setInterval(() => void load(), 6000);
     return () => clearInterval(iv);
-  }, [busyStatus, load]);
+  }, [busy, load]);
 
-  // Estimasi progres % berdasarkan fase (transkrip penuh = progress besar)
-  const pipelinePct = (() => {
+  const pct = (() => {
     const st = project?.status;
-    if (st === "downloading") return 10;
-    if (st === "transcribing") {
-      const dur = project?.duration_seconds ?? 0;
-      const segs = (project?.transcript as { segments?: unknown[] } | null)?.segments?.length ?? 0;
-      // transkrip sudah terisi sebagian = maju pelan; sebaliknya fase awal
-      return Math.min(55, 20 + (segs > 0 ? 5 : 0));
-    }
-    if (st === "analyzing") return 75;
-    if (st === "completed") return 100;
-    return 0;
+    const found = PHASES.find((p) => p.key === st);
+    return found?.pct ?? 0;
   })();
 
   async function getMediaBlob(): Promise<Blob> {
@@ -212,20 +211,13 @@ function ProjectPage() {
 
       const segments: TranscriptSegment[] = [];
       for (let i = 0; i < audio.count; i += 1) {
-        setProgress(
-          `Transkripsi bagian ${i + 1}/${audio.count} (${Math.round(((i + 1) / audio.count) * 100)}%)…`,
-        );
+        setProgress(`Transkripsi bagian ${i + 1}/${audio.count}…`);
         const chunk = audio.getChunk(i);
         const res = await transcribeChunkFn({
-          data: {
-            audioBase64: chunk.base64,
-            offset: chunk.offset,
-            duration: chunk.duration,
-          },
+          data: { audioBase64: chunk.base64, offset: chunk.offset, duration: chunk.duration },
         });
         segments.push(...res.segments);
       }
-
       if (segments.length === 0) throw new Error("Tidak ada ucapan terdeteksi di media ini.");
 
       const transcript: Transcript = { language: "auto", duration, segments };
@@ -238,9 +230,8 @@ function ProjectPage() {
         })
         .eq("id", projectId);
 
-      setProgress("AI mencari momen paling viral…");
+      setProgress("AI mencari momen paling kuat…");
       const { count } = await detectClipsFn({ data: { projectId, targetCount: 10 } });
-
       await supabase.from("projects").update({ status: "completed" }).eq("id", projectId);
       toast.success(`${count} klip terdeteksi!`);
       await load();
@@ -265,7 +256,8 @@ function ProjectPage() {
   }
 
   function exportClip(clip: Clip, kind: "srt" | "ass" | "ffmpeg") {
-    const words = (clip.caption_words as unknown as { word: string; start: number; end: number }[]) ?? [];
+    const words =
+      (clip.caption_words as unknown as { word: string; start: number; end: number }[]) ?? [];
     const slug = clip.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40) || "clip";
 
     if (kind === "srt") {
@@ -294,17 +286,19 @@ function ProjectPage() {
       end: clip.end_time,
       subtitleFile: `${slug}.ass`,
       resolution: "1080x1920",
-      faceTracking: true, // auto-framing wajah SELALU aktif
+      faceTracking: true,
     });
     void navigator.clipboard.writeText(command);
     toast.success("Perintah FFmpeg disalin ke clipboard.");
   }
 
+  /* ------------------------------------------------------------- render */
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background">
-        <SiteHeader />
-        <div className="mx-auto max-w-5xl px-5 pb-16 pt-28">
+        <AppNav displayName="?" isAdmin={account?.is_admin} />
+        <div className="mx-auto max-w-[1180px] px-4 py-16 sm:px-6">
           <div className="h-40 animate-pulse rounded-2xl border border-border bg-card" />
         </div>
       </div>
@@ -314,11 +308,11 @@ function ProjectPage() {
   if (!project) {
     return (
       <div className="min-h-screen bg-background">
-        <SiteHeader />
-        <div className="mx-auto max-w-5xl px-5 py-28 text-center">
-          <p className="text-lg font-semibold">Proyek tidak ditemukan.</p>
-          <Button className="mt-4" onClick={() => navigate({ to: "/dashboard" })}>
-            Kembali ke dashboard
+        <AppNav displayName="?" isAdmin={account?.is_admin} />
+        <div className="mx-auto max-w-md px-4 py-24 text-center">
+          <p className="font-display text-lg font-bold">Proyek tidak ditemukan.</p>
+          <Button variant="accent" className="mt-5" onClick={() => navigate({ to: "/dashboard" })}>
+            <ArrowLeft className="size-4" /> Kembali ke dashboard
           </Button>
         </div>
       </div>
@@ -328,212 +322,220 @@ function ProjectPage() {
   const avgScore = clips.length
     ? Math.round(clips.reduce((s, c) => s + (c.virality_score ?? 0), 0) / clips.length)
     : 0;
-  const status = STATUS_META[project.status] ?? { label: "Menunggu", dot: "bg-muted-foreground" };
+  const best = clips[0];
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-background text-foreground antialiased">
-      {/* ===== Floating glass nav ===== */}
-      <header className="fixed inset-x-0 top-0 z-50">
-        <div className="mx-auto mt-3 flex max-w-6xl items-center justify-between rounded-2xl border border-white/8 bg-white/70 px-3 py-2.5 shadow-sm backdrop-blur-xl sm:mt-4 sm:px-4 sm:py-3 dark:bg-neutral-950/70">
-          <Link to="/dashboard" className="flex min-w-0 items-center gap-2">
-            <img src="/favicon.png" alt="Logo CortexClip" className="size-7 shrink-0 object-contain sm:size-8" />
-            <span className="truncate font-display text-[14px] font-bold tracking-tight sm:text-[15px]">CortexClip</span>
+    <div className="min-h-screen bg-background text-foreground antialiased">
+      <AppNav
+        displayName={project.title.slice(0, 1) || "P"}
+        isAdmin={account?.is_admin}
+        right={
+          <span className="hidden items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground sm:inline-flex">
+            {busy ? <Loader2 className="size-3 animate-spin text-accent" /> : null}
+            {STATUS_LABEL[project.status] ?? project.status}
+            {busy ? ` · ${pct}%` : ""}
+          </span>
+        }
+      />
+
+      <main className="mx-auto max-w-[1180px] px-4 pb-28 pt-9 sm:px-6 sm:pt-12">
+        {/* ==== Kepala proyek: judul besar kiri, metrik kanan bawah ==== */}
+        <header className="reveal" style={{ ["--i" as string]: 0 }}>
+          <Link
+            to="/dashboard"
+            className="inline-flex items-center gap-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ArrowLeft className="size-3.5" /> Semua proyek
           </Link>
-          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-card px-2.5 py-1 text-xs text-muted-foreground">
-              <span className={`size-1.5 rounded-full ${status.dot} ${project.status === "transcribing" || project.status === "analyzing" || project.status === "downloading" ? "animate-pulse" : ""}`} />
-              {status.label}
-              {busyStatus ? ` ${pipelinePct}%` : ""}
+
+          <div className="mt-5 grid gap-6 lg:grid-cols-[1.5fr_1fr] lg:items-end">
+            <div className="min-w-0">
+              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                {project.source_type === "youtube" ? (
+                  <Link2 className="size-3" />
+                ) : (
+                  <Upload className="size-3" />
+                )}
+                {project.source_type === "youtube" ? "Sumber YouTube" : "Unggahan"}
+              </p>
+              <h1
+                className="mt-3 font-display text-[26px] leading-[1.08] font-bold tracking-tight sm:text-[40px]"
+                style={{ overflowWrap: "anywhere", minWidth: 0 }}
+              >
+                {project.title}
+              </h1>
+            </div>
+
+            <div className="grid grid-cols-3 gap-px overflow-hidden rounded-2xl bg-border">
+              {[
+                ["Durasi", project.duration_seconds ? formatClock(project.duration_seconds) : "—"],
+                ["Klip", String(clips.length)],
+                ["Skor rerata", clips.length ? String(avgScore) : "—"],
+              ].map(([k, v]) => (
+                <div key={k} className="bg-card px-3.5 py-4">
+                  <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                    {k}
+                  </p>
+                  <p className="stat-figure mt-2 text-2xl">{v}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </header>
+
+        {/* ==== Progres pipeline: rel bertahap, bukan bar polos ==== */}
+        {busy || running ? (
+          <section className="reveal mt-8 panel px-5 py-5" style={{ ["--i" as string]: 1 }}>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <Loader2 className="size-4 animate-spin text-accent" />
+              <p className="text-sm font-semibold">
+                {running ? progress || "Memproses…" : (STATUS_LABEL[project.status] ?? "Memproses…")}
+              </p>
+              <p className="ml-auto stat-figure text-lg text-accent">{running ? "" : `${pct}%`}</p>
+            </div>
+
+            <ol className="mt-5 grid gap-2 sm:grid-cols-4">
+              {PHASES.map((ph) => {
+                const done = pct > ph.pct;
+                const current = project.status === ph.key;
+                return (
+                  <li key={ph.key} className="min-w-0">
+                    <div
+                      className={`h-1 rounded-full transition-colors ${
+                        done || current ? "bg-accent" : "bg-border"
+                      }`}
+                    />
+                    <p
+                      className={`mt-2 truncate text-[12px] ${
+                        current
+                          ? "font-semibold text-foreground"
+                          : done
+                            ? "text-muted-foreground"
+                            : "text-muted-foreground/60"
+                      }`}
+                    >
+                      {ph.label}
+                    </p>
+                  </li>
+                );
+              })}
+            </ol>
+
+            <p className="mt-4 text-[12px] leading-relaxed text-muted-foreground">
+              Proses berjalan di server — halaman boleh ditutup, klip muncul otomatis saat selesai.
+            </p>
+          </section>
+        ) : null}
+
+        {/* ==== Notifikasi render selesai ==== */}
+        {renderDoneCount > 0 ? (
+          <div className="reveal mt-4 flex flex-wrap items-center gap-2 rounded-2xl border border-accent/30 bg-accent/6 px-4 py-3.5 text-sm">
+            <CheckCircle2 className="size-4 shrink-0 text-accent" />
+            <span className="min-w-0">
+              {renderDoneCount > 1 ? `${renderDoneCount} klip` : "Satu klip"} selesai dirender.
             </span>
             <Link
-              to="/dashboard"
-              className="flex size-8 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-black/5 hover:text-foreground dark:hover:bg-white/10"
-              title="Kembali ke dashboard"
+              to="/unduh"
+              className="font-semibold text-accent underline-offset-2 hover:underline"
             >
-              <ArrowLeft className="size-4" />
+              Buka halaman unduhan
             </Link>
           </div>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-6xl px-4 pb-24 pt-24 sm:px-5 sm:pt-28">
-        {/* ===== Header proyek ===== */}
-        <motion.header
-          initial={{ opacity: 0, y: 14 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-          className="relative"
-        >
-          <p className="inline-flex items-center gap-2 rounded-full border border-accent/25 bg-accent/8 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-accent">
-            {project.source_type === "youtube" ? <Link2 className="size-3" /> : <Upload className="size-3" />}
-            {project.source_type === "youtube" ? "Sumber YouTube" : "Unggahan"}
-          </p>
-          <div className="mt-4 flex flex-wrap items-end justify-between gap-5">
-            <div className="min-w-0">
-              <h1 className="font-display text-2xl font-bold tracking-tight sm:text-4xl">{project.title}</h1>
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                {project.duration_seconds ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-card px-2.5 py-1 text-xs text-muted-foreground">
-                    <Clock className="size-3" /> {formatClock(project.duration_seconds)}
-                  </span>
-                ) : null}
-                {clips.length > 0 ? (
-                  <>
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-card px-2.5 py-1 text-xs text-muted-foreground">
-                      <Clapperboard className="size-3" /> {clips.length} klip
-                    </span>
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-2.5 py-1 text-xs font-medium text-accent">
-                      <Flame className="size-3" /> Rerata skor {avgScore}
-                    </span>
-                  </>
-                ) : null}
-              </div>
-            </div>
-            <Button variant="accent" onClick={runPipeline} disabled={running} className="group">
-              {running ? <Loader2 className="size-4 animate-spin" /> : <Wand2 className="size-4 transition-transform group-hover:rotate-12" />}
-              {clips.length > 0 ? "Proses Ulang" : "Mulai Proses AI"}
-            </Button>
-          </div>
-        </motion.header>
-
-        {running ? (
-          <motion.div
-            initial={{ opacity: 0, y: -6 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mt-8 flex items-center gap-3 rounded-2xl border border-accent/40 bg-accent/5 p-4 text-sm"
-          >
-            <Loader2 className="size-4 animate-spin text-accent" />
-            <span>{progress || "Memproses…"}</span>
-          </motion.div>
-        ) : null}
-
-        {/* Progress pipeline server-side (upload / youtube) */}
-        {busyStatus ? (
-          <motion.div
-            initial={{ opacity: 0, y: -6 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mt-8 rounded-2xl border border-accent/40 bg-accent/5 p-4"
-          >
-            <div className="flex items-center gap-3 text-sm">
-              <Loader2 className="size-4 animate-spin text-accent" />
-              <span className="font-medium">
-                {project.status === "downloading"
-                  ? "Sedang mengunduh video di server…"
-                  : project.status === "transcribing"
-                    ? "AI sedang mentranskripsi audio…"
-                    : "AI sedang memilih momen terbaik…"}
-              </span>
-              <span className="ml-auto font-display text-sm font-bold text-accent">{pipelinePct}%</span>
-            </div>
-            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-border">
-              <div
-                className="h-full rounded-full bg-accent transition-all duration-700"
-                style={{ width: `${pipelinePct}%` }}
-              />
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Proses berjalan di server — halaman boleh ditutup, klip otomatis muncul saat selesai.
-            </p>
-          </motion.div>
-        ) : null}
-
-        {/* Banner: render selesai (dideteksi saat user balik ke halaman project) */}
-        {renderDoneCount > 0 ? (
-          <motion.div
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mt-8 flex flex-wrap items-center gap-2 rounded-2xl border border-accent/40 bg-accent/5 p-4 text-sm"
-          >
-            <CheckCircle2 className="size-4 text-accent" />
-            <span>
-              {renderDoneCount > 1 ? `${renderDoneCount} klip berhasil` : "Project berhasil"} dirender — masuk ke dalam halaman{" "}
-              <Link to="/unduh" className="font-semibold text-accent underline decoration-accent/40 underline-offset-2 transition-colors hover:text-accent/80">
-                /unduh
-              </Link>{" "}
-              untuk mengunduh video yang pernah kamu render.
-            </span>
-          </motion.div>
         ) : null}
 
         {project.status === "failed" && project.error_message ? (
-          <div className="mt-6 rounded-2xl border border-red-500/40 bg-red-500/5 p-4 text-sm text-red-500">
+          <div className="reveal mt-4 rounded-2xl border border-destructive/30 bg-destructive/6 px-4 py-3.5 text-sm text-destructive">
             {project.error_message}
           </div>
         ) : null}
 
-        {/* Config grid: media + render settings */}
-        <div className="mt-6 grid gap-6 lg:grid-cols-2">
-          {/* Media source */}
-          <section className="rounded-2xl border border-border bg-card p-5">
-            <h2 className="flex items-center gap-2 text-sm font-semibold">
-              <span className="flex size-7 items-center justify-center rounded-lg bg-accent/15 text-accent">
-                <Film className="size-3.5" />
-              </span>
-              File media
-            </h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {project.storage_path
-                ? "Pilih ulang file dari perangkat agar preview & ekspor berjalan tanpa mengunduh ulang video dari server."
-                : "Untuk sumber YouTube, unduh videonya lalu pilih filenya di sini. Audio diekstrak langsung di browser kamu — tidak ada file besar yang dikirim ke server."}
-            </p>
-            <div className="mt-3 flex items-center justify-center rounded-xl border-2 border-dashed border-border bg-background/40 px-4 py-6 transition-colors hover:border-accent/50">
-              <label className="flex cursor-pointer flex-col items-center gap-2 text-center">
-                <Upload className="size-5 text-muted-foreground transition-transform group-hover:-translate-y-0.5" />
-                <span className="text-xs text-muted-foreground">
-                  {localFile ? localFile.name : "Klik untuk memilih file"}
-                </span>
-                {localFile ? (
-                  <span className="text-[11px] text-accent">
-                    {(localFile.size / 1024 / 1024).toFixed(1)} MB
-                  </span>
-                ) : null}
-                <input
-                  type="file"
-                  accept="video/*,audio/*"
-                  onChange={(e) => setLocalFile(e.target.files?.[0] ?? null)}
-                  className="hidden"
-                />
-              </label>
+        {/* ==== Sorotan klip terbaik + aksi proses ==== */}
+        {clips.length > 0 && best ? (
+          <section
+            className="reveal mt-10 grid gap-3 lg:grid-cols-[1fr_1.4fr]"
+            style={{ ["--i" as string]: 2 }}
+          >
+            <div className="panel px-5 py-5">
+              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <Flame className="size-3.5 text-accent" /> Klip terkuat
+              </p>
+              <p className="stat-figure mt-4 text-[44px] text-accent">{best.virality_score}</p>
+              <p className="mt-2 line-clamp-2 text-sm font-medium">{best.title}</p>
+              <p className="mt-1 font-mono text-[12px] text-muted-foreground">
+                {formatClock(best.start_time)} – {formatClock(best.end_time)}
+              </p>
+            </div>
+
+            <div className="panel flex flex-col justify-between px-5 py-5">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Langkah berikutnya
+                </p>
+                <p className="mt-3 max-w-prose text-sm leading-relaxed text-muted-foreground">
+                  Buka satu klip untuk menyetel gaya subtitle, ukuran, dan posisi. Preview memakai
+                  pipeline yang sama dengan hasil unduhan, jadi apa yang kamu lihat itulah hasilnya.
+                </p>
+              </div>
+              <div className="mt-5 flex flex-wrap gap-2">
+                <Button variant="accent" onClick={runPipeline} disabled={running}>
+                  {running ? <Loader2 className="size-4 animate-spin" /> : <Wand2 className="size-4" />}
+                  Proses ulang
+                </Button>
+                <Button variant="outline" asChild>
+                  <Link to="/unduh">
+                    <Download className="size-4" /> Riwayat unduhan
+                  </Link>
+                </Button>
+              </div>
             </div>
           </section>
-        </div>
+        ) : null}
 
-        {/* Clips */}
-        <section className="mt-8">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-              Klip terdeteksi ({clips.length})
+        {/* ==== Daftar klip ==== */}
+        <section className="reveal mt-12" style={{ ["--i" as string]: 3 }}>
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
+            <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">
+              Klip terdeteksi
             </h2>
-            {clips.length > 0 ? (
-              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Flame className="size-3.5 text-accent" /> diurutkan dari skor tertinggi
-              </span>
-            ) : null}
+            <span className="text-[13px] text-muted-foreground">
+              {clips.length > 0 ? "diurutkan dari skor tertinggi" : "belum ada"}
+            </span>
           </div>
 
           {clips.length === 0 ? (
-            <div className="flex flex-col items-center rounded-2xl border border-border bg-card py-16 text-center">
-              <Sparkles className="size-10 text-muted-foreground/50" />
-              <p className="mt-4 font-medium">Belum ada klip</p>
-              <p className="mt-1 max-w-md text-sm text-muted-foreground">
-                Klik "Mulai Proses AI" — CortexClip akan mentranskrip audio, mencari momen paling
-                kuat, lalu menulis judul, deskripsi, hashtag, dan skor viralitas untuk tiap klip.
+            <div className="mt-6 rounded-2xl border border-dashed border-border px-6 py-16 text-center">
+              <Sparkles className="mx-auto size-8 text-muted-foreground/50" />
+              <p className="mt-4 font-display text-base font-bold">Belum ada klip</p>
+              <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
+                CortexClip akan mentranskrip audio, mencari momen paling kuat, lalu menulis judul,
+                deskripsi, hashtag, dan skor viralitas untuk tiap klip.
               </p>
-              <Button variant="accent" size="sm" className="mt-5" onClick={runPipeline} disabled={running}>
-                {running ? <Loader2 className="size-4 animate-spin" /> : <Wand2 className="size-4" />}
-                Mulai Proses AI
-              </Button>
+              <div className="mt-6 flex flex-wrap justify-center gap-2">
+                <Button variant="accent" onClick={runPipeline} disabled={running}>
+                  {running ? <Loader2 className="size-4 animate-spin" /> : <Wand2 className="size-4" />}
+                  Mulai proses AI
+                </Button>
+                <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-medium transition-colors hover:border-accent/50">
+                  <Upload className="size-4" />
+                  {localFile ? localFile.name.slice(0, 22) : "Pilih file lokal"}
+                  <input
+                    type="file"
+                    accept="video/*,audio/*"
+                    onChange={(e) => setLocalFile(e.target.files?.[0] ?? null)}
+                    className="hidden"
+                  />
+                </label>
+              </div>
             </div>
           ) : (
-            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <div className="mt-6 space-y-3">
               {clips.map((clip, i) => (
-                <motion.div
+                <div
                   key={clip.id}
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3, delay: 0.04 * i }}
+                  className="reveal"
+                  style={{ ["--i" as string]: Math.min(8, 4 + i) }}
                 >
-                  <ClipCard
+                  <ClipRow
                     clip={clip}
                     mediaUrl={mediaUrl}
                     expanded={activeClip === clip.id}
@@ -541,18 +543,19 @@ function ProjectPage() {
                     onSave={saveClip}
                     onExport={exportClip}
                   />
-                </motion.div>
+                </div>
               ))}
             </div>
           )}
         </section>
       </main>
-      <SiteFooter />
     </div>
   );
 }
 
-function ClipCard({
+/* --------------------------------------------------------------- ClipRow */
+
+function ClipRow({
   clip,
   mediaUrl,
   expanded,
@@ -567,30 +570,25 @@ function ClipCard({
   onSave: (clip: Clip, patch: Partial<Clip>) => void;
   onExport: (clip: Clip, kind: "srt" | "ass" | "ffmpeg") => void;
 }) {
-  const words = (clip.caption_words as unknown as { word: string; start: number; end: number }[]) ?? [];
+  const words =
+    (clip.caption_words as unknown as { word: string; start: number; end: number }[]) ?? [];
   const duration = clip.end_time - clip.start_time;
   const [rendering, setRendering] = useState(false);
-  const [renderProgress, setRenderProgress] = useState(0);
   const [previewBusy, setPreviewBusy] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
 
-  // ---- Editor subtitle PER-KLIP ----
   const [presetId, setPresetId] = useState(DEFAULT_SUBTITLE_PRESET);
-  // fontScale 0.5..2 (multiplier dari fontSize preset) & posisi 20..80 %dari atas
   const [fontScale, setFontScale] = useState(1);
-  const [position, setPosition] = useState<number | null>(null); // null = default preset
-  const [opacity, setOpacity] = useState(1); // 1 = 100% (default), turun = transparan
+  const [position, setPosition] = useState<number | null>(null);
+  const [opacity, setOpacity] = useState(1);
   const preset = getPreset(presetId);
   const effPosition = position ?? preset.style.position;
   const effFontSize = Math.round(preset.style.font_size * fontScale);
 
-  // words utk live overlay (timing word-level JSON dari transkripsi)
   const liveWords = words.map((w) => ({ word: w.word, start: w.start, end: w.end }));
 
-  // style live overlay — LANGSUNG berubah tiap setting diubah (tanpa render VPS)
   const liveStyle: LiveCaptionStyle = {
     fontFamily: preset.cssFontFamily,
-    fontSize: effFontSize * 0.42, // skala ke preview kecil (basis 360px)
+    fontSize: effFontSize * 0.42,
     fontColor: preset.style.font_color,
     highlightColor: preset.style.highlight_color,
     emphasisColor: preset.style.highlight_color,
@@ -598,14 +596,13 @@ function ClipCard({
     strokeWidth: preset.style.word_box ? 0 : 3,
     shadow: true,
     wordBox: preset.style.word_box ?? false,
-    wordBoxColor: preset.style.word_box_color,
+    wordBoxColor: preset.style.word_box_color ?? "#000000",
     uppercase: preset.style.uppercase ?? false,
-    opacity: opacity,
+    opacity,
     position: effPosition,
     animation: "karaoke",
   };
 
-  /** caption_style yang dikirim ke backend (key template Supoclip — preview & render final SAMA). */
   function buildCaptionStyle() {
     return {
       preset: presetId,
@@ -618,46 +615,46 @@ function ClipCard({
       word_box_color: preset.style.word_box_color,
       emoji: preset.style.emoji ?? true,
       uppercase: preset.style.uppercase ?? false,
-      opacity: opacity,
+      opacity,
     };
   }
 
-  // Preview VPS instan: render pipeline ASLI (ASS burn + face tracking) 360x640.
-  async function ensurePreview(force = false) {
-    if (previewBusy) return;
-    if (!force && clip.preview_ready) return;
-    setPreviewBusy(true);
-    try {
-      const { renderClipPreview } = await import("@/lib/backend-api");
-      const result = await renderClipPreview({
-        projectId: clip.project_id,
-        clipId: clip.id,
-        captionStyle: buildCaptionStyle(),
-      });
-      onSave(clip, { preview_url: result.url, preview_ready: true });
-    } catch (error) {
-      console.warn("Preview gagal dibuat:", error);
-    } finally {
-      setPreviewBusy(false);
-    }
-  }
-
-  // Saat kartu dibuka & preview belum ada → render sekali (video murni).
-  // Preview TIDAK lagi re-render saat setting berubah — subtitle live overlay
-  // HTML5 menampilkan perubahan gaya/ukuran/posisi/opacity SEKETIKA.
-  useEffect(() => {
-    if (expanded && mediaUrl && !clip.preview_ready && !previewBusy) {
-      void ensurePreview();
-    }
+  const ensurePreview = useCallback(
+    async (force = false) => {
+      if (previewBusy) return;
+      if (!force && clip.preview_ready) return;
+      setPreviewBusy(true);
+      try {
+        const { renderClipPreview } = await import("@/lib/backend-api");
+        const result = await renderClipPreview({
+          projectId: clip.project_id,
+          clipId: clip.id,
+          captionStyle: buildCaptionStyle(),
+        });
+        onSave(clip, { preview_url: result.url, preview_ready: true });
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? `Preview gagal: ${error.message}`
+            : "Preview gagal dibuat.",
+        );
+      } finally {
+        setPreviewBusy(false);
+      }
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expanded, mediaUrl]);
+    [clip.id, clip.preview_ready, previewBusy],
+  );
+
+  useEffect(() => {
+    if (expanded && !clip.preview_ready && !previewBusy) void ensurePreview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded]);
 
   async function renderServerMp4() {
     if (rendering) return;
     setRendering(true);
-    setRenderProgress(0.2);
     try {
-      // BACKGROUND JOB — user boleh keluar/pindah tab, hasil via halaman /unduh
       const { startRenderJob } = await import("@/lib/backend-api");
       await startRenderJob({
         projectId: clip.project_id,
@@ -665,215 +662,251 @@ function ClipCard({
         clipTitle: clip.title,
         captionStyle: buildCaptionStyle(),
       });
-      setRenderProgress(1);
-      toast.success("Render dimulai! Kamu boleh keluar dari halaman ini — klip akan muncul di halaman Unduhan saat selesai.");
+      toast.success("Render dimulai — hasilnya menunggu di halaman Unduhan.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Gagal memulai render.");
     } finally {
       setRendering(false);
-      setRenderProgress(0);
     }
   }
 
+  const hot = clip.virality_score >= 85;
+
   return (
-    <div className={`group rounded-2xl border bg-card p-5 transition-colors ${expanded ? "border-accent/40" : "border-white/8 hover:border-accent/30"}`}>
-      <div className="flex flex-wrap items-start gap-4">
+    <article
+      className={`overflow-hidden rounded-2xl border bg-card transition-colors ${
+        expanded ? "border-accent/40" : "border-border hover:border-accent/25"
+      }`}
+    >
+      {/* baris ringkas */}
+      <div className="flex flex-wrap items-center gap-3 px-4 py-4 sm:flex-nowrap sm:gap-4 sm:px-5">
         <button
           type="button"
           onClick={onToggle}
-          className={`flex size-14 shrink-0 flex-col items-center justify-center rounded-xl border transition-colors ${clip.virality_score >= 85 ? "border-accent/40 bg-accent/12" : "border-white/10 bg-foreground/4"}`}
+          aria-expanded={expanded}
+          className={`grid size-14 shrink-0 place-items-center rounded-xl border transition-colors ${
+            hot ? "border-accent/40 bg-accent/10" : "border-border bg-surface"
+          }`}
         >
-          <span className="font-display text-xl font-bold text-accent">{clip.virality_score}</span>
-          <span className="text-[9px] font-semibold uppercase tracking-wider opacity-80">viral</span>
-          {clip.virality_score >= 85 ? (
-            <Flame className="absolute -right-1.5 -top-1.5 size-4 rounded-full bg-background p-0.5 text-accent" />
-          ) : null}
+          <span className="stat-figure text-xl text-accent">{clip.virality_score}</span>
+          <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+            viral
+          </span>
         </button>
+
         <div className="min-w-0 flex-1">
           <input
             value={clip.title}
             onChange={(e) => onSave(clip, { title: e.target.value })}
-            className="w-full bg-transparent text-base font-semibold outline-none transition-colors focus:underline decoration-accent/50"
+            aria-label="Judul klip"
+            className="w-full bg-transparent text-[15px] font-semibold tracking-tight outline-none transition-colors focus:text-accent"
           />
-          <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="font-mono">{formatClock(clip.start_time)} – {formatClock(clip.end_time)}</span>
-            <span>·</span>
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-muted-foreground">
+            <span className="font-mono">
+              {formatClock(clip.start_time)} – {formatClock(clip.end_time)}
+            </span>
+            <span className="opacity-40">·</span>
             <span>{duration.toFixed(0)} detik</span>
             {clip.hook_type ? (
-              <Badge variant="secondary" className="ml-1 text-[10px]">{clip.hook_type}</Badge>
+              <Badge variant="secondary" className="ml-0.5 text-[10px]">
+                {clip.hook_type}
+              </Badge>
             ) : null}
           </p>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          asChild
-          className="group"
-        >
-          <Link to="/editor/$clipId" params={{ clipId: clip.id }}>
-            <Play className="size-4" /> Buka editor
-            <ChevronDown className="ml-0.5 size-3.5 transition-transform group-hover:translate-x-0.5" />
-          </Link>
-        </Button>
+
+        <div className="flex w-full shrink-0 gap-2 sm:w-auto">
+          <Button variant="ghost" size="sm" onClick={onToggle} className="flex-1 sm:flex-none">
+            <Type className="size-4" />
+            {expanded ? "Tutup" : "Setel"}
+            <ChevronDown
+              className={`size-3.5 transition-transform ${expanded ? "rotate-180" : ""}`}
+            />
+          </Button>
+          <Button variant="outline" size="sm" asChild className="flex-1 sm:flex-none">
+            <Link to="/editor/$clipId" params={{ clipId: clip.id }}>
+              <Clapperboard className="size-4" /> Editor
+            </Link>
+          </Button>
+        </div>
       </div>
 
-      {expanded ? (
-        <motion.div
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: "auto" }}
-          transition={{ duration: 0.3 }}
-          className="mt-5 space-y-5"
-        >
-          {/* ===== 1. PREVIEW (paling atas) — video + LIVE subtitle overlay ===== */}
-          <div className="grid gap-6 md:grid-cols-[220px_1fr]">
-            <div className="mx-auto w-[200px]">
-              {mediaUrl || clip.preview_url ? (
-                <VideoWithLiveCaption
-                  videoSrc={clip.preview_url ?? mediaUrl}
-                  words={liveWords}
-                  start={clip.start_time}
-                  end={clip.end_time}
-                  style={liveStyle}
-                />
-              ) : words.length > 0 ? (
-                <CaptionPreview
-                  clip={{
-                    id: clip.id,
-                    title: clip.title,
-                    description: clip.description ?? "",
-                    hashtags: clip.hashtags ?? [],
-                    score: clip.virality_score,
-                    range: `${formatClock(clip.start_time)} - ${formatClock(clip.end_time)}`,
-                    duration: Math.max(...words.map((w) => w.end), 1),
-                    hook: clip.hook_type ?? "",
-                    captions: toCaptionWords(words),
-                    overlays: [],
-                  }}
-                  style={{
-                    ...defaultCaptionStyle,
-                    preset: presetId,
-                    accent: preset.style.highlight_color,
-                    base: preset.style.font_color,
-                    uppercase: preset.style.uppercase,
-                  }}
-                />
-              ) : (
-                <p className="text-xs text-muted-foreground">Belum ada caption.</p>
-              )}
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Deskripsi
-                </label>
-                <textarea
-                  value={clip.description ?? ""}
-                  onChange={(e) => onSave(clip, { description: e.target.value })}
-                  rows={3}
-                  className="mt-1 w-full rounded-xl border border-border bg-background p-3 text-sm outline-none transition-colors focus:border-accent"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Hashtag
-                </label>
-                <input
-                  value={(clip.hashtags ?? []).join(" ")}
-                  onChange={(e) =>
-                    onSave(clip, { hashtags: e.target.value.split(/\s+/).filter(Boolean) })
-                  }
-                  className="mt-1 w-full rounded-xl border border-border bg-background p-3 text-sm outline-none transition-colors focus:border-accent"
-                />
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <Button
-                  variant="accent"
-                  size="sm"
-                  onClick={renderServerMp4}
-                  disabled={rendering}
-                  className="min-w-[160px]"
-                >
-                  {rendering ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
-                  {rendering ? `Merender… ${Math.round(renderProgress * 100)}%` : "Unduh"}
-                </Button>
-                {rendering ? (
-                  <Button variant="ghost" size="sm" onClick={() => abortRef.current?.abort()}>
-                    Batalkan
-                  </Button>
+      {/* panel setelan */}
+      <AnimatePresence initial={false}>
+        {expanded ? (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+            className="overflow-hidden border-t border-border"
+          >
+            <div className="grid gap-6 px-4 py-5 sm:px-5 lg:grid-cols-[200px_1fr]">
+              {/* preview vertikal */}
+              <div className="mx-auto w-[190px] lg:mx-0">
+                {mediaUrl || clip.preview_url ? (
+                  <VideoWithLiveCaption
+                    videoSrc={clip.preview_url ?? mediaUrl}
+                    words={liveWords}
+                    start={clip.start_time}
+                    end={clip.end_time}
+                    style={liveStyle}
+                  />
+                ) : words.length > 0 ? (
+                  <CaptionPreview
+                    clip={{
+                      id: clip.id,
+                      title: clip.title,
+                      description: clip.description ?? "",
+                      hashtags: clip.hashtags ?? [],
+                      score: clip.virality_score,
+                      range: `${formatClock(clip.start_time)} - ${formatClock(clip.end_time)}`,
+                      duration: Math.max(...words.map((w) => w.end), 1),
+                      hook: clip.hook_type ?? "",
+                      captions: toCaptionWords(words),
+                      overlays: [],
+                    }}
+                    style={{
+                      ...defaultCaptionStyle,
+                      preset: presetId,
+                      accent: preset.style.highlight_color,
+                      base: preset.style.font_color,
+                      uppercase: preset.style.uppercase ?? false,
+                    }}
+                  />
+                ) : (
+                  <p className="text-[12px] text-muted-foreground">Belum ada caption.</p>
+                )}
+                {previewBusy ? (
+                  <p className="mt-2.5 flex items-center justify-center gap-1.5 text-[11px] text-accent">
+                    <Loader2 className="size-3 animate-spin" /> menyiapkan preview…
+                  </p>
                 ) : null}
               </div>
-            </div>
-          </div>
 
-          {/* ===== 2. SUBTITLE EDITOR (di bawah preview) ===== */}
-          <div className="rounded-xl border border-border bg-background/50 p-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Subtitle
-              </span>
-              {previewBusy ? (
-                <span className="inline-flex items-center gap-1.5 text-[11px] text-accent">
-                  <Loader2 className="size-3 animate-spin" /> memperbarui preview…
-                </span>
-              ) : null}
-            </div>
-            <div className="mt-3">
-              <SubtitleStylePicker value={presetId} onChange={setPresetId} />
-            </div>
-            <div className="mt-4 grid gap-4 sm:grid-cols-3">
-              <div>
-                <label className="text-[11px] text-muted-foreground">
-                  Ukuran · {Math.round(fontScale * 100)}%
-                </label>
-                <input
-                  type="range"
-                  min={0.6}
-                  max={1.8}
-                  step={0.05}
-                  value={fontScale}
-                  onChange={(e) => setFontScale(parseFloat(e.target.value))}
-                  className="mt-1.5 w-full accent-[var(--color-accent)]"
-                />
+              {/* teks + gaya subtitle */}
+              <div className="min-w-0 space-y-5">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Deskripsi
+                    </span>
+                    <textarea
+                      value={clip.description ?? ""}
+                      onChange={(e) => onSave(clip, { description: e.target.value })}
+                      rows={3}
+                      className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Hashtag
+                    </span>
+                    <input
+                      value={(clip.hashtags ?? []).join(" ")}
+                      onChange={(e) =>
+                        onSave(clip, { hashtags: e.target.value.split(/\s+/).filter(Boolean) })
+                      }
+                      className="mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none transition-colors focus:border-accent"
+                    />
+                  </label>
+                </div>
+
+                <div className="rounded-xl border border-border bg-surface/50 px-4 py-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Gaya subtitle
+                  </p>
+                  <div className="mt-3">
+                    <SubtitleStylePicker value={presetId} onChange={setPresetId} />
+                  </div>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-3">
+                    <Slider
+                      label={`Ukuran · ${Math.round(fontScale * 100)}%`}
+                      min={0.6}
+                      max={1.8}
+                      step={0.05}
+                      value={fontScale}
+                      onChange={setFontScale}
+                    />
+                    <Slider
+                      label={`Posisi ${effPosition <= 50 ? "atas" : "bawah"} · ${effPosition}%`}
+                      min={20}
+                      max={80}
+                      step={1}
+                      value={effPosition}
+                      onChange={(v) => setPosition(Math.round(v))}
+                    />
+                    <Slider
+                      label={`Transparansi · ${Math.round(opacity * 100)}%`}
+                      min={0.1}
+                      max={1}
+                      step={0.05}
+                      value={opacity}
+                      onChange={setOpacity}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button variant="accent" onClick={renderServerMp4} disabled={rendering}>
+                    {rendering ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Download className="size-4" />
+                    )}
+                    Render & unduh
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => onExport(clip, "srt")}>
+                    Ekspor .srt
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => onExport(clip, "ass")}>
+                    Ekspor .ass
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void ensurePreview(true)}
+                    disabled={previewBusy}
+                  >
+                    <Clock className="size-3.5" /> Segarkan preview
+                  </Button>
+                </div>
               </div>
-              <div>
-                <label className="text-[11px] text-muted-foreground">
-                  Posisi {effPosition <= 50 ? "atas" : "bawah"} · {effPosition}%
-                </label>
-                <input
-                  type="range"
-                  min={20}
-                  max={80}
-                  step={1}
-                  value={effPosition}
-                  onChange={(e) => setPosition(parseInt(e.target.value))}
-                  className="mt-1.5 w-full accent-[var(--color-accent)]"
-                />
-              </div>
-              <div>
-                <label className="text-[11px] text-muted-foreground">
-                  Transparansi · {Math.round(opacity * 100)}%
-                </label>
-                <input
-                  type="range"
-                  min={0.1}
-                  max={1}
-                  step={0.05}
-                  value={opacity}
-                  onChange={(e) => setOpacity(parseFloat(e.target.value))}
-                  className="mt-1.5 w-full accent-[var(--color-accent)]"
-                />
-              </div>
             </div>
-          </div>
-        </motion.div>
-      ) : null}
-    </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </article>
   );
 }
 
-function formatClock(seconds: number) {
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${String(s).padStart(2, "0")}`;
+function Slider({
+  label,
+  min,
+  max,
+  step,
+  value,
+  onChange,
+}: {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <label className="block min-w-0">
+      <span className="block truncate text-[11px] text-muted-foreground">{label}</span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="mt-2 w-full accent-[var(--color-accent)]"
+      />
+    </label>
+  );
 }

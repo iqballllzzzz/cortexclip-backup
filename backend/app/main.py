@@ -63,8 +63,13 @@ app.add_middleware(
 # Auth helpers
 # ---------------------------------------------------------------------------
 
-async def get_user(request: Request, authorization: str | None) -> dict[str, Any]:
-    """Validate the Supabase user JWT and return {id, email}."""
+async def get_user(request: Request, authorization: str | None = None,
+                   check_ban: bool = True) -> dict[str, Any]:
+    """Validate the Supabase user JWT and return {id, email}.
+
+    check_ban=True (default) memblokir user yang sedang diban dengan HTTP 403
+    berisi detail ban supaya frontend bisa menampilkan layar ban.
+    """
     token = None
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization.split(" ", 1)[1]
@@ -80,7 +85,17 @@ async def get_user(request: Request, authorization: str | None) -> dict[str, Any
     if resp.status_code != 200:
         raise HTTPException(401, "Invalid token")
     data = resp.json()
-    return {"id": data["id"], "email": data.get("email", "")}
+    user = {"id": data["id"], "email": data.get("email", "")}
+    if check_ban:
+        try:
+            from . import admin as admin_mod
+            ban = await admin_mod.ban_state(user["id"])
+        except Exception as exc:      # analitik/ban gagal != request gagal
+            print(f"[auth] cek ban gagal: {exc}")
+            ban = None
+        if ban:
+            raise HTTPException(403, {"code": "account_banned", **ban})
+    return user
 
 
 def require_admin(authorization: str | None) -> None:
@@ -302,15 +317,29 @@ async def api_preview_clip(body: RenderClipIn, request: Request, authorization: 
     Browser memutar file preview kecil (~100-500KB) ini, bukan streaming seluruh
     video sumber 43MB → editor preview muncul instan tanpa lag.
     """
-    await get_user(request, authorization)
+    user = await get_user(request, authorization)
     from .render_clip import render_preview_clip
+    t0 = time.time()
     try:
         result = await render_preview_clip(
             body.project_id, body.clip_id, token=authorization.split(" ", 1)[1],
             caption_style=body.caption_style,
         )
     except Exception as exc:
+        try:
+            from .admin import log_usage
+            await log_usage(user["id"], "preview", model="ffmpeg-preview", provider="local",
+                            status="error", project_id=body.project_id,
+                            meta={"error": str(exc)[:200]})
+        except Exception:
+            pass
         raise HTTPException(400, str(exc))
+    try:
+        from .admin import log_usage
+        await log_usage(user["id"], "preview", model="ffmpeg-preview", provider="local",
+                        latency_ms=int((time.time() - t0) * 1000), project_id=body.project_id)
+    except Exception:
+        pass
     return result
 
 
@@ -541,6 +570,139 @@ async def admin_overview(authorization: str = Header(None)):
         "hydra": gateway.status(),
         "output_dir": jobs_mod.OUTPUT_DIR,
     }
+
+
+# ---------------------------------------------------------------------------
+# Admin panel (login pakai akun Supabase yang profiles.is_admin = true)
+# ---------------------------------------------------------------------------
+
+async def require_admin_user(request: Request, authorization: Optional[str]) -> dict[str, Any]:
+    """Verifikasi JWT user + pastikan dia admin. Return user dict."""
+    from . import admin as admin_mod
+    user = await get_user(request, authorization, check_ban=False)
+    if not await admin_mod.is_admin(user["id"]):
+        raise HTTPException(403, "Akses ditolak — akun ini bukan admin.")
+    return user
+
+
+class BanIn(BaseModel):
+    duration: str            # '1d' | '5d' | '1mo' | 'permanent'
+    reason: Optional[str] = ""
+
+
+class PlanIn(BaseModel):
+    plan: str                # 'free' | 'day' | '5day' | 'month' | 'year'
+
+
+class AdminFlagIn(BaseModel):
+    is_admin: bool
+
+
+@app.get("/api/me/status")
+async def api_me_status(request: Request, authorization: Optional[str] = Header(None)):
+    """Status akun untuk frontend: admin?, diban?, plan, kuota.
+
+    Sengaja TIDAK memblokir user yang diban — halaman ban butuh endpoint ini.
+    """
+    from . import admin as admin_mod
+    from .premium import quota_check_project
+    user = await get_user(request, authorization, check_ban=False)
+    ban = await admin_mod.ban_state(user["id"])
+    quota = await quota_check_project(user["id"])
+    await admin_mod.touch_seen(user["id"])
+    return {
+        "user": {"id": user["id"], "email": user["email"]},
+        "is_admin": await admin_mod.is_admin(user["id"]),
+        "ban": ban,
+        "quota": quota,
+    }
+
+
+@app.post("/api/me/login-event")
+async def api_me_login_event(request: Request, authorization: Optional[str] = Header(None)):
+    from . import admin as admin_mod
+    user = await get_user(request, authorization, check_ban=False)
+    ua = request.headers.get("user-agent", "")
+    ip = request.headers.get("x-forwarded-for", "") or (request.client.host if request.client else "")
+    await admin_mod.record_login(user["id"], ua, ip)
+    return {"ok": True}
+
+
+@app.get("/api/admin/stats")
+async def api_admin_stats(request: Request, authorization: Optional[str] = Header(None)):
+    from . import admin as admin_mod
+    await require_admin_user(request, authorization)
+    data = await admin_mod.overview()
+    try:
+        from .limits import resource_status
+        data["resources"] = resource_status()
+    except Exception:
+        data["resources"] = {}
+    data["ban_durations"] = [
+        {"key": k, "label": v["label"]} for k, v in admin_mod.BAN_DURATIONS.items()
+    ]
+    return data
+
+
+@app.get("/api/admin/users")
+async def api_admin_users(request: Request, authorization: Optional[str] = Header(None),
+                          search: str = "", limit: int = 100, offset: int = 0):
+    from . import admin as admin_mod
+    await require_admin_user(request, authorization)
+    return await admin_mod.list_users(search=search, limit=min(limit, 300), offset=offset)
+
+
+@app.get("/api/admin/users/{user_id}")
+async def api_admin_user_detail(user_id: str, request: Request,
+                                authorization: Optional[str] = Header(None)):
+    from . import admin as admin_mod
+    await require_admin_user(request, authorization)
+    try:
+        return await admin_mod.user_detail(user_id)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc))
+
+
+@app.post("/api/admin/users/{user_id}/ban")
+async def api_admin_ban(user_id: str, body: BanIn, request: Request,
+                        authorization: Optional[str] = Header(None)):
+    from . import admin as admin_mod
+    me = await require_admin_user(request, authorization)
+    if user_id == me["id"]:
+        raise HTTPException(400, "Tidak bisa mem-ban akun sendiri.")
+    try:
+        return await admin_mod.ban_user(me["id"], user_id, body.duration, body.reason or "")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.post("/api/admin/users/{user_id}/unban")
+async def api_admin_unban(user_id: str, request: Request,
+                          authorization: Optional[str] = Header(None)):
+    from . import admin as admin_mod
+    me = await require_admin_user(request, authorization)
+    return await admin_mod.unban_user(me["id"], user_id)
+
+
+@app.post("/api/admin/users/{user_id}/plan")
+async def api_admin_set_plan(user_id: str, body: PlanIn, request: Request,
+                             authorization: Optional[str] = Header(None)):
+    from . import admin as admin_mod
+    me = await require_admin_user(request, authorization)
+    try:
+        return await admin_mod.set_plan(me["id"], user_id, body.plan)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.post("/api/admin/users/{user_id}/admin-flag")
+async def api_admin_set_admin(user_id: str, body: AdminFlagIn, request: Request,
+                              authorization: Optional[str] = Header(None)):
+    from . import admin as admin_mod
+    me = await require_admin_user(request, authorization)
+    if user_id == me["id"] and not body.is_admin:
+        raise HTTPException(400, "Tidak bisa mencabut akses admin dari diri sendiri.")
+    return await admin_mod.set_admin(me["id"], user_id, body.is_admin)
 
 
 # ---------------------------------------------------------------------------

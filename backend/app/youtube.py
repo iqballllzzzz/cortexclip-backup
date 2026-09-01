@@ -412,6 +412,15 @@ async def run_media_pipeline(project_id: str, user_id: str, src_path: str, targe
         if not segments:
             raise RuntimeError("Transkripsi gagal / video tidak berisi ucapan.")
         segments.sort(key=lambda s: s["start"])
+        # catat provider STT yang menang (analitik admin)
+        try:
+            from .admin import log_usage
+            from . import transcribe as _tr
+            prov = getattr(_tr, "LAST_STT_PROVIDER", "") or "whisper-chain"
+            await log_usage(user_id, "transcribe", model=prov, provider=prov.split("-")[0],
+                            project_id=project_id, meta={"segments": len(segments)})
+        except Exception as exc:
+            print(f"[pipeline] log transcribe gagal: {exc}")
         duration = max(_ffprobe_duration(src_path), max(s["end"] for s in segments))
         transcript = {"language": "id", "duration": round(duration, 2),
                       "segments": transcript_with_words(segments)}
@@ -422,6 +431,15 @@ async def run_media_pipeline(project_id: str, user_id: str, src_path: str, targe
         clips = await detect_clips(transcript, target_count)
         if not clips:
             raise RuntimeError("AI tidak menemukan klip yang layak dari video ini.")
+        try:
+            from .admin import log_usage
+            from .hydra import gateway as _gw
+            await log_usage(user_id, "clip_detect",
+                            model=_gw.last_chat_model or "hydra-chat",
+                            provider=(_gw.last_chat_model or "/").split("/")[0],
+                            project_id=project_id, meta={"clips": len(clips)})
+        except Exception:
+            pass
         await jobs_mod.replace_clips(project_id, user_id, clips)
         await jobs_mod.update_project(project_id, status="completed")
     except Exception as exc:
@@ -475,6 +493,81 @@ async def run_upload_pipeline(project_id: str, user_id: str, storage_path: str, 
                 pass
 
 
+async def _persist_source_to_storage(project_id: str, user_id: str, src_path: str) -> None:
+    """Upload video sumber ke bucket video-uploads + set projects.storage_path.
+
+    Dipakai agar fitur preview klip & render/unduh server-side punya media sumber.
+    Video di-kompres dulu ke 720p CRF28 supaya hemat storage (biasanya 3-5x kecil)
+    tanpa merusak kualitas hasil klip vertikal 1080x1920.
+    """
+    from .premium import sb
+
+    if not os.path.exists(src_path):
+        return
+    small = src_path + ".small.mp4"
+    up_path = src_path
+    try:
+        def _compress() -> bool:
+            try:
+                subprocess.run(
+                    ["ffmpeg", "-y", "-i", src_path,
+                     "-vf", "scale=-2:min(720\\,ih)", "-c:v", "libx264", "-preset", "veryfast",
+                     "-crf", "28", "-c:a", "aac", "-b:a", "96k",
+                     "-movflags", "+faststart", small],
+                    check=True, capture_output=True, timeout=3600)
+                return os.path.exists(small) and os.path.getsize(small) > 100_000
+            except Exception as exc:
+                print(f"[storage] kompres gagal, pakai file asli: {exc}")
+                return False
+
+        if await asyncio.to_thread(_compress):
+            up_path = small
+
+        storage_path = f"{user_id}/{project_id}/source.mp4"
+        url = f"{SUPABASE_URL}/storage/v1/object/video-uploads/{storage_path}"
+        service_key = os.environ.get("SUPABASE_SERVICE_KEY", "")
+        size_mb = os.path.getsize(up_path) / 1024 / 1024
+
+        async def _read_chunks():
+            # httpx AsyncClient butuh async-iterable untuk streaming upload
+            def _open():
+                return open(up_path, "rb")
+
+            f = await asyncio.to_thread(_open)
+            try:
+                while True:
+                    b = await asyncio.to_thread(f.read, 1 << 20)
+                    if not b:
+                        break
+                    yield b
+            finally:
+                await asyncio.to_thread(f.close)
+
+        async with httpx.AsyncClient(timeout=1800) as client:
+            resp = await client.post(
+                url,
+                headers={"apikey": service_key,
+                         "Authorization": f"Bearer {service_key}",
+                         "Content-Type": "video/mp4",
+                         "x-upsert": "true"},
+                content=_read_chunks(),
+            )
+        if resp.status_code not in (200, 201):
+            print(f"[storage] upload sumber gagal ({resp.status_code}) {resp.text[:200]}")
+            return
+        await sb("PATCH", f"projects?id=eq.{project_id}",
+                 json_body={"storage_path": storage_path})
+        print(f"[storage] sumber tersimpan: {storage_path} ({size_mb:.1f} MB)")
+    except Exception as exc:
+        print(f"[storage] persist sumber gagal: {exc}")
+    finally:
+        try:
+            if os.path.exists(small):
+                os.unlink(small)
+        except OSError:
+            pass
+
+
 async def run_youtube_pipeline(project_id: str, user_id: str, url: str, target_count: int) -> None:
     """Background task: hydra download -> pipeline penuh."""
     from . import jobs as jobs_mod
@@ -490,6 +583,9 @@ async def run_youtube_pipeline(project_id: str, user_id: str, url: str, target_c
         except Exception:
             pass
         await run_media_pipeline(project_id, user_id, src_path, target_count)
+        # Simpan video sumber ke storage supaya preview & render klip bisa jalan.
+        # (Tanpa ini storage_path null → /api/preview-clip 500 "belum punya file media".)
+        await _persist_source_to_storage(project_id, user_id, src_path)
     except Exception as exc:
         try:
             from .premium import sb

@@ -4,6 +4,7 @@ import { motion } from "motion/react";
 import { ArrowRight, Lock, Mail, User, CheckCircle2, Captions, TrendingUp, Zap } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
+import { recordLoginEvent } from "@/lib/admin-api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -74,6 +75,7 @@ function AuthPage() {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
         toast.success("Berhasil masuk!");
+        void recordLoginEvent();
         navigate({ to: "/dashboard", replace: true });
       }
     } catch (err) {

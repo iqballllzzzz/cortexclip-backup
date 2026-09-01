@@ -85,6 +85,42 @@
   --shadow-sm: 0 1px 3px oklch(0.2 0.02 70 / 0.06), 0 1px 2px oklch(0.2 0.02 70 / 0.04);
   --shadow-md: 0 4px 12px oklch(0.2 0.02 70 / 0.06), 0 2px 6px oklch(0.2 0.02 70 / 0.04);
   --shadow-lg: 0 12px 32px oklch(0.2 0.02 70 / 0.1), 0 4px 12px oklch(0.2 0.02 70 / 0.05);
+
+  /* --- Skala jarak (4pt base, dinamai per peran — bukan per ukuran) --- */
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2.5rem;
+  --space-2xl: 4rem;
+  --space-3xl: 6rem;
+  --space-4xl: 9rem;
+
+  /* --- Easing & durasi: satu bahasa gerak untuk seluruh aplikasi --- */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms;
+  --dur-short: 220ms;
+  --dur-long: 420ms;
+
+  /* --- Z-index bertingkat & bernama (jangan pakai angka lepas) --- */
+  --z-base: 1;
+  --z-raised: 10;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-modal: 400;
+  --z-toast: 500;
+  --z-tooltip: 600;
+
+  /* Warna data/chart — turunan dari aksen + netral, bukan palet baru */
+  --chart-1: var(--accent);
+  --chart-2: oklch(0.55 0.06 250);
+  --chart-3: oklch(0.62 0.12 150);
+  --chart-4: oklch(0.7 0.09 90);
+  --chart-5: oklch(0.5 0.02 70);
 }
 
 .dark {
@@ -117,6 +153,12 @@
   --shadow-sm: 0 1px 3px oklch(0 0 0 / 0.35);
   --shadow-md: 0 4px 12px oklch(0 0 0 / 0.4);
   --shadow-lg: 0 12px 32px oklch(0 0 0 / 0.5);
+
+  --chart-1: var(--accent);
+  --chart-2: oklch(0.68 0.07 250);
+  --chart-3: oklch(0.7 0.12 150);
+  --chart-4: oklch(0.78 0.09 90);
+  --chart-5: oklch(0.62 0.02 70);
 }
 
 @layer base {
@@ -199,6 +241,43 @@
   display: none;
 }
 
+/* --- Reveal berurutan saat masuk viewport (dipakai dashboard/admin/project) ---
+   Stagger lewat --i (indeks DOM) — CSS, bukan JS. Total dibatasi ±500ms. */
+@utility reveal {
+  opacity: 0;
+  transform: translateY(10px);
+  animation: reveal var(--dur-long) var(--ease-out) forwards;
+  animation-delay: calc(var(--i, 0) * 55ms);
+}
+
+@keyframes reveal {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Garis rambut sebagai pengganti border 1px + shadow bertumpuk */
+@utility hairline {
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-border) 80%, transparent);
+}
+
+/* Panel dasar: satu bahasa permukaan untuk kartu data */
+@utility panel {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-2xl);
+}
+
+/* Angka besar bergaya display — dipakai KPI admin & dashboard */
+@utility stat-figure {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+  line-height: 0.95;
+}
+
 /* Karaoke caption engine ------------------------------------------------ */
 
 .caption-word {
@@ -249,7 +328,10 @@
 @media (prefers-reduced-motion: reduce) {
   .animate-marquee,
   .caption-word[data-state="active"],
-  .fade-in-up {
+  .fade-in-up,
+  .reveal {
     animation: none;
+    opacity: 1;
+    transform: none;
   }
 }

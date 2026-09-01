@@ -17,6 +17,14 @@ from typing import Any
 
 from .hydra import gateway
 
+# Provider STT terakhir yang berhasil (dibaca pipeline buat analitik admin).
+LAST_STT_PROVIDER: str = ""
+
+
+def _mark(provider: str) -> None:
+    global LAST_STT_PROVIDER
+    LAST_STT_PROVIDER = provider
+
 
 async def transcribe_wav_chunk(wav_bytes: bytes, offset: float, duration: float) -> list[dict[str, Any]]:
     """Transcribe one WAV chunk. Returns segments (with words) in absolute time.
@@ -76,6 +84,7 @@ async def transcribe_wav_chunk(wav_bytes: bytes, offset: float, duration: float)
                     "text": text,
                     "words": words or words_from_segment({"start": start, "end": end, "text": text}),
                 })
+            _mark(str(stt.get("stt_provider") or "groq-whisper"))
             return out
         # STT chain utama gagal/None → Path 1b: HF Space gratis → Path 1c: lokal
 
@@ -101,6 +110,7 @@ async def transcribe_wav_chunk(wav_bytes: bytes, offset: float, duration: float)
                     out.append(seg)
                 if out:
                     print(f"[stt-chain] sukses via {hf.get('stt_provider')} ({len(out)} segmen)")
+                    _mark(str(hf.get("stt_provider") or "hf-whisper"))
                     return out
             # HF balikin full-text tanpa chunk → bagi merata sepanjang durasi
             full = str(hf.get("text", "")).strip()
@@ -118,6 +128,7 @@ async def transcribe_wav_chunk(wav_bytes: bytes, offset: float, duration: float)
                     seg["words"] = words_from_segment(seg)
                     out.append(seg)
                 print(f"[stt-chain] HF full-text split → {len(out)} segmen merata")
+                _mark(str(hf.get("stt_provider") or "hf-whisper"))
                 return out
     except Exception as exc:
         print(f"[stt-chain] HF Space gagal: {exc}")
@@ -150,6 +161,7 @@ async def transcribe_wav_chunk(wav_bytes: bytes, offset: float, duration: float)
                             "words": s.get("words") or []})
             if out:
                 print(f"[stt-chain] sukses via {lw.get('stt_provider')} ({len(out)} segmen)")
+                _mark(str(lw.get("stt_provider") or "local-whisper"))
                 return out
     except Exception as exc:
         print(f"[stt-chain] lokal whisper gagal: {exc}")

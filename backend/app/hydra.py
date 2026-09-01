@@ -150,6 +150,8 @@ class HydraGateway:
     def __init__(self) -> None:
         self._endpoints: list[Endpoint] = []
         self._built = False
+        # model chat terakhir yang sukses (dibaca pipeline untuk analitik admin)
+        self.last_chat_model: str = ""
 
     def build(self) -> None:
         eps: list[Endpoint] = []
@@ -406,6 +408,7 @@ class HydraGateway:
                                 last_err = f"{ep.provider}/{ep.model}: junk response"
                             else:
                                 self._ok(ep)
+                                self.last_chat_model = f"{ep.provider}/{ep.model}"
                                 return content
                         self._fail(ep, 500, "empty content")
                     else:

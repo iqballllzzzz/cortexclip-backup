@@ -103,14 +103,11 @@ async def render_clip_server(
 ) -> dict[str, Any]:
     """Full server-side render of one clip. Returns {file, url, storage_path}."""
     project, clip = await fetch_project_clip(project_id, clip_id, token)
-    storage_path = project.get("storage_path")
-    if not storage_path:
-        raise RuntimeError("Project belum punya file media di storage")
 
     workdir = tempfile.mkdtemp(prefix="cortexclip_render_")
     try:
         src = os.path.join(workdir, "source.mp4")
-        await download_from_storage(storage_path, src)
+        await _ensure_source_local(project, src)
 
         words = (clip.get("caption_words") or [])
         if not isinstance(words, list) or not words:
@@ -218,6 +215,34 @@ async def render_clip_server(
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+async def _ensure_source_local(project: dict[str, Any], dest: str) -> str:
+    """Sediakan file sumber di `dest`.
+
+    Prioritas: storage (kalau project.storage_path ada) → unduh ulang dari
+    source_url (YouTube) sebagai jaring aman untuk project lama yang dibuat
+    sebelum sumber ikut disimpan ke storage.
+    """
+    storage_path = project.get("storage_path")
+    if storage_path:
+        return await download_from_storage(storage_path, dest)
+
+    url = project.get("source_url")
+    if not url:
+        raise RuntimeError(
+            "Project ini tidak punya file sumber di server. Proses ulang project "
+            "supaya video sumber tersimpan, lalu coba preview lagi."
+        )
+    from .youtube import hydra_download, _persist_source_to_storage
+
+    await hydra_download(url, dest)
+    # simpan sekalian supaya preview berikutnya instan
+    try:
+        await _persist_source_to_storage(project["id"], project["user_id"], dest)
+    except Exception as exc:
+        print(f"[preview] persist ulang gagal (lanjut): {exc}")
+    return dest
+
+
 async def render_preview_clip(
     project_id: str,
     clip_id: str,
@@ -234,9 +259,6 @@ async def render_preview_clip(
     ini, bukan streaming video sumber 43MB → instan, tanpa lag.
     """
     project, clip = await fetch_project_clip(project_id, clip_id, token)
-    storage_path = project.get("storage_path")
-    if not storage_path:
-        raise RuntimeError("Project belum punya file media di storage")
 
     # Preview = video MURNI (tanpa subtitle burn) + face tracking.
     # Subtitle ditangani LIVE OVERLAY HTML5 di browser (instan ikut setting).
@@ -259,7 +281,7 @@ async def render_preview_clip(
     workdir = tempfile.mkdtemp(prefix="cortexclip_preview_")
     try:
         src = os.path.join(workdir, "source.mp4")
-        await download_from_storage(storage_path, src)
+        await _ensure_source_local(project, src)
 
         start = float(clip["start_time"])
         end = min(float(clip["end_time"]), start + max_seconds)
