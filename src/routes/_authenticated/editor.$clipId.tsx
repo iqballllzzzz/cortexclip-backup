@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowLeft,
+  BadgeX,
   Clock,
   Download,
   Hash,
@@ -12,7 +13,6 @@ import {
   Sparkles,
   Subtitles,
   Sticker,
-  VolumeX,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -21,7 +21,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { getPreset, SubtitleStylePicker, DEFAULT_SUBTITLE_PRESET } from "@/components/subtitle-styles";
 import { ColoredIcon } from "@/components/colored-icon";
 import { LiveCaptionOverlay, type LiveCaptionStyle, type LiveWord } from "@/components/live-caption-overlay";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { startRenderJob, getAccessToken } from "@/lib/backend-api";
 import { Button } from "@/components/ui/button";
 import type { Database } from "@/integrations/supabase/types";
@@ -37,7 +36,7 @@ export const Route = createFileRoute("/_authenticated/editor/$clipId")({
   head: () => ({
     meta: [
       { title: "Editor Klip — CortexClip" },
-      { name: "description", content: "Editor klip vertikal ala CapCut — subtitle, ikon & b-roll, emoji." },
+      { name: "description", content: "Editor klip vertikal — subtitle karaoke, ikon & b-roll, emoji." },
     ],
   }),
   component: EditorPage,
@@ -45,13 +44,12 @@ export const Route = createFileRoute("/_authenticated/editor/$clipId")({
 
 /* ---------------------------------------------------------------- toolbar */
 
-type ToolId = "info" | "subtitle" | "broll" | "watermark";
+type ToolId = "subtitle" | "info" | "broll";
 
 const TOOLS: { id: ToolId; label: string; Icon: typeof Hash }[] = [
   { id: "subtitle", label: "Subtitle", Icon: Subtitles },
   { id: "info", label: "Deskripsi", Icon: Hash },
   { id: "broll", label: "Ikon & B-Roll", Icon: Sticker },
-  { id: "watermark", label: "Watermark", Icon: VolumeX },
 ];
 
 interface Placement {
@@ -103,7 +101,7 @@ function EditorPage() {
   const [downloadLocked, setDownloadLocked] = useState(false);
   const [downloadInfo, setDownloadInfo] = useState<string | null>(null);
 
-  /* --- memori editor per-klip (persist antar kunjungan) --- */
+  /* --- memori editor per-klip --- */
   const memKey = `cc_editor_mem_${clipId}`;
   useEffect(() => {
     try {
@@ -125,7 +123,6 @@ function EditorPage() {
     }
   }, [memKey]);
 
-  // auto-save memori (debounce 800ms)
   useEffect(() => {
     const t = setTimeout(() => {
       try {
@@ -140,7 +137,7 @@ function EditorPage() {
     return () => clearTimeout(t);
   }, [memKey, presetId, fontScale, position, opacity, brollEnabled, emojiEnabled, livePlacements]);
 
-  /* --- load clip + project + URL sumber (untuk preview INSTAN) --- */
+  /* --- load clip + project + sumber (preview INSTAN) --- */
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -158,8 +155,6 @@ function EditorPage() {
         if (!cancelled && p) {
           const proj = p as Project;
           setProject(proj);
-          // PREVIEW INSTAN: pakai video sumber langsung dari storage —
-          // subtitle digambar live overlay browser, nol menunggu render.
           if (proj.storage_path) {
             supabase.storage
               .from("video-uploads")
@@ -194,7 +189,7 @@ function EditorPage() {
     })();
   }, []);
 
-  /* --- render preview server di belakang (mode presisi, tak menghalangi) --- */
+  /* --- pemanasan preview server di belakang (opsional, tak menghalangi) --- */
   const warmServerPreview = useCallback(async () => {
     if (!clip || clip.preview_ready) return;
     try {
@@ -209,12 +204,11 @@ function EditorPage() {
         setClip((c) => (c ? { ...c, preview_url: d.url, preview_ready: true } : c));
       }
     } catch {
-      /* preview server gagal — mode instan tetap jalan */
+      /* mode instan tetap jalan */
     }
   }, [clip]);
 
   useEffect(() => {
-    // tunggu 1.5s — prioritaskan interaksi pertama user dulu
     const t = setTimeout(() => void warmServerPreview(), 1500);
     return () => clearTimeout(t);
   }, [warmServerPreview]);
@@ -227,7 +221,7 @@ function EditorPage() {
     [clip],
   );
 
-  /* --- ukur & fit canvas 9:16 --- */
+  /* --- fit canvas 9:16 --- */
   useEffect(() => {
     const el = fitRef.current;
     if (!el) return;
@@ -235,7 +229,7 @@ function EditorPage() {
       const availW = el.clientWidth;
       const availH = el.clientHeight;
       if (availW < 40 || availH < 40) return;
-      const h = Math.min(availH - 56, (availW * 16) / 9);
+      const h = Math.min(availH - 60, (availW * 16) / 9);
       const w = (h * 9) / 16;
       setFit({ w: Math.round(w), h: Math.round(h) });
     };
@@ -303,7 +297,6 @@ function EditorPage() {
     };
   }
 
-  /* --- unduh: job render latar belakang + info antrean --- */
   async function handleDownload() {
     if (!clip || submitting || downloadLocked) return;
     setSubmitting(true);
@@ -388,9 +381,12 @@ function EditorPage() {
         if (res.ok) {
           const d = await res.json();
           setLivePlacements(d.placements ?? []);
+          if ((d.placements ?? []).length === 0) toast.info("AI tidak menemukan momen ikon yang cocok di klip ini.");
+        } else {
+          toast.error("Gagal memuat placement b-roll.");
         }
       } catch {
-        /* offline: coba lagi nanti */
+        toast.error("Gagal memuat placement b-roll.");
       } finally {
         setTimeout(() => setBrollSearching(false), 600);
       }
@@ -409,30 +405,54 @@ function EditorPage() {
     );
   }
 
-  // sumber video: signed URL sumber (instan) → preview VPS (kalau sudah ada)
   const videoSrc = sourceUrl ?? clip.preview_url ?? null;
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
-      {/* ===== TOP BAR ===== */}
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-3 sm:px-4">
-        <div className="flex min-w-0 items-center gap-2">
+      {/* ===== TOP BAR: Kembali · [Hapus Watermark] · Unduh ===== */}
+      <header className="grid h-14 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-2 border-b border-border px-3 sm:px-4">
+        <div className="flex min-w-0 items-center gap-1">
           <Button variant="ghost" size="sm" onClick={() => navigate({ to: "/projects/$projectId", params: { projectId: clip.project_id } })}>
             <ArrowLeft className="size-4" /> Kembali
           </Button>
-          <div className="hidden min-w-0 sm:block">
-            <p className="truncate text-sm font-semibold">{clip.title}</p>
-            <p className="truncate text-[11px] text-muted-foreground">{project?.title ?? "Project"}</p>
-          </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <ThemeToggle />
+
+        {/* tombol hapus watermark di TENGAH atas — antara Kembali & Unduh */}
+        {!watermarkRemoved ? (
+          <button
+            type="button"
+            onClick={() => setAdPlaying(true)}
+            className="hidden items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-[12px] font-semibold text-muted-foreground transition-colors hover:border-accent/50 hover:text-foreground sm:inline-flex"
+            title="Tonton 4 iklan untuk menghapus watermark"
+          >
+            <BadgeX className="size-3.5 text-accent" />
+            <span className="max-w-[130px] truncate">Hapus watermark</span>
+            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] tabular-nums">{adsWatched}/4</span>
+          </button>
+        ) : (
+          <span className="hidden items-center gap-1.5 rounded-full border border-[var(--color-success)]/30 bg-[color-mix(in_oklab,var(--color-success)_10%,transparent)] px-3 py-1.5 text-[12px] font-semibold sm:inline-flex">
+            Watermark dihapus
+          </span>
+        )}
+
+        <div className="flex items-center justify-end gap-1.5">
           <Button variant="accent" size="sm" onClick={handleDownload} disabled={submitting || downloadLocked}>
             {submitting ? <Loader2 className="size-4 animate-spin" /> : downloadLocked ? <Clock className="size-4" /> : <Download className="size-4" />}
             {downloadLocked ? "Merender…" : "Unduh"}
           </Button>
         </div>
       </header>
+
+      {/* versi mobile: tombol hapus watermark di baris kedua tipis */}
+      {!watermarkRemoved ? (
+        <button
+          type="button"
+          onClick={() => setAdPlaying(true)}
+          className="flex shrink-0 items-center justify-center gap-1.5 border-b border-border bg-surface/60 py-1.5 text-[12px] font-semibold text-muted-foreground sm:hidden"
+        >
+          <BadgeX className="size-3.5 text-accent" /> Hapus watermark — tonton {4 - adsWatched} iklan lagi
+        </button>
+      ) : null}
 
       {/* ===== BODY ===== */}
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
@@ -454,8 +474,6 @@ function EditorPage() {
                 onPlay={() => setPlaying(true)}
                 onPause={() => setPlaying(false)}
                 onTimeUpdate={(e) => {
-                  // preview VPS (video terpotong): waktu relatif klip langsung;
-                  // sumber penuh: kurangi offset awal klip
                   const t = sourceUrl ? e.currentTarget.currentTime - clip.start_time : e.currentTarget.currentTime;
                   setTime(Math.max(0, t));
                 }}
@@ -492,7 +510,7 @@ function EditorPage() {
                       key={`${p.time_start}-${idx}`}
                       className="pointer-events-none absolute flex items-center justify-center transition-[transform,opacity] duration-500 ease-out"
                       style={{
-                        left: p.side === "left" ? "20%" : "80%",
+                        left: p.side === "left" ? "20%" : p.side === "center" ? "50%" : "80%",
                         top: "38%",
                         transform: active ? "translate(-50%, -50%)" : hidden,
                         opacity: active ? 1 : 0,
@@ -506,7 +524,7 @@ function EditorPage() {
                 })
               : null}
 
-            {/* watermark preview (proporsional, hilang kalau sudah dibuka) */}
+            {/* watermark preview (proporsional) */}
             {!watermarkRemoved ? (
               <div className="pointer-events-none absolute left-[6%] top-[5%] flex items-center opacity-65" style={{ gap: Math.max(2, fit.w * 0.012) }}>
                 <img src="/watermark-logo.png" alt="" className="shrink-0 object-contain" style={{ width: fit.w * 0.095, height: fit.w * 0.095 }} />
@@ -544,9 +562,9 @@ function EditorPage() {
           </div>
         </div>
 
-        {/* ===== PANEL TOOL — tab atas + konten scroll ===== */}
+        {/* ===== PANEL TOOL ===== */}
         <aside className="flex w-full shrink-0 flex-col border-t border-border bg-card md:h-auto md:w-[320px] md:border-l md:border-t-0">
-          <div className="grid shrink-0 grid-cols-4 border-b border-border" role="tablist">
+          <div className="grid shrink-0 grid-cols-3 border-b border-border" role="tablist">
             {TOOLS.map((t) => (
               <button
                 key={t.id}
@@ -554,7 +572,7 @@ function EditorPage() {
                 role="tab"
                 aria-selected={activeTool === t.id}
                 onClick={() => setActiveTool(t.id)}
-                className={`flex flex-col items-center gap-1 px-1 py-2.5 text-[10px] font-medium transition-colors ${
+                className={`flex flex-col items-center gap-1 px-1 py-2.5 text-[11px] font-medium transition-colors ${
                   activeTool === t.id
                     ? "bg-accent/10 text-accent"
                     : "text-muted-foreground hover:bg-surface hover:text-foreground"
@@ -596,7 +614,7 @@ function EditorPage() {
                     <SliderRow label={`Transparansi · ${Math.round(opacity * 100)}%`} min={0.1} max={1} step={0.05} value={opacity} onChange={setOpacity} />
                   </div>
                 </ToolPane>
-              ) : activeTool === "broll" ? (
+              ) : (
                 <ToolPane key="broll">
                   <ToggleRow
                     label="Ikon & B-Roll"
@@ -609,38 +627,30 @@ function EditorPage() {
                       <Loader2 className="size-3.5 animate-spin" /> Mencari ikon dan b-roll yang cocok…
                     </div>
                   ) : null}
+                  {brollEnabled && !brollSearching && livePlacements.length > 0 ? (
+                    <ul className="mt-3 space-y-1.5">
+                      {livePlacements.map((p, i) => (
+                        <li key={i} className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 py-2 text-[12px]">
+                          <span className="min-w-0 truncate capitalize">{p.category}</span>
+                          <button
+                            type="button"
+                            onClick={() => seek(Math.max(0, p.time_start - 1))}
+                            className="shrink-0 font-mono text-accent"
+                          >
+                            {clock(p.time_start)}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                   <div className="mt-3">
                     <ToggleRow
                       label="Emoji pada subtitle"
-                      desc="AI menaruh emoji di beberapa kata kunci (bukan semua kalimat)."
+                      desc="AI menaruh emoji di beberapa kata kunci."
                       enabled={emojiEnabled}
                       onChange={setEmojiEnabled}
                     />
                   </div>
-                </ToolPane>
-              ) : (
-                <ToolPane key="watermark">
-                  {watermarkRemoved ? (
-                    <div className="rounded-xl border border-[var(--color-success)]/30 bg-[color-mix(in_oklab,var(--color-success)_8%,transparent)] p-4 text-sm">
-                      Watermark sudah dihapus. Semua render berikutnya bebas watermark.
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      <p className="text-sm leading-relaxed text-muted-foreground">
-                        Tonton <b className="text-foreground">4 iklan</b> untuk menghapus watermark
-                        dari semua render berikutnya.
-                      </p>
-                      <div className="flex gap-1.5">
-                        {[0, 1, 2, 3].map((i) => (
-                          <div key={i} className={`h-1.5 flex-1 rounded-full ${i < adsWatched ? "bg-accent" : "bg-border"}`} />
-                        ))}
-                      </div>
-                      <p className="text-xs text-muted-foreground">{adsWatched}/4 iklan ditonton</p>
-                      <Button variant="accent" size="sm" className="w-full" onClick={() => setAdPlaying(true)} disabled={adPlaying}>
-                        <Play className="size-4" /> Tonton iklan ({4 - adsWatched} lagi)
-                      </Button>
-                    </div>
-                  )}
                 </ToolPane>
               )}
             </AnimatePresence>
@@ -680,7 +690,7 @@ function EditorPage() {
         ) : null}
       </AnimatePresence>
 
-      {/* ===== popup iklan (slot Google Ads — diisi user nanti) ===== */}
+      {/* ===== popup iklan (slot Google Ads) ===== */}
       <AnimatePresence>
         {adPlaying ? (
           <Overlay onClose={() => setAdPlaying(false)}>

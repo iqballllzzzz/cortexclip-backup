@@ -958,3 +958,11 @@ async def _upload_task(project_id: str, user_id: str, storage_path: str, target:
 @app.get("/")
 async def root():
     return {"service": "cortexclip-backend", "docs": "/docs"}
+
+
+# ---------------------------------------------------------------------------
+# Endpoint modul terpisah — didaftarkan SETELAH semua helper global siap
+# ---------------------------------------------------------------------------
+from .broll_api import register_broll_routes  # noqa: E402
+
+register_broll_routes(app, get_user, SUPABASE_URL, SUPABASE_ANON_KEY)
