@@ -423,10 +423,11 @@ class HydraGateway:
 
     # ------------------------------------------------------------ STT (audio)
     async def transcribe(self, wav_bytes: bytes) -> dict[str, Any] | None:
-        """Groq Whisper transcription with word timestamps. Returns
-        verbose_json dict or None when no STT endpoint is available."""
+        """STT dengan failover: Groq Whisper (word timestamps) → Gemini native
+        (audio inline). Returns verbose_json-like dict or None."""
         self._ensure()
         now = time.time()
+        # Path 1: Groq Whisper dedicated endpoints
         for ep in self._endpoints:
             if ep.kind != "audio" or not ep.is_available(now):
                 continue
@@ -448,7 +449,90 @@ class HydraGateway:
                 self._fail(ep, resp.status_code, resp.text)
             except Exception as exc:
                 self._fail(ep, 0, str(exc))
-        return None
+        # Path 2: Gemini native audio (fallback STT — model multimodal flash)
+        gem = [e for e in self._endpoints if e.provider == "gemini" and e.is_available(now)]
+        if not gem:
+            return None
+        ep = gem[0]
+        try:
+            import base64 as _b64
+            import subprocess as _sp
+            import tempfile as _tf
+            import json as _json
+            # wav 16kHz mono 600s ≈ 19MB → base64 25MB kegedean buat inline;
+            # kompres ke mp3 64kbps dulu (600s ≈ 4.8MB).
+            with _tf.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                f.write(wav_bytes)
+                wav_tmp = f.name
+            mp3_tmp = wav_tmp + ".mp3"
+            try:
+                _sp.run(["ffmpeg", "-y", "-i", wav_tmp, "-vn", "-ac", "1", "-ar", "16000",
+                         "-b:a", "64k", mp3_tmp], check=True, capture_output=True, timeout=300)
+                audio_b64 = _b64.b64encode(open(mp3_tmp, "rb").read()).decode()
+            finally:
+                for p in (wav_tmp, mp3_tmp):
+                    try:
+                        os.unlink(p)
+                    except OSError:
+                        pass
+            body = {
+                "contents": [{"role": "user", "parts": [
+                    {"text": (
+                        "Transkripsikan audio ini kata demi kata dalam bahasa aslinya. "
+                        "Pecah menjadi segmen pendek (maksimal 12 kata). Balas HANYA "
+                        "JSON array tanpa penjelasan: "
+                        '[{"start": detik_mulai, "end": detik_selesai, "text": "..."}]'
+                    )},
+                    {"inline_data": {"mime_type": "audio/mp3", "data": audio_b64}},
+                ]}],
+                "generationConfig": {"temperature": 0.0, "maxOutputTokens": 8192},
+            }
+            async with httpx.AsyncClient(timeout=600) as client:
+                # NOTE: ep.base_url gemini = .../v1beta/openai (compat) — untuk
+                # native generateContent pakai root v1beta langsung.
+                resp = await client.post(
+                    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent",
+                    headers={"x-goog-api-key": ep.key, "Content-Type": "application/json"},
+                    json=body,
+                )
+            if resp.status_code != 200:
+                self._fail(ep, resp.status_code, resp.text[:300])
+                return None
+            self._ok(ep)
+            d = resp.json()
+            parts = (d.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
+            text = "".join(p.get("text", "") for p in parts if isinstance(p, dict))
+            # parse JSON array (tahan markdown fence)
+            t = text.strip()
+            if t.startswith("```"):
+                t = t.split("\n", 1)[1] if "\n" in t else t
+                t = t.rsplit("```", 1)[0]
+            s0 = t.find("[")
+            s1 = t.rfind("]")
+            if s0 == -1 or s1 <= s0:
+                return None
+            arr = _json.loads(t[s0:s1 + 1])
+            segments = []
+            for s in arr if isinstance(arr, list) else []:
+                if not isinstance(s, dict) or not str(s.get("text", "")).strip():
+                    continue
+                try:
+                    st_ = float(s.get("start", 0))
+                    en_ = float(s.get("end", 0))
+                except (TypeError, ValueError):
+                    continue
+                if en_ <= st_:
+                    continue
+                segments.append({"start": round(st_, 2), "end": round(en_, 2),
+                                 "text": str(s["text"]).strip()})
+            if not segments:
+                return None
+            return {"segments": segments, "text": " ".join(s["text"] for s in segments),
+                    "stt_provider": "gemini-3.6-flash"}
+        except Exception as exc:
+            print(f"[hydra] gemini STT fallback gagal: {exc}")
+            self._fail(ep, 0, str(exc))
+            return None
 
     def status(self) -> list[dict[str, Any]]:
         self._ensure()
