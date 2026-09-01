@@ -1,148 +1,111 @@
-import { Check } from "lucide-react";
-import { motion } from "motion/react";
-import { Button } from "@/components/ui/button";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
+import { Link } from "@tanstack/react-router";
+import { ChevronDown } from "lucide-react";
+import { useState } from "react";
+import { motion, AnimatePresence } from "motion/react";
 
-const plans = [
-  {
-    name: "Starter",
-    price: "Gratis",
-    note: "60 menit unggah / bulan",
-    features: ["10 klip per video", "Caption karaoke dasar", "Ekspor 720p", "Watermark ringan"],
-  },
-  {
-    name: "Creator",
-    price: "Rp 149rb",
-    note: "per bulan · 15 jam unggah",
-    features: [
-      "Klip tanpa batas per video",
-      "Virality score & auto-metadata",
-      "Face tracking + overlay ikon",
-      "Ekspor 1080p tanpa watermark",
-      "Brand kit & template",
-    ],
-    highlight: true,
-  },
-  {
-    name: "Agency",
-    price: "Rp 549rb",
-    note: "per bulan · 60 jam unggah",
-    features: [
-      "Semua fitur Creator",
-      "Team workspace & hak akses",
-      "Export XML + API access",
-      "Auto-post scheduler",
-      "Caption multi-bahasa",
-    ],
-  },
-];
-
-const faqs = [
+const FAQS = [
   {
     q: "Apakah bisa langsung dari URL YouTube?",
-    a: "Bisa. Tempel link video, CortexClip mengambil audio, mentranskrip, dan memilih momen terbaik tanpa unduh manual.",
+    a: "Bisa. Tempel link videonya, CortexClip mengunduh di server, mentranskrip, dan memilih momen terbaik tanpa kamu unduh manual.",
   },
   {
     q: "Bagaimana virality score dihitung?",
-    a: "AI menilai kekuatan hook 3 detik pertama, kejelasan konteks, ketegangan cerita, dan penutup. Skor 85+ layak diprioritaskan.",
+    a: "AI menilai kekuatan hook 3 detik pertama, kejelasan konteks, ketegangan cerita, dan penutup. Skor 85+ layak jadi prioritas unggah.",
   },
   {
-    q: "Bisakah overlay ikon dimatikan?",
-    a: "Ya. Semua bisa diatur per proyek — konten edukasi dan komedi punya kebutuhan yang berbeda.",
+    q: "Preview dan hasil unduhan sama?",
+    a: "Sama. Preview memakai pipeline yang identik dengan render final — gaya subtitle yang kamu lihat di editor itulah yang terbakar ke video.",
   },
   {
     q: "Bahasa apa saja yang didukung?",
-    a: "Bahasa Indonesia, Inggris, dan puluhan bahasa lain, dengan opsi menerjemahkan caption ke bahasa target.",
+    a: "Bahasa Indonesia, Inggris, dan puluhan bahasa lain — deteksi otomatis dari audio.",
+  },
+  {
+    q: "Bagaimana cara bayar premium?",
+    a: "Scan QRIS dari dashboard (semua e-wallet & m-banking). Premium aktif otomatis beberapa detik setelah pembayaran masuk.",
   },
 ];
 
+/** FAQ accordion ringan — grid-template-rows (bukan height) sesuai disiplin motion. */
 export function PricingFaq() {
+  const [open, setOpen] = useState<number | null>(0);
+
   return (
-    <>
-      <section id="harga" className="mx-auto max-w-6xl scroll-mt-28 px-5 py-24">
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          className="max-w-xl"
-        >
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-accent">Harga</p>
-          <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
-            Mulai gratis, naik saat butuh.
-          </h2>
-        </motion.div>
+    <section id="faq" className="scroll-mt-24 border-t border-border">
+      <div className="mx-auto max-w-[1180px] px-4 py-20 sm:px-6 sm:py-24">
+        <div className="grid gap-10 lg:grid-cols-[1fr_1.5fr] lg:gap-16">
+          <div className="reveal" style={{ ["--i" as string]: 0 }}>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-accent">FAQ</p>
+            <h2 className="mt-3 font-display text-[28px] leading-[1.08] font-bold tracking-tight sm:text-[40px]">
+              Pertanyaan yang sering ditanya.
+            </h2>
+            <p className="mt-4 max-w-sm text-[15px] leading-relaxed text-muted-foreground">
+              Belum ketemu jawabannya? Hubungi{" "}
+              <a href="mailto:cs@cortexclip.app" className="font-medium text-accent underline-offset-2 hover:underline">
+                cs@cortexclip.app
+              </a>
+              .
+            </p>
+          </div>
 
-        <div className="mt-10 grid gap-4 lg:grid-cols-3">
-          {plans.map((p, i) => (
-            <motion.div
-              key={p.name}
-              initial={{ opacity: 0, y: 12 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.4, delay: i * 0.07 }}
-              className={`relative flex flex-col rounded-3xl border p-6 shadow-sm transition-shadow hover:shadow-md ${
-                p.highlight ? "border-accent bg-accent/5" : "border-border bg-card"
-              }`}
-            >
-              {p.highlight ? (
-                <span className="absolute -top-3 left-6 rounded-full bg-accent px-2.5 py-0.5 text-[11px] font-semibold text-accent-foreground">
-                  Paling populer
-                </span>
-              ) : null}
-              <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                {p.name}
-              </h3>
-              <p className="mt-3 font-display text-3xl font-bold tracking-tight">{p.price}</p>
-              <p className="mt-1 text-xs text-muted-foreground">{p.note}</p>
-              <ul className="mt-5 flex-1 space-y-2.5">
-                {p.features.map((f) => (
-                  <li key={f} className="flex items-start gap-2 text-sm">
-                    <span className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full ${p.highlight ? "bg-accent text-accent-foreground" : "bg-muted text-muted-foreground"}`}>
-                      <Check className="size-3" />
-                    </span>
-                    <span className="text-muted-foreground">{f}</span>
-                  </li>
-                ))}
-              </ul>
-              <Button asChild variant={p.highlight ? "accent" : "outline"} className="mt-6 w-full rounded-full">
-                <a href="/studio">Pilih {p.name}</a>
-              </Button>
-            </motion.div>
-          ))}
-        </div>
-      </section>
-
-      <section id="faq" className="border-t border-border bg-surface/60">
-        <div className="mx-auto max-w-3xl scroll-mt-28 px-5 py-24">
-          <motion.h2
-            initial={{ opacity: 0, y: 12 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="text-3xl font-bold tracking-tight sm:text-4xl"
-          >
-            Pertanyaan umum
-          </motion.h2>
-          <div className="mt-8">
-            <Accordion type="single" collapsible className="space-y-3">
-              {faqs.map((f) => (
-                <AccordionItem
-                  key={f.q}
-                  value={f.q}
-                  className="rounded-2xl border border-border bg-card px-5 shadow-sm"
-                >
-                  <AccordionTrigger className="text-left text-base">{f.q}</AccordionTrigger>
-                  <AccordionContent className="text-muted-foreground">{f.a}</AccordionContent>
-                </AccordionItem>
-              ))}
-            </Accordion>
+          <div className="overflow-hidden rounded-2xl border border-border">
+            {FAQS.map((f, i) => {
+              const isOpen = open === i;
+              return (
+                <div key={f.q} className={i > 0 ? "border-t border-border" : ""}>
+                  <button
+                    type="button"
+                    onClick={() => setOpen(isOpen ? null : i)}
+                    aria-expanded={isOpen}
+                    className="flex w-full items-center justify-between gap-4 bg-card px-5 py-4 text-left transition-colors hover:bg-surface/60"
+                  >
+                    <span className="text-[14px] font-semibold tracking-tight">{f.q}</span>
+                    <ChevronDown
+                      className={`size-4 shrink-0 text-muted-foreground transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
+                    />
+                  </button>
+                  <AnimatePresence initial={false}>
+                    {isOpen ? (
+                      <motion.div
+                        initial={{ gridTemplateRows: "0fr", opacity: 0 }}
+                        animate={{ gridTemplateRows: "1fr", opacity: 1 }}
+                        exit={{ gridTemplateRows: "0fr", opacity: 0 }}
+                        transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                        className="grid overflow-hidden"
+                      >
+                        <div className="min-h-0">
+                          <p className="bg-card px-5 pb-4 text-[13px] leading-relaxed text-muted-foreground">
+                            {f.a}
+                          </p>
+                        </div>
+                      </motion.div>
+                    ) : null}
+                  </AnimatePresence>
+                </div>
+              );
+            })}
           </div>
         </div>
-      </section>
-    </>
+
+        <div className="reveal mt-16" style={{ ["--i" as string]: 1 }}>
+          <div className="panel flex flex-col items-start justify-between gap-5 px-6 py-7 sm:flex-row sm:items-center sm:px-8">
+            <div>
+              <h3 className="font-display text-xl font-bold tracking-tight sm:text-2xl">
+                Video panjang berikutnya, sudah jadi klip.
+              </h3>
+              <p className="mt-2 max-w-prose text-sm leading-relaxed text-muted-foreground">
+                Tempel link, tunggu beberapa menit, unduh. Gratis untuk dua video pertama setiap hari.
+              </p>
+            </div>
+            <Link
+              to="/auth"
+              className="inline-flex h-11 shrink-0 items-center rounded-xl bg-accent px-6 text-sm font-semibold text-accent-foreground transition-transform hover:-translate-y-0.5"
+            >
+              Buat akun gratis
+            </Link>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }

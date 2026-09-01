@@ -49,7 +49,7 @@ type ToolId = "subtitle" | "info" | "broll";
 const TOOLS: { id: ToolId; label: string; Icon: typeof Hash }[] = [
   { id: "subtitle", label: "Subtitle", Icon: Subtitles },
   { id: "info", label: "Deskripsi", Icon: Hash },
-  { id: "broll", label: "Ikon & B-Roll", Icon: Sticker },
+  { id: "broll", label: "Ikon", Icon: Sticker },
 ];
 
 interface Placement {
@@ -77,6 +77,8 @@ function EditorPage() {
   // player
   const videoRef = useRef<HTMLVideoElement>(null);
   const fitRef = useRef<HTMLDivElement>(null);
+  // "source" = video penuh (currentTime absolut) · "preview" = video terpotong (relatif)
+  const videoKindRef = useRef<"source" | "preview" | null>(null);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [fit, setFit] = useState({ w: 216, h: 384 });
@@ -100,6 +102,11 @@ function EditorPage() {
   // unduhan
   const [downloadLocked, setDownloadLocked] = useState(false);
   const [downloadInfo, setDownloadInfo] = useState<string | null>(null);
+
+  const clipRef = useRef<Clip | null>(null);
+  clipRef.current = clip;
+  const startNum = Number(clip?.start_time ?? 0);
+  const duration = clip ? Math.max(0.1, Number(clip.end_time) - Number(clip.start_time)) : 0.1;
 
   /* --- memori editor per-klip --- */
   const memKey = `cc_editor_mem_${clipId}`;
@@ -160,7 +167,10 @@ function EditorPage() {
               .from("video-uploads")
               .createSignedUrl(proj.storage_path, 60 * 60)
               .then(({ data: s }) => {
-                if (!cancelled && s?.signedUrl) setSourceUrl(s.signedUrl);
+                if (!cancelled && s?.signedUrl) {
+                  videoKindRef.current = "source";
+                  setSourceUrl(s.signedUrl);
+                }
               });
           }
         }
@@ -189,7 +199,7 @@ function EditorPage() {
     })();
   }, []);
 
-  /* --- pemanasan preview server di belakang (opsional, tak menghalangi) --- */
+  /* --- pemanasan preview server di belakang (opsional) --- */
   const warmServerPreview = useCallback(async () => {
     if (!clip || clip.preview_ready) return;
     try {
@@ -202,6 +212,7 @@ function EditorPage() {
       if (res.ok) {
         const d = await res.json();
         setClip((c) => (c ? { ...c, preview_url: d.url, preview_ready: true } : c));
+        if (!videoKindRef.current) videoKindRef.current = "preview";
       }
     } catch {
       /* mode instan tetap jalan */
@@ -216,12 +227,12 @@ function EditorPage() {
   const words = useMemo<LiveWord[]>(
     () =>
       ((clip?.caption_words as unknown as { word: string; start: number; end: number }[]) ?? []).map(
-        (w) => ({ word: w.word, start: w.start, end: w.end }),
+        (w) => ({ word: w.word, start: Number(w.start), end: Number(w.end) }),
       ),
     [clip],
   );
 
-  /* --- fit canvas 9:16 --- */
+  /* --- fit canvas 9:16 — preview sebesar mungkin --- */
   useEffect(() => {
     const el = fitRef.current;
     if (!el) return;
@@ -229,7 +240,8 @@ function EditorPage() {
       const availW = el.clientWidth;
       const availH = el.clientHeight;
       if (availW < 40 || availH < 40) return;
-      const h = Math.min(availH - 60, (availW * 16) / 9);
+      // sisakan CUMA ruang timeline tipis (30px) → canvas selengkap mungkin
+      const h = Math.min(availH - 30, (availW * 16) / 9);
       const w = (h * 9) / 16;
       setFit({ w: Math.round(w), h: Math.round(h) });
     };
@@ -239,10 +251,41 @@ function EditorPage() {
     return () => ro.disconnect();
   }, [loading]);
 
+  /* --- WAKU VIDEO: rAF loop (anti-stuck) — sumber penuh → relatif klip --- */
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      const v = videoRef.current;
+      const c = clipRef.current;
+      if (v && c && !v.paused && v.readyState >= 2) {
+        const kind = videoKindRef.current;
+        const raw = kind === "source" ? v.currentTime - Number(c.start_time) : v.currentTime;
+        setTime(Math.max(0, Math.min(duration, raw)));
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [duration]);
+
+  /* --- video sumber penuh: SEEK ke start_time saat metadata siap ---
+     (inilah akar bug "subtitle stuck di 0:00": video main dari awal file) */
+  function handleLoadedMetadata() {
+    const v = videoRef.current;
+    const c = clipRef.current;
+    if (!v || !c) return;
+    if (videoKindRef.current === "source") {
+      try {
+        v.currentTime = Number(c.start_time);
+      } catch {
+        /* seek gagal → biarkan */
+      }
+    }
+  }
+
   const preset = getPreset(presetId);
   const effPosition = position ?? preset.style.position;
   const effFontSize = Math.round(preset.style.font_size * fontScale);
-  const duration = clip ? clip.end_time - clip.start_time : 0;
 
   const liveStyle: LiveCaptionStyle = {
     fontFamily: preset.cssFontFamily,
@@ -276,8 +319,10 @@ function EditorPage() {
   function seek(t: number) {
     const v = videoRef.current;
     if (!v) return;
-    v.currentTime = Math.max(0, Math.min(duration - 0.05, t));
-    setTime(v.currentTime);
+    const clamped = Math.max(0, Math.min(duration - 0.05, t));
+    if (videoKindRef.current === "source") v.currentTime = Number(clip?.start_time ?? 0) + clamped;
+    else v.currentTime = clamped;
+    setTime(clamped);
   }
 
   function buildCaptionStyle() {
@@ -406,58 +451,57 @@ function EditorPage() {
   }
 
   const videoSrc = sourceUrl ?? clip.preview_url ?? null;
+  const effectiveKind = videoKindRef.current ?? (clip.preview_url ? "preview" : null);
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
-      {/* ===== TOP BAR: Kembali · [Hapus Watermark] · Unduh ===== */}
+      {/* ===== TOP BAR: Kembali (kiri) · Hapus watermark coklat (tengah) · Unduh putih (kanan) ===== */}
       <header className="grid h-14 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-2 border-b border-border px-3 sm:px-4">
-        <div className="flex min-w-0 items-center gap-1">
+        <div className="justify-self-start">
           <Button variant="ghost" size="sm" onClick={() => navigate({ to: "/projects/$projectId", params: { projectId: clip.project_id } })}>
             <ArrowLeft className="size-4" /> Kembali
           </Button>
         </div>
 
-        {/* tombol hapus watermark di TENGAH atas — antara Kembali & Unduh */}
-        {!watermarkRemoved ? (
+        {watermarkRemoved ? (
+          <span className="hidden items-center gap-1.5 rounded-full border border-[var(--color-success)]/30 bg-[color-mix(in_oklab,var(--color-success)_10%,transparent)] px-3.5 py-1.5 text-[12px] font-semibold sm:inline-flex">
+            Watermark dihapus
+          </span>
+        ) : (
           <button
             type="button"
             onClick={() => setAdPlaying(true)}
-            className="hidden items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-[12px] font-semibold text-muted-foreground transition-colors hover:border-accent/50 hover:text-foreground sm:inline-flex"
             title="Tonton 4 iklan untuk menghapus watermark"
+            className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3.5 py-1.5 text-[12px] font-semibold text-accent-foreground transition-transform hover:-translate-y-px sm:max-w-[220px]"
           >
-            <BadgeX className="size-3.5 text-accent" />
-            <span className="max-w-[130px] truncate">Hapus watermark</span>
-            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] tabular-nums">{adsWatched}/4</span>
+            <BadgeX className="size-3.5 shrink-0" />
+            <span className="truncate">Hapus watermark</span>
+            <span className="shrink-0 rounded-full bg-black/15 px-1.5 py-0.5 text-[10px] tabular-nums">{adsWatched}/4</span>
           </button>
-        ) : (
-          <span className="hidden items-center gap-1.5 rounded-full border border-[var(--color-success)]/30 bg-[color-mix(in_oklab,var(--color-success)_10%,transparent)] px-3 py-1.5 text-[12px] font-semibold sm:inline-flex">
-            Watermark dihapus
-          </span>
         )}
 
-        <div className="flex items-center justify-end gap-1.5">
-          <Button variant="accent" size="sm" onClick={handleDownload} disabled={submitting || downloadLocked}>
+        <div className="justify-self-end">
+          <Button variant="outline" size="sm" onClick={handleDownload} disabled={submitting || downloadLocked}>
             {submitting ? <Loader2 className="size-4 animate-spin" /> : downloadLocked ? <Clock className="size-4" /> : <Download className="size-4" />}
             {downloadLocked ? "Merender…" : "Unduh"}
           </Button>
         </div>
       </header>
 
-      {/* versi mobile: tombol hapus watermark di baris kedua tipis */}
+      {/* mobile: strip watermark tipis di bawah header */}
       {!watermarkRemoved ? (
         <button
           type="button"
           onClick={() => setAdPlaying(true)}
-          className="flex shrink-0 items-center justify-center gap-1.5 border-b border-border bg-surface/60 py-1.5 text-[12px] font-semibold text-muted-foreground sm:hidden"
+          className="flex shrink-0 items-center justify-center gap-1.5 border-b border-border bg-accent/8 py-1.5 text-[12px] font-semibold text-accent sm:hidden"
         >
-          <BadgeX className="size-3.5 text-accent" /> Hapus watermark — tonton {4 - adsWatched} iklan lagi
+          <BadgeX className="size-3.5" /> Hapus watermark — tonton {4 - adsWatched} iklan lagi
         </button>
       ) : null}
 
-      {/* ===== BODY ===== */}
+      {/* ===== BODY: canvas besar (flex-1) + panel kecil di kanan/bawah ===== */}
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        {/* Canvas */}
-        <div ref={fitRef} className="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 overflow-hidden p-3 lg:p-6">
+        <div ref={fitRef} className="flex min-w-0 flex-1 flex-col items-center justify-center gap-2 overflow-hidden p-2 lg:p-4">
           <div
             className="relative shrink-0 overflow-hidden rounded-2xl border border-border bg-black shadow-lg"
             style={{ width: fit.w, height: fit.h }}
@@ -470,13 +514,10 @@ function EditorPage() {
                 preload="auto"
                 className="absolute inset-0 size-full object-cover"
                 onClick={togglePlay}
+                onLoadedMetadata={handleLoadedMetadata}
                 onEnded={() => setPlaying(false)}
                 onPlay={() => setPlaying(true)}
                 onPause={() => setPlaying(false)}
-                onTimeUpdate={(e) => {
-                  const t = sourceUrl ? e.currentTarget.currentTime - clip.start_time : e.currentTarget.currentTime;
-                  setTime(Math.max(0, t));
-                }}
               />
             ) : (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-4 text-center text-xs text-muted-foreground">
@@ -524,7 +565,6 @@ function EditorPage() {
                 })
               : null}
 
-            {/* watermark preview (proporsional) */}
             {!watermarkRemoved ? (
               <div className="pointer-events-none absolute left-[6%] top-[5%] flex items-center opacity-65" style={{ gap: Math.max(2, fit.w * 0.012) }}>
                 <img src="/watermark-logo.png" alt="" className="shrink-0 object-contain" style={{ width: fit.w * 0.095, height: fit.w * 0.095 }} />
@@ -545,25 +585,25 @@ function EditorPage() {
             </button>
           </div>
 
-          {/* timeline */}
-          <div className="flex w-full max-w-xl items-center gap-3">
-            <span className="w-10 text-right text-[11px] tabular-nums text-muted-foreground">{clock(time)}</span>
+          {/* timeline — tipis */}
+          <div className="flex w-full max-w-[420px] items-center gap-2 px-1">
+            <span className="w-9 text-right text-[11px] tabular-nums text-muted-foreground">{clock(time)}</span>
             <input
               type="range"
               min={0}
-              max={Math.max(0.1, duration)}
+              max={duration}
               step={0.05}
               value={Math.min(time, duration)}
               onChange={(e) => seek(Number(e.target.value))}
               className="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-border accent-[var(--color-accent)]"
               aria-label="Garis waktu klip"
             />
-            <span className="w-10 text-[11px] tabular-nums text-muted-foreground">{clock(duration)}</span>
+            <span className="w-9 text-[11px] tabular-nums text-muted-foreground">{clock(duration)}</span>
           </div>
         </div>
 
-        {/* ===== PANEL TOOL ===== */}
-        <aside className="flex w-full shrink-0 flex-col border-t border-border bg-card md:h-auto md:w-[320px] md:border-l md:border-t-0">
+        {/* ===== PANEL TOOL KECIL — konten SCROLL DI DALAM (halaman tak ikut scroll) ===== */}
+        <aside className="flex h-[176px] w-full shrink-0 flex-col border-t border-border bg-card md:h-auto md:w-[272px] md:border-l md:border-t-0">
           <div className="grid shrink-0 grid-cols-3 border-b border-border" role="tablist">
             {TOOLS.map((t) => (
               <button
@@ -572,19 +612,20 @@ function EditorPage() {
                 role="tab"
                 aria-selected={activeTool === t.id}
                 onClick={() => setActiveTool(t.id)}
-                className={`flex flex-col items-center gap-1 px-1 py-2.5 text-[11px] font-medium transition-colors ${
+                className={`flex items-center justify-center gap-1.5 px-1 py-2 text-[11px] font-medium transition-colors ${
                   activeTool === t.id
                     ? "bg-accent/10 text-accent"
                     : "text-muted-foreground hover:bg-surface hover:text-foreground"
                 }`}
               >
-                <t.Icon className="size-4" />
+                <t.Icon className="size-3.5" />
                 <span className="truncate">{t.label}</span>
               </button>
             ))}
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
+          {/* satu-satunya area yang scroll — halaman & canvas tidak bergeser */}
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3" data-editor-scroll>
             <AnimatePresence mode="wait">
               {activeTool === "info" ? (
                 <ToolPane key="info">
@@ -593,22 +634,22 @@ function EditorPage() {
                     value={clip.description ?? ""}
                     onChange={(e) => setClip({ ...clip, description: e.target.value })}
                     onBlur={() => void supabase.from("clips").update({ description: clip.description }).eq("id", clip.id)}
-                    rows={5}
-                    className="w-full rounded-xl border border-border bg-background p-3 text-sm outline-none transition-colors focus:border-accent"
+                    rows={4}
+                    className="w-full rounded-lg border border-border bg-background p-2.5 text-[13px] outline-none transition-colors focus:border-accent"
                   />
                   <FieldLabel>Hashtag</FieldLabel>
                   <input
                     value={(clip.hashtags ?? []).join(" ")}
                     onChange={(e) => setClip({ ...clip, hashtags: e.target.value.split(/\s+/).filter(Boolean) })}
                     onBlur={() => void supabase.from("clips").update({ hashtags: clip.hashtags }).eq("id", clip.id)}
-                    className="w-full rounded-xl border border-border bg-background p-3 text-sm outline-none transition-colors focus:border-accent"
+                    className="w-full rounded-lg border border-border bg-background p-2.5 text-[13px] outline-none transition-colors focus:border-accent"
                   />
                 </ToolPane>
               ) : activeTool === "subtitle" ? (
                 <ToolPane key="subtitle">
                   <FieldLabel>Gaya subtitle</FieldLabel>
                   <SubtitleStylePicker value={presetId} onChange={setPresetId} />
-                  <div className="mt-4 space-y-4">
+                  <div className="mt-3 space-y-3">
                     <SliderRow label={`Ukuran · ${Math.round(fontScale * 100)}%`} min={0.6} max={1.8} step={0.05} value={fontScale} onChange={setFontScale} />
                     <SliderRow label={`Posisi · ${effPosition}%`} min={20} max={80} step={1} value={effPosition} onChange={(v) => setPosition(Math.round(v))} />
                     <SliderRow label={`Transparansi · ${Math.round(opacity * 100)}%`} min={0.1} max={1} step={0.05} value={opacity} onChange={setOpacity} />
@@ -618,35 +659,31 @@ function EditorPage() {
                 <ToolPane key="broll">
                   <ToggleRow
                     label="Ikon & B-Roll"
-                    desc="AI menyisipkan ikon animasi yang cocok di momen tepat."
+                    desc="AI menyisipkan ikon animasi di momen tepat."
                     enabled={brollEnabled}
                     onChange={(v) => void toggleBroll(v)}
                   />
                   {brollSearching ? (
-                    <div className="mt-3 flex items-center gap-2 rounded-xl border border-accent/30 bg-accent/5 p-3 text-xs text-accent">
-                      <Loader2 className="size-3.5 animate-spin" /> Mencari ikon dan b-roll yang cocok…
+                    <div className="mt-2.5 flex items-center gap-2 rounded-lg border border-accent/30 bg-accent/5 p-2.5 text-[11px] text-accent">
+                      <Loader2 className="size-3.5 animate-spin" /> Mencari momen ikon…
                     </div>
                   ) : null}
                   {brollEnabled && !brollSearching && livePlacements.length > 0 ? (
-                    <ul className="mt-3 space-y-1.5">
+                    <ul className="mt-2.5 space-y-1">
                       {livePlacements.map((p, i) => (
-                        <li key={i} className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-3 py-2 text-[12px]">
+                        <li key={i} className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px]">
                           <span className="min-w-0 truncate capitalize">{p.category}</span>
-                          <button
-                            type="button"
-                            onClick={() => seek(Math.max(0, p.time_start - 1))}
-                            className="shrink-0 font-mono text-accent"
-                          >
+                          <button type="button" onClick={() => seek(Math.max(0, p.time_start - 1))} className="shrink-0 font-mono text-accent">
                             {clock(p.time_start)}
                           </button>
                         </li>
                       ))}
                     </ul>
                   ) : null}
-                  <div className="mt-3">
+                  <div className="mt-2.5">
                     <ToggleRow
                       label="Emoji pada subtitle"
-                      desc="AI menaruh emoji di beberapa kata kunci."
+                      desc="Emoji di beberapa kata kunci."
                       enabled={emojiEnabled}
                       onChange={setEmojiEnabled}
                     />
@@ -718,11 +755,11 @@ function EditorPage() {
 function ToolPane({ children }: { children: React.ReactNode }) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8 }}
+      initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -6 }}
-      transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-      className="space-y-3"
+      exit={{ opacity: 0, y: -4 }}
+      transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+      className="space-y-2.5"
     >
       {children}
     </motion.div>
@@ -730,7 +767,7 @@ function ToolPane({ children }: { children: React.ReactNode }) {
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{children}</p>;
+  return <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{children}</p>;
 }
 
 function SliderRow({ label, min, max, step, value, onChange }: {
@@ -751,7 +788,7 @@ function SliderRow({ label, min, max, step, value, onChange }: {
         step={step}
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="mt-1.5 w-full accent-[var(--color-accent)]"
+        className="mt-1 w-full accent-[var(--color-accent)]"
       />
     </label>
   );
@@ -764,19 +801,20 @@ function ToggleRow({ label, desc, enabled, onChange }: {
   onChange: (v: boolean) => void;
 }) {
   return (
-    <div className="flex items-start justify-between gap-3 rounded-xl border border-border bg-background p-3.5">
+    <div className="flex items-start justify-between gap-2.5 rounded-lg border border-border bg-background p-2.5">
       <div className="min-w-0">
-        <p className="text-sm font-medium">{label}</p>
-        <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{desc}</p>
+        <p className="text-[13px] font-medium leading-tight">{label}</p>
+        <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">{desc}</p>
       </div>
       <button
         type="button"
         role="switch"
         aria-checked={enabled}
         onClick={() => onChange(!enabled)}
-        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${enabled ? "bg-accent" : "bg-border"}`}
+        className={`relative h-5.5 w-10 shrink-0 rounded-full transition-colors ${enabled ? "bg-accent" : "bg-border"}`}
+        style={{ height: 22 }}
       >
-        <span className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-all ${enabled ? "left-[22px]" : "left-0.5"}`} />
+        <span className={`absolute top-0.5 size-4 rounded-full bg-white shadow transition-all ${enabled ? "left-[21px]" : "left-0.5"}`} />
       </button>
     </div>
   );
