@@ -20,12 +20,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { extractAudio } from "@/lib/audio-extract";
-import { transcribeChunkFn, detectClipsFn } from "@/lib/pipeline.functions";
 import { buildAss, buildSrt, download } from "@/lib/srt";
 import { getPreset, DEFAULT_SUBTITLE_PRESET } from "@/components/subtitle-styles";
 import { useAccountStatus } from "@/hooks/use-account-status";
-import type { Transcript, TranscriptSegment } from "@/lib/pipeline-types";
 import type { Database } from "@/integrations/supabase/types";
 
 type Project = Database["public"]["Tables"]["projects"]["Row"];
@@ -180,67 +177,55 @@ function ProjectPage() {
     return found?.pct ?? 0;
   })();
 
-  async function getMediaBlob(): Promise<Blob> {
-    if (localFile) return localFile;
-    if (project?.storage_path) {
-      const { data, error } = await supabase.storage
-        .from("video-uploads")
-        .download(project.storage_path);
-      if (error || !data) throw new Error("Gagal mengambil file video dari penyimpanan.");
-      return data;
+  /* --- WATCHDOG: status proses tanpa perubahan >10 menit = macet.
+     (Jejak pipeline browser lama / task server crash tanpa update.)
+     Tandai failed supaya tombol Proses Ulang bisa dipakai lagi. --- */
+  useEffect(() => {
+    if (!project || !busy) return;
+    const started = new Date(project.updated_at).getTime();
+    if (Date.now() - started > 10 * 60 * 1000) {
+      void supabase
+        .from("projects")
+        .update({
+          status: "failed",
+          error_message:
+            "Proses macet (tidak ada kemajuan lebih dari 10 menit). Tekan Proses Ulang untuk mencoba lagi — sekarang berjalan penuh di server.",
+        })
+        .eq("id", projectId);
+      toast.error("Proses sebelumnya macet — ditandai gagal. Tekan Proses Ulang.");
     }
-    throw new Error("Pilih file video/audio dulu untuk diproses.");
-  }
+  }, [project, busy, projectId]);
 
   async function runPipeline() {
     setRunning(true);
     try {
-      setProgress("Menyiapkan audio…");
-      const blob = await getMediaBlob();
-      await supabase.from("projects").update({ status: "transcribing" }).eq("id", projectId);
-
-      const audio = await extractAudio(blob, 45, (r: number) =>
-        setProgress(`Mengekstrak audio… ${Math.round(r * 100)}%`),
-      );
-      const duration = audio.duration;
-
-      const segments: TranscriptSegment[] = [];
-      for (let i = 0; i < audio.count; i += 1) {
-        setProgress(`Transkripsi bagian ${i + 1}/${audio.count}…`);
-        const chunk = audio.getChunk(i);
-        const res = await transcribeChunkFn({
-          data: { audioBase64: chunk.base64, offset: chunk.offset, duration: chunk.duration },
-        });
-        segments.push(...res.segments);
+      setProgress("Memulai proses di server…");
+      // PROSES ULANG via SERVER — bukan lagi pipeline browser.
+      // Dulu: pipeline jalan di tab browser; tab ditutup → project nyangkut
+      // "transcribing" selamanya. Sekarang server yang mengerjakan semuanya.
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const res = await fetch(`/api/projects/${projectId}/reprocess`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token ?? ""}`,
+        },
+      });
+      if (!res.ok) {
+        const d = (await res.json().catch(() => ({}))) as { detail?: string };
+        throw new Error(d.detail ?? "Gagal memulai proses ulang");
       }
-      if (segments.length === 0) throw new Error("Tidak ada ucapan terdeteksi di media ini.");
-
-      const transcript: Transcript = { language: "auto", duration, segments };
-      await supabase
-        .from("projects")
-        .update({
-          transcript: transcript as never,
-          duration_seconds: Math.round(duration),
-          status: "analyzing",
-        })
-        .eq("id", projectId);
-
-      setProgress("AI mencari momen paling kuat…");
-      const { count } = await detectClipsFn({ data: { projectId, targetCount: 10 } });
-      await supabase.from("projects").update({ status: "completed" }).eq("id", projectId);
-      toast.success(`${count} klip terdeteksi!`);
-      await load();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Proses gagal.";
-      await supabase
-        .from("projects")
-        .update({ status: "failed", error_message: message })
-        .eq("id", projectId);
-      toast.error(message);
-      await load();
-    } finally {
       setProgress("");
       setRunning(false);
+      toast.success("Proses ulang dimulai di server — pantau progresnya di halaman ini.");
+      await load();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Proses gagal dimulai.";
+      toast.error(message);
+      setRunning(false);
+      setProgress("");
     }
   }
 

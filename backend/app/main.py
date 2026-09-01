@@ -955,6 +955,57 @@ async def _upload_task(project_id: str, user_id: str, storage_path: str, target:
     await run_upload_pipeline(project_id, user_id, storage_path, target)
 
 
+@app.post("/api/projects/{project_id}/reprocess")
+async def api_project_reprocess(
+    project_id: str,
+    request: Request,
+    authorization: Optional[str] = Header(None),
+):
+    """PROSES ULANG via SERVER (bukan browser).
+
+    Mengganti pipeline client-side yang lama — kalau user tutup tab/HP lock,
+    dulu project nyangkut "transcribing" selamanya. Sekarang semua berjalan
+    di server seperti proses awal: transkripsi + seleksi klip + simpan DB.
+    Wajib: project punya storage_path (video sumber tersimpan di server).
+    """
+    user = await get_user(request, authorization)
+    from .premium import sb, quota_check_project, MSG_LIMIT_PROJECT, limits_for
+    quota = await quota_check_project(user["id"])
+    if not quota["ok"]:
+        raise HTTPException(429, quota["message"] or MSG_LIMIT_PROJECT)
+
+    rows = await sb("GET", f"projects?id=eq.{project_id}&user_id=eq.{user['id']}"
+                           "&select=id,status,storage_path")
+    if not rows:
+        raise HTTPException(404, "Proyek tidak ditemukan / bukan milikmu")
+    proj = rows[0]
+    if not proj.get("storage_path"):
+        raise HTTPException(
+            400,
+            "Proyek lama ini belum punya file sumber di server. Unggah ulang videonya "
+            "atau proses dari link YouTube, lalu proses ulang akan berjalan di server.",
+        )
+    status = str(proj.get("status") or "")
+    if status in ("downloading", "transcribing", "analyzing"):
+        raise HTTPException(409, "Proyek sedang diproses — tunggu sampai selesai.")
+
+    lim = await limits_for(user["id"])
+    target = lim["clips_per_video"]
+
+    # bersihkan klip lama supaya tidak dobel
+    await sb("DELETE", f"clips?project_id=eq.{project_id}")
+    await sb("PATCH", f"projects?id=eq.{project_id}",
+             json_body={"status": "downloading", "error_message": None})
+
+    asyncio.create_task(_reprocess_task(project_id, user["id"], proj["storage_path"], target))
+    return {"ok": True, "status": "downloading", "target_clips": target}
+
+
+async def _reprocess_task(project_id: str, user_id: str, storage_path: str, target: int) -> None:
+    from .youtube import run_upload_pipeline
+    await run_upload_pipeline(project_id, user_id, storage_path, target)
+
+
 @app.get("/")
 async def root():
     return {"service": "cortexclip-backend", "docs": "/docs"}
