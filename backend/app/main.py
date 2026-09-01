@@ -21,6 +21,7 @@ import asyncio
 import secrets
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from dotenv import load_dotenv
@@ -712,6 +713,7 @@ async def api_admin_unban(user_id: str, request: Request,
                           authorization: Optional[str] = Header(None)):
     from . import admin as admin_mod
     me = await require_admin_user(request, authorization)
+    ensure_uuid(user_id, "User")
     return await admin_mod.unban_user(me["id"], user_id)
 
 
@@ -720,6 +722,7 @@ async def api_admin_set_plan(user_id: str, body: PlanIn, request: Request,
                              authorization: Optional[str] = Header(None)):
     from . import admin as admin_mod
     me = await require_admin_user(request, authorization)
+    ensure_uuid(user_id, "User")
     try:
         return await admin_mod.set_plan(me["id"], user_id, body.plan)
     except ValueError as exc:
@@ -731,6 +734,7 @@ async def api_admin_set_admin(user_id: str, body: AdminFlagIn, request: Request,
                               authorization: Optional[str] = Header(None)):
     from . import admin as admin_mod
     me = await require_admin_user(request, authorization)
+    ensure_uuid(user_id, "User")
     if user_id == me["id"] and not body.is_admin:
         raise HTTPException(400, "Tidak bisa mencabut akses admin dari diri sendiri.")
     return await admin_mod.set_admin(me["id"], user_id, body.is_admin)
@@ -968,6 +972,7 @@ async def api_project_upload_done(request: Request, authorization: str | None = 
     except Exception:
         raise HTTPException(400, "body tidak valid")
     user = await get_user(request, authorization)
+    ensure_uuid(body.project_id)
     from .premium import quota_check_project, limits_for, sb, MSG_LIMIT_PROJECT
     quota = await quota_check_project(user["id"])
     if not quota["ok"]:
@@ -1045,6 +1050,66 @@ async def _reprocess_task(project_id: str, user_id: str, storage_path: str, targ
 @app.get("/")
 async def root():
     return {"service": "cortexclip-backend", "docs": "/docs"}
+
+
+# ---------------------------------------------------------------------------
+# Render-job watchdog: job "pending"/"rendering" yang tidak lagi diproses
+# (mis. service restart saat render berjalan → task in-process hilang)
+# otomatis ditandai failed, supaya user bisa menekan render ulang dan tidak
+# melihat "Sedang merender..." selamanya.
+# ---------------------------------------------------------------------------
+_STALE_RENDER_SEC = 20 * 60  # render normal < 10 menit; 20 menit = pasti mati
+
+
+async def _reap_stale_render_jobs() -> None:
+    while True:
+        try:
+            now = datetime.now(timezone.utc)
+            async with httpx.AsyncClient(timeout=15) as client:
+                r = await client.get(
+                    f"{SUPABASE_URL}/rest/v1/render_jobs"
+                    "?status=in.(pending,rendering)&select=id,status,updated_at",
+                    headers={"apikey": SUPABASE_SERVICE_KEY,
+                             "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
+                )
+                if r.status_code == 200:
+                    for job in r.json():
+                        try:
+                            upd = datetime.fromisoformat(
+                                str(job["updated_at"]).replace("Z", "+00:00"))
+                        except Exception:
+                            continue
+                        if (now - upd).total_seconds() > _STALE_RENDER_SEC:
+                            await client.patch(
+                                f"{SUPABASE_URL}/rest/v1/render_jobs?id=eq.{job['id']}",
+                                headers={"apikey": SUPABASE_SERVICE_KEY,
+                                         "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                                         "Content-Type": "application/json"},
+                                json={"status": "failed",
+                                      "error": "Render terputus (server restart). Tekan render ulang."},
+                            )
+                            print(f"[render-watchdog] job {job['id'][:8]} → failed (stale)")
+        except Exception as exc:
+            print(f"[render-watchdog] error: {exc}")
+        await asyncio.sleep(120)
+
+
+@app.on_event("startup")
+async def _start_render_watchdog() -> None:
+    # saat startup: job "rendering" dari proses sebelumnya pasti mati → failed
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            await client.patch(
+                f"{SUPABASE_URL}/rest/v1/render_jobs?status=eq.rendering",
+                headers={"apikey": SUPABASE_SERVICE_KEY,
+                         "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                         "Content-Type": "application/json"},
+                json={"status": "failed",
+                      "error": "Server restart saat render — tekan render ulang."},
+            )
+    except Exception as exc:
+        print(f"[render-watchdog] startup sweep gagal: {exc}")
+    asyncio.create_task(_reap_stale_render_jobs())
 
 
 # ---------------------------------------------------------------------------

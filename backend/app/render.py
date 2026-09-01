@@ -342,7 +342,7 @@ def render_clip(
 
     cmd += [
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-        "-threads", "2",
+        "-threads", "4",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
         "-ac", "2",

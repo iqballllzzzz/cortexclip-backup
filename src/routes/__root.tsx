@@ -117,11 +117,23 @@ function RootShell({ children }: { children: ReactNode }) {
   // di localStorage meng-override; halaman app juga bisa toggle live.
   const themeScript = `(function(){try{var t=localStorage.getItem("cortexclip-theme");if(t==="dark"){document.documentElement.classList.add("dark")}}catch(e){}})();`;
 
+  // Setelah deploy baru, hash asset berubah. Tab lama yang masih memegang HTML
+  // versi sebelumnya meminta /assets/<hash-lama>.js → server balas 500/404 →
+  // halaman putih sampai user hard-refresh sendiri (kejadian nyata di HP).
+  // Skrip ini menangkap kegagalan muat chunk lalu reload SEKALI (dikunci
+  // sessionStorage supaya tidak jadi loop reload kalau memang server rusak).
+  const chunkHealScript = `(function(){var K="cortexclip-chunk-reload";function heal(){try{if(sessionStorage.getItem(K))return;sessionStorage.setItem(K,"1");location.reload()}catch(e){}}
+window.addEventListener("vite:preloadError",function(e){try{e.preventDefault()}catch(_){}heal()});
+window.addEventListener("error",function(e){var t=e&&e.target;if(!t||!t.tagName)return;var u=t.src||t.href||"";if((t.tagName==="SCRIPT"||t.tagName==="LINK")&&/\\/(assets|_build)\\//.test(u))heal()},true);
+window.addEventListener("unhandledrejection",function(e){var m=e&&e.reason&&(e.reason.message||e.reason)||"";if(/dynamically imported module|Importing a module script failed|Loading chunk/i.test(String(m)))heal()});
+window.addEventListener("load",function(){setTimeout(function(){try{sessionStorage.removeItem(K)}catch(e){}},1500)})})();`;
+
   return (
     <html lang="id">
       <head>
         <HeadContent />
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <script dangerouslySetInnerHTML={{ __html: chunkHealScript }} />
       </head>
       <body>
         {children}

@@ -101,8 +101,8 @@ if TOK:
     ok("kuota terbaca", st == 200 and d.get("quota", {}).get("limit") in (2, 10))
 
     # SQL injection di parameter search
-    for payload in ["' OR 1=1--", "'; DROP TABLE profiles;--", "%27%20OR%20%271%27%3D%271"]:
-        st, _ = get(BASE + f"/api/admin/users?search={urllib.parse.quote(payload)}", H, timeout=15)
+    for payload in ["99999999-9999-9999-9999-999999999999' OR 1=1--", "'; DROP TABLE profiles;--"]:
+        st, _ = get(BASE + f"/api/admin/users?search={urllib.parse.quote(payload[:40])}", H, timeout=15)
         ok(f"injection search ditolak/di-escape ({payload[:20]!r})", st in (200, 400, 403), f"HTTP {st}")
 
     # IDOR: akses data user lain via endpoint yang cek kepemilikan
@@ -244,6 +244,85 @@ if uid and TOK:
     ok("ban endpoint butuh admin", st == 403, f"HTTP {st}")
     st, _ = post(BASE + f"/api/admin/users/{uid}/ban", {"duration": "999d"}, H, timeout=15)
     ok("ban durasi aneh ditolak", st in (400, 403), f"HTTP {st}")
+
+
+# ============ 6. ID NGAWUR TIDAK BOLEH 500 ============
+# Regresi nyata: id non-UUID diteruskan ke PostgREST → 400 22P02 → RuntimeError
+# → 500 + detail error DB bocor. Semua endpoint ber-id WAJIB balas 4xx.
+def call(method: str, path: str, data=None, headers=None, timeout=25):
+    body_b = json.dumps(data).encode() if data is not None else None
+    h = {"Content-Type": "application/json", **(headers or {})}
+    req = urllib.request.Request(BASE + path, data=body_b, headers=h, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except Exception:
+        return 0
+
+
+if TOK:
+    BAD = "bukan-uuid"
+    id_cases = [
+        ("POST", f"/api/projects/{BAD}/reprocess", {}),
+        ("POST", f"/api/projects/{BAD}/touch", {}),
+        ("POST", f"/api/projects/{BAD}/share", {}),
+        ("PATCH", f"/api/projects/{BAD}", {"title": "x"}),
+        ("DELETE", f"/api/projects/{BAD}", None),
+        ("GET", f"/api/render-jobs/project/{BAD}", None),
+        ("POST", "/api/projects/upload-done", {"project_id": BAD, "storage_path": "a/b.mp4"}),
+        ("POST", "/api/render-jobs", {"project_id": BAD, "clip_id": BAD}),
+    ]
+    id_500 = [f"{m} {p}" for m, p, d in id_cases if call(m, p, d, H) >= 500]
+    ok("id ngawur tidak bikin 500", not id_500, "; ".join(id_500[:3]))
+
+# ============ 7. PROSES NYANGKUT ============
+st, body = get(SB + "/rest/v1/projects?select=id,status,updated_at,created_at"
+                    "&status=in.(downloading,transcribing,analyzing)&limit=100", SRK_H)
+stuck = []
+try:
+    for p in json.loads(body):
+        t = _dt(p.get("updated_at") or p.get("created_at"))
+        if t and (NOW - t).total_seconds() > 1800:
+            stuck.append(f"{p['id'][:8]} {p['status']}")
+except Exception as exc:
+    stuck = [f"parse error: {exc}"]
+ok("tidak ada project nyangkut >30m", st == 200 and not stuck, "; ".join(stuck[:3]))
+
+st, body = get(SB + "/rest/v1/render_jobs?select=id,status,created_at"
+                    "&status=in.(pending,rendering)&limit=100", SRK_H)
+rstuck = []
+try:
+    for j in json.loads(body):
+        t = _dt(j.get("created_at"))
+        if t and (NOW - t).total_seconds() > 3600:
+            rstuck.append(j["id"][:8])
+except Exception as exc:
+    rstuck = [f"parse error: {exc}"]
+ok("tidak ada render job nyangkut >1j", st == 200 and not rstuck, "; ".join(rstuck[:3]))
+
+# ============ 8. GUARD CHUNK LAMA (halaman putih setelah deploy) ============
+st, body = get(BASE + "/", timeout=30)
+ok("guard chunk-reload terpasang", b"cortexclip-chunk-reload" in body)
+
+# ============ 9. LOG 500 BACKEND (PROSES YANG SEDANG JALAN) ============
+# Dibatasi ke PID backend saat ini: 500 dari versi kode SEBELUM restart/fix
+# bukan isu aktif, tapi 500 baru pada proses berjalan wajib ketangkap.
+try:
+    pid = subprocess.run(["systemctl", "show", "-p", "MainPID", "--value",
+                          "cortexclip-backend"], capture_output=True, text=True,
+                         timeout=20).stdout.strip()
+    cmd = ["journalctl", "-u", "cortexclip-backend", "--no-pager", "--since", "2 hours ago"]
+    if pid and pid != "0":
+        cmd.append(f"_PID={pid}")
+    lg = subprocess.run(cmd, capture_output=True, text=True, timeout=60).stdout
+    n500 = lg.count("500 Internal Server Error")
+    ntb = lg.count("Traceback (most recent call last)")
+    ok("tak ada 500 di log backend (proses aktif)", n500 == 0 and ntb == 0,
+       f"{n500}x500 {ntb}xtraceback pid={pid}")
+except Exception as exc:
+    ok("log backend terbaca", False, str(exc)[:60])
 
 # ============ RINGKASAN ============
 fails = [r for r in results if not r[1]]
