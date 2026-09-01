@@ -541,6 +541,10 @@ class HydraGateway:
             self._fail(ep, 0, str(exc))
             return None
 
+    # Path 3 & 4 dilakukan pemanggil (transcribe.py) karena melibatkan modul
+    # terpisah (hf_stt.py, local_whisper.py) — chain lengkap ada di
+    # transcribe_wav_chunk_via_chain() di bawah.
+
     def status(self) -> list[dict[str, Any]]:
         self._ensure()
         now = time.time()
