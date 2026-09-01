@@ -65,8 +65,10 @@ export const Route = createFileRoute("/_authenticated/projects/$projectId")({
 const STATUS_META: Record<string, { label: string; dot: string }> = {
   pending: { label: "Menunggu", dot: "bg-muted-foreground" },
   uploading: { label: "Mengunggah", dot: "bg-blue-500" },
+  downloading: { label: "Mengunduh", dot: "bg-blue-500" },
   transcribing: { label: "Transkripsi", dot: "bg-amber-500" },
   analyzing: { label: "Analisis AI", dot: "bg-purple-500" },
+  rendering: { label: "Render", dot: "bg-purple-500" },
   completed: { label: "Selesai", dot: "bg-green-500" },
   failed: { label: "Gagal", dot: "bg-red-500" },
 };
@@ -155,6 +157,34 @@ function ProjectPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // === Polling pipeline status (upload/youtube server-side) ===
+  // Selama status "downloading/transcribing/analyzing", refresh tiap 6 detik.
+  const busyStatus =
+    project?.status === "downloading" ||
+    project?.status === "transcribing" ||
+    project?.status === "analyzing";
+
+  useEffect(() => {
+    if (!busyStatus) return;
+    const iv = setInterval(() => void load(), 6000);
+    return () => clearInterval(iv);
+  }, [busyStatus, load]);
+
+  // Estimasi progres % berdasarkan fase (transkrip penuh = progress besar)
+  const pipelinePct = (() => {
+    const st = project?.status;
+    if (st === "downloading") return 10;
+    if (st === "transcribing") {
+      const dur = project?.duration_seconds ?? 0;
+      const segs = (project?.transcript as { segments?: unknown[] } | null)?.segments?.length ?? 0;
+      // transkrip sudah terisi sebagian = maju pelan; sebaliknya fase awal
+      return Math.min(55, 20 + (segs > 0 ? 5 : 0));
+    }
+    if (st === "analyzing") return 75;
+    if (st === "completed") return 100;
+    return 0;
+  })();
 
   async function getMediaBlob(): Promise<Blob> {
     if (localFile) return localFile;
@@ -311,8 +341,9 @@ function ProjectPage() {
           </Link>
           <div className="flex shrink-0 items-center gap-1 sm:gap-2">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-card px-2.5 py-1 text-xs text-muted-foreground">
-              <span className={`size-1.5 rounded-full ${status.dot} ${project.status === "transcribing" || project.status === "analyzing" ? "animate-pulse" : ""}`} />
+              <span className={`size-1.5 rounded-full ${status.dot} ${project.status === "transcribing" || project.status === "analyzing" || project.status === "downloading" ? "animate-pulse" : ""}`} />
               {status.label}
+              {busyStatus ? ` ${pipelinePct}%` : ""}
             </span>
             <Link
               to="/dashboard"
@@ -373,6 +404,36 @@ function ProjectPage() {
           >
             <Loader2 className="size-4 animate-spin text-accent" />
             <span>{progress || "Memproses…"}</span>
+          </motion.div>
+        ) : null}
+
+        {/* Progress pipeline server-side (upload / youtube) */}
+        {busyStatus ? (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mt-8 rounded-2xl border border-accent/40 bg-accent/5 p-4"
+          >
+            <div className="flex items-center gap-3 text-sm">
+              <Loader2 className="size-4 animate-spin text-accent" />
+              <span className="font-medium">
+                {project.status === "downloading"
+                  ? "Sedang mengunduh video di server…"
+                  : project.status === "transcribing"
+                    ? "AI sedang mentranskripsi audio…"
+                    : "AI sedang memilih momen terbaik…"}
+              </span>
+              <span className="ml-auto font-display text-sm font-bold text-accent">{pipelinePct}%</span>
+            </div>
+            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-border">
+              <div
+                className="h-full rounded-full bg-accent transition-all duration-700"
+                style={{ width: `${pipelinePct}%` }}
+              />
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Proses berjalan di server — halaman boleh ditutup, klip otomatis muncul saat selesai.
+            </p>
           </motion.div>
         ) : null}
 

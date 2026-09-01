@@ -28,6 +28,7 @@ RAPIDAPI_AUTOLINK_KEY = os.environ.get("RAPIDAPI_AUTOLINK_KEY", "ca5c6d6fa3mshfc
 RAPIDAPI_YTSTREAM_KEY = os.environ.get("RAPIDAPI_YTSTREAM_KEY", "6fabfe3ba0msha10853256d5c5f9p1c1247jsnf1625ea46cb6")
 
 UA_BROWSER = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "http://localhost:8000")
 
 _YT_ID_PATTERNS = [
     r"youtube\.com/watch\?v=([a-zA-Z0-9_-]{11})",
@@ -379,24 +380,15 @@ def _wav_chunk_paths(wav_path: str, chunk_seconds: int = 600) -> list[tuple[str,
     return out
 
 
-async def run_youtube_pipeline(project_id: str, user_id: str, url: str, target_count: int) -> None:
-    """Background task: hydra download -> audio -> transcribe -> detect clips -> DB."""
+async def run_media_pipeline(project_id: str, user_id: str, src_path: str, target_count: int) -> None:
+    """Inti pipeline: audio -> transcribe (chunked) -> detect clips -> simpan DB.
+    File sumber TIDAK dihapus di sini (pemanggil yang bertanggung jawab)."""
     from .transcribe import transcribe_wav_chunk, transcript_with_words
     from .clip_selection import detect_clips
     from . import jobs as jobs_mod
 
-    src_path = os.path.join(UPLOAD_DIR, f"yt_{project_id}.mp4")
-    wav_path = os.path.join(UPLOAD_DIR, f"yt_{project_id}.wav")
+    wav_path = os.path.join(UPLOAD_DIR, f"wav_{project_id}.wav")
     try:
-        await jobs_mod.update_project(project_id, status="downloading")
-        info = await hydra_download(url, src_path)
-        title = info["title"][:120]
-        try:
-            from .premium import sb
-            await sb("PATCH", f"projects?id=eq.{project_id}", json_body={"title": title})
-        except Exception:
-            pass
-
         await jobs_mod.update_project(project_id, status="transcribing")
         await asyncio.to_thread(_extract_audio_wav, src_path, wav_path)
         parts = await asyncio.to_thread(_wav_chunk_paths, wav_path)
@@ -409,7 +401,7 @@ async def run_youtube_pipeline(project_id: str, user_id: str, url: str, target_c
                     segs = await transcribe_wav_chunk(f.read(), offset, chunk_dur)
                 segments.extend(segs or [])
             except Exception as exc:
-                print(f"[youtube] chunk @ {offset:.0f}s gagal: {exc}")
+                print(f"[pipeline] chunk @ {offset:.0f}s gagal: {exc}")
             finally:
                 try:
                     os.unlink(p)
@@ -420,8 +412,7 @@ async def run_youtube_pipeline(project_id: str, user_id: str, url: str, target_c
         if not segments:
             raise RuntimeError("Transkripsi gagal / video tidak berisi ucapan.")
         segments.sort(key=lambda s: s["start"])
-        duration = max(info.get("duration") or 0.0, _ffprobe_duration(src_path),
-                       max(s["end"] for s in segments))
+        duration = max(_ffprobe_duration(src_path), max(s["end"] for s in segments))
         transcript = {"language": "id", "duration": round(duration, 2),
                       "segments": transcript_with_words(segments)}
         await jobs_mod.update_project(project_id, transcript=transcript,
@@ -440,11 +431,76 @@ async def run_youtube_pipeline(project_id: str, user_id: str, url: str, target_c
                      json_body={"status": "failed", "error_message": str(exc)[:500]})
         except Exception:
             pass
-        print(f"[youtube] pipeline gagal: {exc}")
+        print(f"[pipeline] gagal: {exc}")
     finally:
-        for p in (src_path, wav_path):
+        try:
+            if os.path.exists(wav_path):
+                os.unlink(wav_path)
+        except OSError:
+            pass
+
+
+async def run_upload_pipeline(project_id: str, user_id: str, storage_path: str, target_count: int) -> None:
+    """File hasil upload user (video-uploads bucket) -> pipeline penuh."""
+    from . import jobs as jobs_mod
+    src_path = os.path.join(UPLOAD_DIR, f"up_{project_id}.mp4")
+    try:
+        await jobs_mod.update_project(project_id, status="downloading")
+        url = f"{SUPABASE_URL}/storage/v1/object/public/video-uploads/{storage_path}"
+        tmp = src_path + ".part"
+        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+            async with client.stream("GET", url, headers={"User-Agent": UA_BROWSER}) as r:
+                r.raise_for_status()
+                with open(tmp, "wb") as f:
+                    async for chunk in r.aiter_bytes(1 << 20):
+                        f.write(chunk)
+        os.replace(tmp, src_path)
+        if not _verify(src_path):
+            raise RuntimeError("File hasil upload tidak bisa dibaca (korup/format tak didukung).")
+        await run_media_pipeline(project_id, user_id, src_path, target_count)
+    except Exception as exc:
+        try:
+            from .premium import sb
+            await sb("PATCH", f"projects?id=eq.{project_id}",
+                     json_body={"status": "failed", "error_message": str(exc)[:500]})
+        except Exception:
+            pass
+        print(f"[upload] pipeline gagal: {exc}")
+    finally:
+        for p in (src_path, src_path + ".part"):
             try:
                 if os.path.exists(p):
                     os.unlink(p)
             except OSError:
                 pass
+
+
+async def run_youtube_pipeline(project_id: str, user_id: str, url: str, target_count: int) -> None:
+    """Background task: hydra download -> pipeline penuh."""
+    from . import jobs as jobs_mod
+
+    src_path = os.path.join(UPLOAD_DIR, f"yt_{project_id}.mp4")
+    try:
+        await jobs_mod.update_project(project_id, status="downloading")
+        info = await hydra_download(url, src_path)
+        title = info["title"][:120]
+        try:
+            from .premium import sb
+            await sb("PATCH", f"projects?id=eq.{project_id}", json_body={"title": title})
+        except Exception:
+            pass
+        await run_media_pipeline(project_id, user_id, src_path, target_count)
+    except Exception as exc:
+        try:
+            from .premium import sb
+            await sb("PATCH", f"projects?id=eq.{project_id}",
+                     json_body={"status": "failed", "error_message": str(exc)[:500]})
+        except Exception:
+            pass
+        print(f"[youtube] pipeline gagal: {exc}")
+    finally:
+        try:
+            if os.path.exists(src_path):
+                os.unlink(src_path)
+        except OSError:
+            pass

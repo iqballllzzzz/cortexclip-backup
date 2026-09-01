@@ -184,13 +184,24 @@ function Dashboard() {
       if (su || !signed) throw su ?? new Error("Gagal menyiapkan unggahan");
       await putWithProgress(signed.signedUrl, file, setUploadPct);
 
-      const { error: upd } = await supabase
-        .from("projects")
-        .update({ source_url: `${user.id}/sources/${project.id}.${ext}`, status: "processing" })
-        .eq("id", project.id);
-      if (upd) throw upd;
-      toast.success("Video terunggah — AI mulai membuat klip.");
-      window.location.reload();
+      // pipeline server-side mulai — JANGAN reload, navigasi ke halaman proyek
+      const storagePath = `${user.id}/sources/${project.id}.${ext}`;
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const res = await fetch("/api/projects/upload-done", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token ?? ""}` },
+        body: JSON.stringify({ project_id: project.id, storage_path: storagePath }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.detail ?? "Gagal memulai pemrosesan");
+      }
+      toast.success("Terunggah — AI mulai memproses. Pantau progresnya di halaman proyek.");
+      setCreating(false);
+      setUploadPct(null);
+      navigate({ to: "/projects/$projectId", params: { projectId: project.id } });
     } catch (err) {
       console.error(err);
       toast.error(err instanceof Error ? err.message : "Unggahan gagal");
@@ -216,15 +227,14 @@ function Dashboard() {
         setPremiumOpen(true);
         throw new Error(q.message ?? "Limit harian tercapai — upgrade ke Premium.");
       }
-      await processYoutube(url);
-      toast.success("Video YouTube diunduh di server — AI langsung memproses. Pantau di Proyek Terbaru.");
+      const r = await processYoutube(url);
+      toast.success("Sedang diproses di server — pantau progresnya di halaman proyek.");
       setYoutubeUrl("");
-      setTimeout(() => window.location.reload(), 1200);
+      setYtBusy(false);
+      // TANPA reload — langsung ke halaman proyek yang punya indikator progres
+      navigate({ to: "/projects/$projectId", params: { projectId: r.project_id } });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Gagal memproses YouTube", {
-        description: undefined,
-        action: undefined,
-      });
+      toast.error(err instanceof Error ? err.message : "Gagal memproses YouTube");
       setYtBusy(false);
     }
   }

@@ -676,6 +676,123 @@ async def api_premium_order(order_id: str, request: Request, authorization: str 
         raise HTTPException(404, str(exc))
 
 
+# ---------------------------------------------------------------------------
+# Project management: rename / delete penuh / touch
+# ---------------------------------------------------------------------------
+
+class RenameIn(BaseModel):
+    title: str
+
+
+@app.patch("/api/projects/{project_id}")
+async def api_project_rename(project_id: str, body: RenameIn, request: Request, authorization: str | None = Header(None)):
+    user = await get_user(request, authorization)
+    from .premium import sb
+    rows = await sb("GET", f"projects?id=eq.{project_id}&user_id=eq.{user['id']}&select=id")
+    if not rows:
+        raise HTTPException(404, "Proyek tidak ditemukan / bukan milikmu")
+    title = body.title.strip()[:200] or "Tanpa judul"
+    await sb("PATCH", f"projects?id=eq.{project_id}", json_body={"title": title})
+    return {"ok": True, "title": title}
+
+
+@app.post("/api/projects/{project_id}/touch")
+async def api_project_touch(project_id: str, request: Request, authorization: str | None = Header(None)):
+    user = await get_user(request, authorization)
+    from .premium import sb
+    try:
+        await sb("PATCH", f"projects?id=eq.{project_id}&user_id=eq.{user['id']}",
+                 json_body={"updated_at": "now()"})
+    except Exception:
+        pass
+    return {"ok": True}
+
+
+@app.delete("/api/projects/{project_id}")
+async def api_project_delete(project_id: str, request: Request, authorization: str | None = Header(None)):
+    """Hapus PENUH: render_jobs, klip, file storage (video sumber + rendered),
+    lalu row project. Verifikasi kepemilikan via user_id."""
+    user = await get_user(request, authorization)
+    from .premium import sb
+    rows = await sb("GET", f"projects?id=eq.{project_id}&user_id=eq.{user['id']}&select=id,source_url,storage_path")
+    if not rows:
+        raise HTTPException(404, "Proyek tidak ditemukan / bukan milikmu")
+    proj = rows[0]
+    src = proj.get("storage_path") or ""
+    su = proj.get("source_url") or ""
+    prefixes = [p for p in (src, su) if p and not str(p).startswith("http")]
+
+    # 1) kumpulkan id klip (untuk file rendered) SEBELUM dihapus
+    clip_ids: list[str] = []
+    try:
+        clip_ids = [c["id"] for c in (await sb("GET", f"clips?project_id=eq.{project_id}&select=id")) or []]
+    except Exception:
+        pass
+
+    # 2) hapus render_jobs & klip (service role)
+    try:
+        await sb("DELETE", f"render_jobs?project_id=eq.{project_id}")
+    except Exception as exc:
+        print(f"[projects] hapus render_jobs gagal: {exc}")
+    try:
+        await sb("DELETE", f"clips?project_id=eq.{project_id}")
+    except Exception as exc:
+        print(f"[projects] hapus clips gagal: {exc}")
+
+    # 3) hapus file storage: sumber video + hasil render
+    del_prefixes = prefixes + [f"{user['id']}/rendered/{cid}.mp4" for cid in clip_ids]
+    if del_prefixes:
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                await client.post(
+                    f"{SUPABASE_URL}/storage/v1/object/video-uploads/delete",
+                    headers={"apikey": SUPABASE_SERVICE_KEY,
+                             "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                             "Content-Type": "application/json"},
+                    json={"prefixes": del_prefixes},
+                )
+        except Exception as exc:
+            print(f"[projects] hapus file storage gagal: {exc}")
+
+    # 4) hapus row project
+    await sb("DELETE", f"projects?id=eq.{project_id}&user_id=eq.{user['id']}")
+    return {"ok": True}
+
+
+@app.post("/api/projects/upload-done")
+async def api_project_upload_done(request: Request, authorization: str | None = Header(None)):
+    """Dipanggil frontend SETELAH file selesai keupload ke storage.
+    Mulai pipeline server-side (transcribe -> clips)."""
+    class _Body(BaseModel):
+        project_id: str
+        storage_path: str
+    try:
+        body = _Body(**(await request.json()))
+    except Exception:
+        raise HTTPException(400, "body tidak valid")
+    user = await get_user(request, authorization)
+    from .premium import quota_check_project, limits_for, sb, MSG_LIMIT_PROJECT
+    quota = await quota_check_project(user["id"])
+    if not quota["ok"]:
+        raise HTTPException(429, quota["message"] or MSG_LIMIT_PROJECT)
+    # pastikan project milik user & masih menunggu
+    rows = await sb("GET", f"projects?id=eq.{body.project_id}&user_id=eq.{user['id']}&select=id,status")
+    if not rows:
+        raise HTTPException(404, "Proyek tidak ditemukan / bukan milikmu")
+    lim = await limits_for(user["id"])
+    target = lim["clips_per_video"]
+    await sb("PATCH", f"projects?id=eq.{body.project_id}",
+             json_body={"storage_path": body.storage_path, "source_url": body.storage_path,
+                        "status": "downloading"})
+    asyncio.create_task(_upload_task(body.project_id, user["id"], body.storage_path, target))
+    return {"ok": True, "target_clips": target}
+
+
+async def _upload_task(project_id: str, user_id: str, storage_path: str, target: int) -> None:
+    from .youtube import run_upload_pipeline
+    await run_upload_pipeline(project_id, user_id, storage_path, target)
+
+
 @app.get("/")
 async def root():
     return {"service": "cortexclip-backend", "docs": "/docs"}
