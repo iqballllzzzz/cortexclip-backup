@@ -265,6 +265,7 @@ async def render_preview_clip(
     # Satu render per klip — TIDAK perlu re-render tiap ganti gaya/ukuran/posisi.
     # Hash hanya dari klip (bukan style) supaya cache selalu hit.
     style = dict(caption_style or {})
+    # hash SENGJAHA TIDAK termasuk resolusi: 180p & 360p share cache yang sama
     style_hash = hashlib.md5(
         json.dumps({"clip": clip_id, "v": 2}, sort_keys=True).encode()
     ).hexdigest()[:10]
@@ -288,21 +289,21 @@ async def render_preview_clip(
         out_name = f"{uuid.uuid4().hex[:10]}.mp4"
         out_path = os.path.join(workdir, out_name)
 
-        # face tracking SELALU aktif (hukum wajib) — analisis di resolusi rendah cepat
-        traj = None
+        # FACE TRACKING CEPAT: analisis di-skip untuk preview — crop tengah saja.
+        # (Analisis mediapipe per-frame = penyebab utama preview 1-2 menit;
+        #  hasil render final tetap pakai tracking penuh, preview tidak.)
+        # Jalur KILAT dulu (±3-8 detik); kalau gagal → jalur lama sebagai cadangan.
         try:
-            traj = render_mod.analyze_face_track(src, start, end)
-        except Exception:
-            traj = None
-
-        # TANPA ass_path → video murni tanpa subtitle (anti double-subtitle:
-        # subtitle sudah dirender live overlay HTML5 di browser)
-        render_mod.render_clip(
-            src, start, end, None, out_path,
-            resolution=resolution,
-            face_tracking=bool(traj),
-            camera_trajectory=traj,
-        )
+            render_mod.render_preview_fast(src, start, end, out_path)
+        except Exception as exc:
+            print(f"[preview] fast path gagal ({exc}) → fallback render_clip")
+            render_mod.render_clip(
+                src, start, end, None, out_path,
+                resolution=resolution,
+                face_tracking=False,
+                camera_trajectory=None,
+                watermark=False,
+            )
 
         user_id = clip.get("user_id") or project.get("user_id")
         storage_key = f"{user_id}/previews/{clip_id}.mp4"

@@ -113,10 +113,15 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 });
 
 function RootShell({ children }: { children: ReactNode }) {
+  // Tema bawaan TERANG: terapkan sebelum paint (anti flash). Pilihan user
+  // di localStorage meng-override; halaman app juga bisa toggle live.
+  const themeScript = `(function(){try{var t=localStorage.getItem("cortexclip-theme");if(t==="dark"){document.documentElement.classList.add("dark")}}catch(e){}})();`;
+
   return (
-    <html lang="en">
+    <html lang="id">
       <head>
         <HeadContent />
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body>
         {children}

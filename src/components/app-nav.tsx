@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 /**
  * Navigasi aplikasi (area login). Sticky, tipis, hairline — bukan kapsul glass
@@ -18,6 +19,7 @@ export function AppNav({
   plan,
   onUpgrade,
   right,
+  themeToggle,
 }: {
   displayName: string;
   avatarUrl?: string | null | undefined;
@@ -25,6 +27,7 @@ export function AppNav({
   plan?: string | undefined;
   onUpgrade?: (() => void) | undefined;
   right?: React.ReactNode;
+  themeToggle?: boolean | undefined;
 }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -64,6 +67,7 @@ export function AppNav({
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
+          {themeToggle ? <ThemeToggle /> : null}
           {right}
           {plan !== "premium" && onUpgrade ? (
             <Button size="sm" variant="accent" onClick={onUpgrade} className="hidden sm:inline-flex">

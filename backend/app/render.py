@@ -325,6 +325,48 @@ def render_clip(
     return out_path
 
 
+def render_preview_fast(
+    src: str,
+    start: float,
+    end: float,
+    out_path: str,
+    width: int = 270,
+    height: int = 480,
+) -> str:
+    """Preview KILAT: potong + crop tengah 9:16 + transkode ultrafast.
+
+    Tanpa face tracking, tanpa watermark, tanpa subtitle (browser yang
+    menampilkan subtitle live overlay). 270x480 CRF30 audio copy → klip
+    60 detik selesai ±3-6 detik di CPU 4 core.
+    """
+    w, h = width, height
+    src_w, src_h = probe_size(src)
+    aspect = w / h
+    vf_parts: list[str] = []
+    if src_w / src_h > aspect:
+        crop_w = int(src_h * aspect)
+        vf_parts.append(f"crop=w={crop_w}:h={src_h}:x=(iw-ow)/2:y=0")
+    else:
+        crop_h = int(src_w / aspect)
+        vf_parts.append(f"crop=w={src_w}:h={crop_h}:x=0:y=(ih-oh)/2")
+    vf_parts.append(f"scale={w}:{h}")
+
+    cmd = [
+        "ffmpeg", "-y", "-v", "error",
+        "-ss", f"{start:.3f}", "-t", f"{end - start:.3f}", "-i", src,
+        "-vf", ",".join(vf_parts),
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30",
+        "-threads", "4",
+        "-pix_fmt", "yuv420p",
+        # coba copy audio (instan); kalau codec tak kompatibel ffmpeg error → caller retry
+        "-c:a", "aac", "-b:a", "96k",
+        "-movflags", "+faststart",
+        out_path,
+    ]
+    subprocess.run(cmd, check=True, capture_output=True, timeout=600)
+    return out_path
+
+
 
 
 def burn_hook_overlay(

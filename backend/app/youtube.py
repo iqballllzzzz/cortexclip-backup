@@ -49,8 +49,8 @@ def yt_video_id(url: str) -> Optional[str]:
 
 def _pick_media_pair(medias: list[dict[str, Any]], title: str, duration: float) -> dict[str, Any]:
     """Pilih format terbaik dari daftar medias (nexray/autolink style):
-    1) progressive (video+audio satu file, biasanya itag 18, 360p)
-    2) video mp4 <=720p + audio m4a tertinggi → merge ffmpeg
+    1) video mp4 <=1080p + audio m4a tertinggi → merge ffmpeg (KUALITAS TERBAIK)
+    2) progressive (video+audio satu file, itag 22=720p / 18=360p) sebagai cadangan
     """
     vids = [m for m in medias if m.get("type") == "video" and m.get("url")
             and str(m.get("ext", "mp4")) == "mp4"]
@@ -63,16 +63,9 @@ def _pick_media_pair(medias: list[dict[str, Any]], title: str, duration: float) 
         except (TypeError, ValueError):
             return 0
 
-    # 1) progressive: video yang punya audio (itag 18/22)
-    progressive = [m for m in vids if m.get("formatId") in (18, 22)]
-    if progressive:
-        best = max(progressive, key=_h)
-        return {"title": title, "duration": duration, "url": best["url"],
-                "provider": "x-progressive", "needs_merge": False}
-
-    # 2) DASH: video <=720p + audio m4a (harus di-merge)
+    # 1) DASH: video terbaik <=1080p + audio m4a → merge (720p/1080p, bukan 360p!)
     if vids:
-        cand = [m for m in vids if 0 < _h(m) <= 720] or [min(vids, key=_h)]
+        cand = [m for m in vids if 0 < _h(m) <= 1080] or [min(vids, key=_h)]
         v = max(cand, key=_h)
         out: dict[str, Any] = {"title": title, "duration": duration, "url": v["url"],
                                "provider": "x-dash", "needs_merge": False}
@@ -87,6 +80,13 @@ def _pick_media_pair(medias: list[dict[str, Any]], title: str, duration: float) 
             out["audio_url"] = a["url"]
             out["needs_merge"] = True
         return out
+
+    # 2) progressive cadangan: itag 22 (720p) diutamakan di atas 18 (360p)
+    progressive = [m for m in vids if m.get("formatId") in (18, 22)]
+    if progressive:
+        best = max(progressive, key=_h)
+        return {"title": title, "duration": duration, "url": best["url"],
+                "provider": "x-progressive", "needs_merge": False}
     raise RuntimeError("tidak ada media video mp4")
 
 
@@ -119,34 +119,32 @@ async def _prov_autolink(url: str) -> dict[str, Any]:
 def _pick_ytstream(data: dict[str, Any]) -> dict[str, Any]:
     title = data.get("title") or "video"
     duration = float(data.get("lengthSeconds") or 0)
-    # progressive (video+audio dalam satu file) — paling simpel
-    progressive = [f for f in (data.get("formats") or [])
-                   if str(f.get("mimeType", "")).startswith("video/mp4") and f.get("url")]
-    if progressive:
-        def _h(f):
-            try:
-                return int(f.get("height") or 0)
-            except (TypeError, ValueError):
-                return 0
-        cand = [f for f in progressive if _h(f) <= 720] or [min(progressive, key=_h)]
-        best = max(cand, key=_h)
-        return {"title": title, "duration": duration, "url": best["url"],
-                "provider": "rapidapi-ytstream", "needs_merge": False}
-    # adaptive: video terpisah + audio → butuh merge ffmpeg
+
+    def _h(f: dict[str, Any]) -> int:
+        try:
+            return int(f.get("height") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    # adaptive dulu: video terbaik <=1080p + audio → merge (kualitas terbaik)
     vids = [f for f in (data.get("adaptiveFormats") or [])
             if str(f.get("mimeType", "")).startswith("video/mp4") and f.get("url")]
     auds = [f for f in (data.get("adaptiveFormats") or [])
             if str(f.get("mimeType", "")).startswith("audio/mp4") and f.get("url")]
     if vids and auds:
-        def _h(f):
-            try:
-                return int(f.get("height") or 0)
-            except (TypeError, ValueError):
-                return 0
-        v = max([f for f in vids if _h(f) <= 720] or vids, key=_h)
+        v = max([f for f in vids if 0 < _h(f) <= 1080] or vids, key=_h)
         a = max(auds, key=lambda f: int(f.get("bitrate") or 0))
         return {"title": title, "duration": duration, "url": v["url"],
                 "audio_url": a["url"], "provider": "rapidapi-ytstream", "needs_merge": True}
+
+    # progressive cadangan (itu 360p) — hanya kalau adaptive tidak tersedia
+    progressive = [f for f in (data.get("formats") or [])
+                   if str(f.get("mimeType", "")).startswith("video/mp4") and f.get("url")]
+    if progressive:
+        cand = [f for f in progressive if 0 < _h(f) <= 720] or [min(progressive, key=_h)]
+        best = max(cand, key=_h)
+        return {"title": title, "duration": duration, "url": best["url"],
+                "provider": "rapidapi-ytstream", "needs_merge": False}
     raise RuntimeError("ytstream: format tidak lengkap")
 
 
@@ -190,7 +188,8 @@ async def _prov_nexray(url: str) -> dict[str, Any]:
 def _prov_ytdlp(url: str, out_path: str) -> None:
     import yt_dlp
     opts = {
-        "format": "bv*[height<=720]+ba/b[height<=720]/b",
+        # utamakan 1080p, turun bertahap; progressive 360p hanya sebagai jaring
+        "format": "bv*[height<=1080]+ba/b[height<=1080]/bv*[height<=720]+ba/b[height<=720]/b",
         "outtmpl": out_path,
         "merge_output_format": "mp4",
         "quiet": True,
@@ -509,10 +508,12 @@ async def _persist_source_to_storage(project_id: str, user_id: str, src_path: st
     try:
         def _compress() -> bool:
             try:
+                # kompres penyimpanan: maks 1080p CRF26 — cukup tajam untuk
+                # render final, jauh lebih kecil dari file asli
                 subprocess.run(
                     ["ffmpeg", "-y", "-i", src_path,
-                     "-vf", "scale=-2:min(720\\,ih)", "-c:v", "libx264", "-preset", "veryfast",
-                     "-crf", "28", "-c:a", "aac", "-b:a", "96k",
+                     "-vf", "scale=-2:min(1080\\,ih)", "-c:v", "libx264", "-preset", "veryfast",
+                     "-crf", "26", "-c:a", "aac", "-b:a", "128k",
                      "-movflags", "+faststart", small],
                     check=True, capture_output=True, timeout=3600)
                 return os.path.exists(small) and os.path.getsize(small) > 100_000

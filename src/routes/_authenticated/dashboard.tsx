@@ -328,6 +328,7 @@ function Dashboard() {
         isAdmin={account?.is_admin}
         plan={quota?.plan}
         onUpgrade={() => setPremiumOpen(true)}
+        themeToggle
       />
 
       <main className="mx-auto max-w-[1180px] px-4 pb-28 pt-9 sm:px-6 sm:pt-12">

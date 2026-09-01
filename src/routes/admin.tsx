@@ -21,6 +21,7 @@ import {
 
 import { supabase } from "@/integrations/supabase/client";
 import { useAccountStatus } from "@/hooks/use-account-status";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { fetchAdminStats, fetchAdminUsers, type AdminStats, type AdminUser } from "@/lib/admin-api";
 import { Button } from "@/components/ui/button";
 import { UserDrawer } from "@/components/admin/user-drawer";
@@ -145,6 +146,7 @@ function AdminPage() {
             <ShieldCheck className="size-3" /> Admin
           </span>
           <div className="ml-auto flex items-center gap-2">
+            <ThemeToggle />
             <Button
               size="sm"
               variant="ghost"

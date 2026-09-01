@@ -4,15 +4,16 @@ const STORAGE_KEY = "cortexclip-theme";
 
 export type Theme = "light" | "dark";
 
-export function useTheme() {
-  const [theme, setTheme] = useState<Theme>("dark");
+function readInitial(): Theme {
+  if (typeof window === "undefined") return "light";
+  const stored = window.localStorage.getItem(STORAGE_KEY) as Theme | null;
+  if (stored === "light" || stored === "dark") return stored;
+  return "light"; // bawaan TERANG sesuai permintaan
+}
 
-  useEffect(() => {
-    const stored = window.localStorage.getItem(STORAGE_KEY) as Theme | null;
-    const preferred: Theme =
-      stored ?? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
-    setTheme(preferred);
-  }, []);
+/** Tema global: bawaan terang, pilihan disimpan, kelas .dark di <html>. */
+export function useTheme() {
+  const [theme, setTheme] = useState<Theme>(readInitial);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
