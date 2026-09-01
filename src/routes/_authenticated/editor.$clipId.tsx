@@ -232,7 +232,7 @@ function EditorPage() {
     [clip],
   );
 
-  /* --- fit canvas 9:16 — preview sebesar mungkin --- */
+  /* --- fit canvas 9:16 — sisa ruang setelah panel 40dvh, timeline 30px --- */
   useEffect(() => {
     const el = fitRef.current;
     if (!el) return;
@@ -240,8 +240,7 @@ function EditorPage() {
       const availW = el.clientWidth;
       const availH = el.clientHeight;
       if (availW < 40 || availH < 40) return;
-      // sisakan CUMA ruang timeline tipis (30px) → canvas selengkap mungkin
-      const h = Math.min(availH - 30, (availW * 16) / 9);
+      const h = Math.min(availH - 34, (availW * 16) / 9);
       const w = (h * 9) / 16;
       setFit({ w: Math.round(w), h: Math.round(h) });
     };
@@ -454,9 +453,9 @@ function EditorPage() {
   const effectiveKind = videoKindRef.current ?? (clip.preview_url ? "preview" : null);
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
-      {/* ===== TOP BAR: Kembali (kiri) · Hapus watermark coklat (tengah) · Unduh putih (kanan) ===== */}
-      <header className="grid h-14 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-2 border-b border-border px-3 sm:px-4">
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-background text-foreground">
+      {/* ===== TOP BAR (mobile 48px): Kembali · Hapus watermark coklat · Unduh ===== */}
+      <header className="grid h-12 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-1.5 border-b border-border px-2 sm:h-14 sm:grid-cols-[1fr_auto_1fr] sm:gap-2 sm:px-4">
         <div className="justify-self-start">
           <Button variant="ghost" size="sm" onClick={() => navigate({ to: "/projects/$projectId", params: { projectId: clip.project_id } })}>
             <ArrowLeft className="size-4" /> Kembali
@@ -464,7 +463,7 @@ function EditorPage() {
         </div>
 
         {watermarkRemoved ? (
-          <span className="hidden items-center gap-1.5 rounded-full border border-[var(--color-success)]/30 bg-[color-mix(in_oklab,var(--color-success)_10%,transparent)] px-3.5 py-1.5 text-[12px] font-semibold sm:inline-flex">
+          <span className="hidden items-center gap-1.5 rounded-full border border-[var(--color-success)]/30 bg-[color-mix(in_oklab,var(--color-success)_10%,transparent)] px-3 py-1.5 text-[11px] font-semibold sm:inline-flex">
             Watermark dihapus
           </span>
         ) : (
@@ -472,32 +471,21 @@ function EditorPage() {
             type="button"
             onClick={() => setAdPlaying(true)}
             title="Tonton 4 iklan untuk menghapus watermark"
-            className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3.5 py-1.5 text-[12px] font-semibold text-accent-foreground transition-transform hover:-translate-y-px sm:max-w-[220px]"
+            className="inline-flex items-center gap-1 rounded-full bg-accent px-2.5 py-1.5 text-[11px] font-semibold text-accent-foreground transition-transform hover:-translate-y-px sm:gap-1.5 sm:px-3.5 sm:text-[12px]"
           >
             <BadgeX className="size-3.5 shrink-0" />
-            <span className="truncate">Hapus watermark</span>
+            <span className="max-w-[96px] truncate sm:max-w-none">Hapus watermark</span>
             <span className="shrink-0 rounded-full bg-black/15 px-1.5 py-0.5 text-[10px] tabular-nums">{adsWatched}/4</span>
           </button>
         )}
 
         <div className="justify-self-end">
-          <Button variant="outline" size="sm" onClick={handleDownload} disabled={submitting || downloadLocked}>
+          <Button variant="outline" size="sm" onClick={handleDownload} disabled={submitting || downloadLocked} className="px-2.5 sm:px-4">
             {submitting ? <Loader2 className="size-4 animate-spin" /> : downloadLocked ? <Clock className="size-4" /> : <Download className="size-4" />}
             {downloadLocked ? "Merender…" : "Unduh"}
           </Button>
         </div>
       </header>
-
-      {/* mobile: strip watermark tipis di bawah header */}
-      {!watermarkRemoved ? (
-        <button
-          type="button"
-          onClick={() => setAdPlaying(true)}
-          className="flex shrink-0 items-center justify-center gap-1.5 border-b border-border bg-accent/8 py-1.5 text-[12px] font-semibold text-accent sm:hidden"
-        >
-          <BadgeX className="size-3.5" /> Hapus watermark — tonton {4 - adsWatched} iklan lagi
-        </button>
-      ) : null}
 
       {/* ===== BODY: canvas besar (flex-1) + panel kecil di kanan/bawah ===== */}
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
@@ -602,8 +590,8 @@ function EditorPage() {
           </div>
         </div>
 
-        {/* ===== PANEL TOOL KECIL — konten SCROLL DI DALAM (halaman tak ikut scroll) ===== */}
-        <aside className="flex h-[176px] w-full shrink-0 flex-col border-t border-border bg-card md:h-auto md:w-[272px] md:border-l md:border-t-0">
+        {/* ===== PANEL TOOL — mobile 40% tinggi (mudah dipencet & scroll), desktop 272px ===== */}
+        <aside className="flex h-[40dvh] w-full shrink-0 flex-col border-t border-border bg-card md:h-auto md:w-[272px] md:border-l md:border-t-0">
           <div className="grid shrink-0 grid-cols-3 border-b border-border" role="tablist">
             {TOOLS.map((t) => (
               <button
@@ -612,7 +600,7 @@ function EditorPage() {
                 role="tab"
                 aria-selected={activeTool === t.id}
                 onClick={() => setActiveTool(t.id)}
-                className={`flex items-center justify-center gap-1.5 px-1 py-2 text-[11px] font-medium transition-colors ${
+                className={`flex items-center justify-center gap-1.5 px-1 py-2.5 text-[12px] font-medium transition-colors ${
                   activeTool === t.id
                     ? "bg-accent/10 text-accent"
                     : "text-muted-foreground hover:bg-surface hover:text-foreground"
