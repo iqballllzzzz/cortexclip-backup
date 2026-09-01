@@ -18,7 +18,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-LOGO_PATH = Path(__file__).parent.parent / "assets" / "cortexclip-logo.png"
+LOGO_PATH = Path(__file__).parent.parent / "assets" / "cortexclip-logo-white.png"
 FONT_DIR = "/usr/share/fonts/truetype/subtitles"
 
 WATERMARK_OPACITY = 0.65  # 65% — spesifikasi user

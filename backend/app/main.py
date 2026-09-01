@@ -109,6 +109,28 @@ def require_admin(authorization: str | None) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Validasi ID dari URL/body
+# ---------------------------------------------------------------------------
+
+_UUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+
+
+def ensure_uuid(value: str, label: str = "Proyek") -> str:
+    """ID yang dipakai di query Postgres WAJIB UUID.
+
+    Tanpa ini, id ngawur (mis. /api/projects/abc/reprocess) bikin PostgREST
+    balas 400 `22P02 invalid input syntax for type uuid` → sb() raise
+    RuntimeError → 500 Internal Server Error + detail error DB bocor ke user.
+    Yang benar: perlakukan seperti data tidak ada → 404.
+    """
+    if not _UUID_RE.match(str(value or "")):
+        raise HTTPException(404, f"{label} tidak ditemukan / bukan milikmu")
+    return str(value)
+
+
+# ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
 
@@ -358,6 +380,8 @@ async def api_start_render_job(body: RenderJobIn, request: Request, authorizatio
     """Mulai render klip di BACKGROUND. User boleh keluar/pindah tab —
     hasilnya diambil lewat GET /api/render-jobs (halaman /unduh)."""
     user = await get_user(request, authorization)
+    ensure_uuid(body.project_id)
+    ensure_uuid(body.clip_id, "Klip")
     token = authorization.split(" ", 1)[1] if authorization and " " in authorization else ""
 
     # Resource guard — tolak job yang bikin server kritis
@@ -461,6 +485,7 @@ async def api_list_render_jobs(request: Request, authorization: str | None = Hea
 async def api_project_render_jobs(project_id: str, request: Request, authorization: str | None = Header(None)):
     """Job render untuk satu project — dipakai deteksi 'render selesai' saat balik ke halaman project."""
     user = await get_user(request, authorization)
+    ensure_uuid(project_id)
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.get(
             f"{SUPABASE_URL}/rest/v1/render_jobs?user_id=eq.{user['id']}&project_id=eq.{project_id}"
@@ -469,7 +494,11 @@ async def api_project_render_jobs(project_id: str, request: Request, authorizati
             headers={"apikey": SUPABASE_SERVICE_KEY,
                      "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
         )
-    return {"jobs": r.json()}
+    if r.status_code >= 300:
+        print(f"[render-jobs] query project gagal: {r.status_code} {r.text[:120]}")
+        return {"jobs": []}
+    data = r.json()
+    return {"jobs": data if isinstance(data, list) else []}
 
 
 # ---------------------------------------------------------------------------
@@ -657,6 +686,7 @@ async def api_admin_user_detail(user_id: str, request: Request,
                                 authorization: Optional[str] = Header(None)):
     from . import admin as admin_mod
     await require_admin_user(request, authorization)
+    ensure_uuid(user_id, "User")
     try:
         return await admin_mod.user_detail(user_id)
     except ValueError as exc:
@@ -668,6 +698,7 @@ async def api_admin_ban(user_id: str, body: BanIn, request: Request,
                         authorization: Optional[str] = Header(None)):
     from . import admin as admin_mod
     me = await require_admin_user(request, authorization)
+    ensure_uuid(user_id, "User")
     if user_id == me["id"]:
         raise HTTPException(400, "Tidak bisa mem-ban akun sendiri.")
     try:
@@ -748,6 +779,7 @@ async def api_quota(request: Request, authorization: str | None = Header(None)):
 @app.post("/api/projects/{project_id}/share")
 async def api_project_share(project_id: str, request: Request, authorization: str | None = Header(None)):
     user = await get_user(request, authorization)
+    ensure_uuid(project_id)
     from .premium import create_share
     try:
         return await create_share(user["id"], project_id)
@@ -849,6 +881,7 @@ class RenameIn(BaseModel):
 @app.patch("/api/projects/{project_id}")
 async def api_project_rename(project_id: str, body: RenameIn, request: Request, authorization: str | None = Header(None)):
     user = await get_user(request, authorization)
+    ensure_uuid(project_id)
     from .premium import sb
     rows = await sb("GET", f"projects?id=eq.{project_id}&user_id=eq.{user['id']}&select=id")
     if not rows:
@@ -861,6 +894,7 @@ async def api_project_rename(project_id: str, body: RenameIn, request: Request, 
 @app.post("/api/projects/{project_id}/touch")
 async def api_project_touch(project_id: str, request: Request, authorization: str | None = Header(None)):
     user = await get_user(request, authorization)
+    ensure_uuid(project_id)
     from .premium import sb
     try:
         await sb("PATCH", f"projects?id=eq.{project_id}&user_id=eq.{user['id']}",
@@ -875,6 +909,7 @@ async def api_project_delete(project_id: str, request: Request, authorization: s
     """Hapus PENUH: render_jobs, klip, file storage (video sumber + rendered),
     lalu row project. Verifikasi kepemilikan via user_id."""
     user = await get_user(request, authorization)
+    ensure_uuid(project_id)
     from .premium import sb
     rows = await sb("GET", f"projects?id=eq.{project_id}&user_id=eq.{user['id']}&select=id,source_url,storage_path")
     if not rows:
@@ -969,6 +1004,7 @@ async def api_project_reprocess(
     Wajib: project punya storage_path (video sumber tersimpan di server).
     """
     user = await get_user(request, authorization)
+    ensure_uuid(project_id)
     from .premium import sb, quota_check_project, MSG_LIMIT_PROJECT, limits_for
     quota = await quota_check_project(user["id"])
     if not quota["ok"]:
