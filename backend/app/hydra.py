@@ -497,11 +497,18 @@ class HydraGateway:
                 )
             if resp.status_code != 200:
                 self._fail(ep, resp.status_code, resp.text[:300])
+                print(f"[hydra] gemini STT: status {resp.status_code}")
                 return None
             self._ok(ep)
             d = resp.json()
-            parts = (d.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
+            cand = (d.get("candidates") or [{}])[0]
+            if cand.get("finishReason") not in (None, "STOP", "MAX_TOKENS"):
+                print(f"[hydra] gemini STT: finishReason={cand.get('finishReason')} (blocked?)")
+            parts = (cand.get("content", {}).get("parts") or [])
             text = "".join(p.get("text", "") for p in parts if isinstance(p, dict))
+            if not text:
+                print(f"[hydra] gemini STT: jawaban kosong, promptFeedback={str(d.get('promptFeedback'))[:150]}")
+                return None
             # parse JSON array (tahan markdown fence)
             t = text.strip()
             if t.startswith("```"):
