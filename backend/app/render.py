@@ -341,7 +341,7 @@ def render_clip(
             cmd += ["-vf", ",".join(vf_parts)] if vf_parts else ["-vf", "null"]
 
     cmd += [
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "18",
         "-threads", "4",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
@@ -442,7 +442,7 @@ def burn_hook_overlay(
         "-i", src,
         "-vf", drawtext,
         "-c:a", "copy",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "18",
         "-pix_fmt", "yuv420p",
         "-movflags", "+faststart",
         out_path,

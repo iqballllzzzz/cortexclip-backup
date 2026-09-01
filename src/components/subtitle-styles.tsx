@@ -153,8 +153,7 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
     },
     css: {
       fontFamily: "'TikTok Sans', sans-serif", fontWeight: 500,
-      color: "#FFB800", backgroundColor: "rgba(26,26,26,0.8)",
-      padding: "2px 8px", borderRadius: 4,
+      color: "#FFB800", WebkitTextStroke: "1px #1A1A1A",
     },
     animate: "slide",
   },

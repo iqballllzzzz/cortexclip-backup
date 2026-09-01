@@ -90,10 +90,13 @@ def build_watermark_png(
     img = Image.new("RGBA", (total_w, total_h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    # logo (alpha opacity)
+    # logo: opacity dikali alpha ASLI logo (jangan menimpa — kalau putalpha
+    # konstan, area transparan logo ikut terlihat → watermark jadi kotak)
     alpha = int(255 * opacity)
     logo_a = logo.copy()
-    logo_a.putalpha(alpha)
+    r_, g_, b_, a_ = logo_a.split()
+    a_scaled = a_.point(lambda v: (v * alpha) // 255)
+    logo_a.putalpha(a_scaled)
     img.paste(logo_a, (pad, (total_h - logo_size) // 2), logo_a)
 
     # teks putih alpha

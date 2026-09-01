@@ -133,10 +133,41 @@ async def render_clip_server(
         with open(ass_path, "w", encoding="utf-8") as f:
             f.write(ass)
 
-        # IKON & B-ROLL overlay (AI pilih momen → PNG Twemoji via ffmpeg overlay;
-        # ASS emoji tidak andal → PNG 100% konsisten dengan preview browser)
+        # deklarasi overlays sebelum dipakai emoji & broll
         icon_ass_path: Optional[str] = None
         icon_png_overlays: list[dict[str, Any]] = []
+
+        # EMOJI per-kata → PNG Twemoji overlay (libass tak bisa render emoji).
+        # Hitung annotation yang sama seperti build_ass (deterministik) lalu
+        # render PNG di posisi setelah kata terkait.
+        emoji_in_text = bool(style.get("emoji", True))
+        if emoji_in_text:
+            try:
+                from .subtitles import annotate_caption_words
+                from .twemoji import twemoji_png
+                emoji_by_idx, _ = annotate_caption_words(words)
+                for idx, emoji in emoji_by_idx.items():
+                    if idx >= len(words):
+                        continue
+                    w = words[idx]
+                    png = twemoji_png(emoji)
+                    if not png:
+                        continue
+                    t_end_w = float(w.get("end", w.get("start", 0)) or 0)
+                    t_start_w = float(w.get("start", 0) or 0)
+                    icon_png_overlays.append({
+                        "png": png,
+                        "x": int(vw * 0.45),
+                        "y": int(vh * (float(style.get("position", 75)) / 100.0) + int(vh * 0.09)),
+                        "size": int(vw * 0.10),
+                        "t_start": t_start_w,
+                        "t_end": t_end_w + 1.2,
+                    })
+            except Exception as exc:
+                print(f"[render] emoji overlay gagal (render tetap jalan): {exc}")
+
+        # IKON & B-ROLL overlay (AI pilih momen → PNG Twemoji via ffmpeg overlay;
+        # ASS emoji tidak andal → PNG 100% konsisten dengan preview browser)
         if broll_enabled:
             try:
                 from .broll import compute_placements, ICON_EMOJI

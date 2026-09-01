@@ -386,7 +386,7 @@ CAPTION_TEMPLATES: dict[str, dict[str, Any]] = {
         "emphasis_color": "#FFB800",
         "stroke_color": "#1A1A1A",
         "stroke_width": 2,
-        "background": True, "background_color": "#1A1A1ACC",
+        "background": False, "background_color": None,
         "word_box": False, "word_box_color": None,
         "animation": "karaoke", "word_pop": False,
         "emoji": False, "uppercase": False,
@@ -512,11 +512,14 @@ def build_ass(
     style: dict[str, Any] | None = None,
     video_width: int = 1080,
     video_height: int = 1920,
+    server_render: bool = True,
 ) -> str:
     """Bangun ASS karaoke OpusClip-style.
 
     words: [{word|text, start, end}] — timing relatif klip (word-level JSON).
     style: {"preset": "hormozi", ...override} — key template Supoclip.
+    server_render=True (default): emoji teks tidak disisipkan (PNG overlay
+    terpisah yang menggambar emoji di render final).
     """
     if isinstance(style, str):
         try:
@@ -539,7 +542,13 @@ def build_ass(
     word_box = bool(template.get("word_box"))
     glow = bool(template.get("glow"))
     has_outline = template.get("stroke_color") is not None
-    enable_emoji = bool(template.get("emoji", True)) and emoji_rendering_supported()
+    # emoji: template boleh men-disable, tapi override eksplisit dari user (editor)
+    # selalu menang — style["emoji"] dikirim frontend (toggle "Emoji pada subtitle")
+    template_emoji = bool(template.get("emoji", True))
+    user_emoji = style.get("emoji")
+    if user_emoji is not None:
+        template_emoji = bool(user_emoji)
+    enable_emoji = template_emoji and emoji_rendering_supported()
     enable_emphasis = animation != "none"
 
     # posisi: style.position (persen 0-100 dari atas) → position_y (0-1)
@@ -592,9 +601,17 @@ def build_ass(
     border_style = 3 if (template.get("background") and template.get("background_color")) else 1
 
     # --- emoji + emphasis annotation ---
-    emoji_by_idx, emphasis_idx = annotate_caption_words(
-        words, enable_emoji=enable_emoji, enable_emphasis=enable_emphasis,
-    )
+    # server_render=True → emoji teks TIDAK disisipkan di ASS (libass tak bisa
+    # render emoji; PNG overlay terpisah yang menggambar). Emphasis tetap.
+    if not server_render:
+        emoji_by_idx, emphasis_idx = annotate_caption_words(
+            words, enable_emoji=enable_emoji, enable_emphasis=enable_emphasis,
+        )
+    else:
+        _, emphasis_idx = annotate_caption_words(
+            words, enable_emoji=False, enable_emphasis=enable_emphasis,
+        )
+        emoji_by_idx = {}
 
     max_words = max(1, int(template.get("max_words_per_line", 4) or 4))
 

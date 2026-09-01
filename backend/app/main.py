@@ -482,6 +482,22 @@ async def api_list_render_jobs(request: Request, authorization: str | None = Hea
     return {"jobs": r.json()}
 
 
+@app.delete("/api/render-jobs/{job_id}")
+async def api_delete_render_job(job_id: str, request: Request, authorization: Optional[str] = Header(None)):
+    """Hapus satu job unduhan (row render_jobs milik user)."""
+    user = await get_user(request, authorization)
+    ensure_uuid(job_id, "Job")
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.delete(
+            f"{SUPABASE_URL}/rest/v1/render_jobs?id=eq.{job_id}&user_id=eq.{user['id']}",
+            headers={"apikey": SUPABASE_SERVICE_KEY,
+                     "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
+        )
+    if r.status_code >= 300:
+        raise HTTPException(400, "Gagal menghapus unduhan")
+    return {"ok": True}
+
+
 @app.get("/api/render-jobs/project/{project_id}")
 async def api_project_render_jobs(project_id: str, request: Request, authorization: str | None = Header(None)):
     """Job render untuk satu project — dipakai deteksi 'render selesai' saat balik ke halaman project."""
