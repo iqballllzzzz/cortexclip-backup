@@ -284,13 +284,16 @@ async def render_clip_server(
 
         traj = None
         cam_cuts: list[int] = []
+        cam_fps = 15.0
         if face_tracking:
             try:
                 st = render_mod.analyze_speaker_track(src, start, end)
                 traj = st.get("trajectory") or None
                 cam_cuts = list(st.get("cuts") or [])
+                cam_fps = float(st.get("analysis_fps") or 15.0)
                 print(f"[render] speaker track: wajah={st.get('faces')} "
-                      f"pindah={st.get('switches')} cuts={len(cam_cuts)}")
+                      f"pindah={st.get('switches')} cuts={len(cam_cuts)} "
+                      f"fps={cam_fps}")
             except Exception as exc:
                 print(f"[render] speaker track gagal: {exc}")
                 traj = None
@@ -317,6 +320,7 @@ async def render_clip_server(
             face_tracking=bool(traj),
             camera_trajectory=traj,
             camera_cuts=cam_cuts,
+            camera_fps=cam_fps,
             watermark=watermark_on,
             icon_ass_path=icon_ass_path,
             icon_png_overlays=icon_png_overlays,  # FIX: sebelumnya overlay DIBUANG

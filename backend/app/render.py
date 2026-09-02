@@ -152,284 +152,26 @@ def smooth_camera(
 
 
 def analyze_speaker_track(src: str, start: float, end: float) -> dict[str, Any]:
-    """Trajektori kamera MULTI-ORANG: sorot orang yang SEDANG BICARA.
+    """Trajektori kamera yang SELALU terpusat pada wajah orang yang bicara.
 
-    Cara kerja (tanpa model tambahan):
-    1. MediaPipe BlazeFace mendeteksi SEMUA wajah tiap frame (5 fps).
-    2. Deteksi dikelompokkan jadi 'track' per orang (jarak antar-frame).
-    3. Aktivitas bicara diukur dari GERAK MULUT: selisih piksel di area
-       keypoint mulut antar frame (EMA, jadi kebal noise 1 frame).
-    4. Kamera hanya berpindah kalau orang lain dominan bicara selama
-       >=0.6 detik (histeresis) — mencegah kamera bolak-balik.
-
-    Return {"trajectory": [...], "faces": n_max, "switches": n}.
-    Kalau hanya 1 orang → perilaku sama seperti face tracking biasa.
+    Implementasi ada di app/speaker_*.py (dipisah supaya tiap bagian bisa
+    diuji sendiri). Ringkasnya:
+      - FaceMesh (bukan BlazeFace) memberi landmark bibir sampai 10 wajah, jadi
+        BUKAAN MULUT terukur langsung; statistik piksel gagal memisahkan yang
+        bicara dari yang diam (rasio tetap ~1.0) karena gerak kepala mendominasi;
+      - skor bicara = simpangan bukaan mulut dalam jendela 1 detik, diambil pada
+        15 fps karena bicara 3-4 suku kata/detik (5 fps teraliasing);
+      - asosiasi identitas memakai ambang relatif LEBAR WAJAH + global-greedy,
+        jadi dua orang yang duduk berdempetan tidak tertukar identitas;
+      - wajah kecil di latar tidak dianggap kandidat (klip >5 orang tetap jelas);
+      - setiap pergantian orang menjadi POTONGAN dan penghalusan dilakukan per
+        segmen, sehingga kamera tidak pernah berhenti di ruang kosong antara
+        dua wajah;
+      - kalau tidak ada yang bicara, kamera bertahan pada orang terakhir.
     """
-    import numpy as np
-
-    try:
-        w, h = probe_size(src)
-    except Exception:
-        return {"trajectory": [], "faces": 0, "switches": 0}
-    dur = min(end - start, 180)
-    analysis_h = max(180, int(ANALYSIS_WIDTH * h / w / 2) * 2)
-    analysis_w = int(analysis_h * w / h / 2) * 2
-    fps = 5
-    cmd = [
-        "ffmpeg", "-v", "error",
-        "-ss", f"{start:.3f}", "-t", f"{dur:.3f}", "-i", src,
-        "-vf", f"scale={analysis_w}:{analysis_h}",
-        "-r", str(fps),
-        "-f", "rawvideo", "-pix_fmt", "rgb24", "-",
-    ]
-    try:
-        raw = run_ffmpeg(cmd, timeout=900).stdout
-    except Exception:
-        return {"trajectory": [], "faces": 0, "switches": 0}
-    frame_bytes = analysis_w * analysis_h * 3
-    n_frames = len(raw) // frame_bytes
-    if n_frames < 4:
-        return {"trajectory": [], "faces": 0, "switches": 0}
-    frames = np.frombuffer(raw[: n_frames * frame_bytes], dtype=np.uint8).reshape(
-        n_frames, analysis_h, analysis_w, 3
-    )
-
-    MATCH_DIST = analysis_w * 0.16      # jarak maks dianggap orang yang sama
-    SWITCH_FRAMES = 3                   # 3 frame @5fps = 0.6s dominan berturut
-    SWITCH_RATIO = 1.8                  # kandidat harus jelas lebih aktif
-    EMA = 0.55                          # (dipakai sbg cadangan; lihat EMA asimetris)
-    MIN_MOTION = 2.0                    # ambang absolut "sedang bicara"
-    QUIET_MOTION = 1.6                  # di bawah ini dianggap BERHENTI bicara
-    CUT_COOLDOWN = int(fps * 1.5)       # jeda minimal antar potong (1.5s)
-
-    tracks: list[dict[str, Any]] = []
-    retired: list[dict[str, Any]] = []      # track hilang sesaat (wajah ketutup mic)
-    active_idx: int | None = None
-    active_uid: list[int | None] = [None]   # uid orang yang sedang disorot
-    _next_uid = [1]
-    last_cut = [-999]                       # frame potong terakhir (cooldown)
-    MIN_CUT_DIST = analysis_w * 0.10         # potong hanya kalau posisi beda nyata
-    pending_idx: int | None = None
-    pending_count = 0
-    switches = 0
-    max_faces = 0
-    targets: list[float] = []
-    cut_frames: set[int] = set()      # frame di mana pembicara BERGANTI → potong keras
-
-    for fi in range(n_frames):
-        frame = frames[fi]
-        gray = frame.mean(axis=2)
-        res = _face_detector.process(frame)
-        dets = list(res.detections or [])
-        max_faces = max(max_faces, len(dets))
-
-        seen: set[int] = set()
-        for d in dets:
-            bb = d.location_data.relative_bounding_box
-            cx = (bb.xmin + bb.width / 2) * analysis_w
-            cy = (bb.ymin + bb.height / 2) * analysis_h
-            # keypoint mulut (index 3) → fallback ke bawah bbox
-            try:
-                kp = d.location_data.relative_keypoints[3]
-                mx, my = kp.x * analysis_w, kp.y * analysis_h
-            except Exception:
-                mx, my = cx, (bb.ymin + bb.height * 0.80) * analysis_h
-            r = max(4, int(bb.width * analysis_w * 0.22))
-            y0, y1 = max(0, int(my - r)), min(analysis_h, int(my + r))
-            x0, x1 = max(0, int(mx - r)), min(analysis_w, int(mx + r))
-            patch = gray[y0:y1, x0:x1]
-
-            # cocokkan ke track terdekat
-            best_i, best_d = None, 1e9
-            for i, tr in enumerate(tracks):
-                if i in seen:
-                    continue
-                dist = abs(tr["cx"] - cx) + abs(tr["cy"] - cy) * 0.5
-                if dist < best_d:
-                    best_i, best_d = i, dist
-            if best_i is not None and best_d <= MATCH_DIST:
-                tr = tracks[best_i]
-                prev = tr.get("patch")
-                motion = 0.0
-                if (prev is not None and prev.shape == patch.shape
-                        and patch.size > 0):
-                    motion = float(np.abs(patch.astype(np.float32)
-                                          - prev.astype(np.float32)).mean())
-                # EMA asimetris: NAIK cepat (mulai bicara langsung terdeteksi),
-                # TURUN lebih lambat (jeda antar kata tidak dianggap berhenti)
-                a = 0.75 if motion > tr["motion"] else 0.35
-                tr["motion"] = tr["motion"] * (1 - a) + motion * a
-                tr["cx"], tr["cy"] = cx, cy
-                tr["patch"] = patch
-                tr["last"] = fi
-                seen.add(best_i)
-            else:
-                # SEBELUM membuat identitas baru: cek track yang baru hilang
-                # (wajah ketutup mic/tangan lalu muncul lagi). Tanpa ini,
-                # orang yang sama dapat uid baru → dianggap ganti pembicara →
-                # kamera memotong padahal tidak ada pergantian.
-                reuse = None
-                for rt in retired:
-                    if fi - rt["last"] > fps * 4:
-                        continue
-                    if abs(rt["cx"] - cx) + abs(rt["cy"] - cy) * 0.5 <= MATCH_DIST * 1.6:
-                        reuse = rt
-                        break
-                if reuse is not None:
-                    retired.remove(reuse)
-                    reuse.update({"cx": cx, "cy": cy, "patch": patch,
-                                  "last": fi})
-                    tracks.append(reuse)
-                else:
-                    tracks.append({"cx": cx, "cy": cy, "patch": patch,
-                                   "motion": 0.0, "last": fi,
-                                   "uid": _next_uid[0]})
-                    _next_uid[0] += 1
-                seen.add(len(tracks) - 1)
-
-        # buang track yang lama hilang (>2s) — simpan sebentar di `retired`
-        # supaya identitasnya bisa dipakai lagi kalau wajahnya muncul kembali
-        stale = [t for t in tracks if fi - t["last"] > fps * 2]
-        if stale:
-            retired.extend(stale)
-            retired = [t for t in retired if fi - t["last"] <= fps * 6][-8:]
-        tracks = [t for t in tracks if fi - t["last"] <= fps * 2]
-        live = [t for t in tracks if fi - t["last"] <= 1]
-
-        prev_uid = active_uid[0]
-
-        if not live:
-            targets.append(targets[-1] if targets else analysis_w / 2)
-            continue
-        if len(live) == 1:
-            active_idx = tracks.index(live[0])
-            prev_cx = targets[-1] if targets else live[0]["cx"]
-            active_uid[0] = live[0]["uid"]
-            # potong HANYA kalau benar-benar orang lain DAN posisinya beda
-            # nyata; kalau tidak, biarkan pan halus (mis. wajah sempat hilang).
-            # MIN_CUT_DIST digandakan di sini: 1 wajah terlihat = paling sering
-            # cuma deteksi kedip-kedip, bukan pergantian pembicara sungguhan.
-            if (prev_uid is not None and prev_uid != active_uid[0]
-                    and abs(live[0]["cx"] - prev_cx) >= MIN_CUT_DIST * 2.0
-                    and fi - last_cut[0] >= CUT_COOLDOWN):
-                cut_frames.add(fi)          # orang berganti → teleport
-                last_cut[0] = fi
-                switches += 1
-            targets.append(live[0]["cx"])
-            continue
-
-        # >1 orang: pilih yang mulutnya paling aktif
-        loud = max(live, key=lambda t: t["motion"])
-        cur = None
-        if active_uid[0] is not None:
-            cur = next((t for t in live if t["uid"] == active_uid[0]), None)
-        if cur is None:
-            active_idx = tracks.index(loud)
-            prev_cx = targets[-1] if targets else loud["cx"]
-            active_uid[0] = loud["uid"]
-            if (prev_uid is not None and prev_uid != active_uid[0]
-                    and abs(loud["cx"] - prev_cx) >= MIN_CUT_DIST
-                    and fi - last_cut[0] >= CUT_COOLDOWN):
-                cut_frames.add(fi)
-                last_cut[0] = fi
-                switches += 1
-            pending_idx, pending_count = None, 0
-        elif (loud is not cur
-              and loud["motion"] >= MIN_MOTION
-              and loud["motion"] > cur["motion"] * SWITCH_RATIO
-              # yang sedang disorot harus benar-benar BERHENTI bicara —
-              # tanpa syarat ini kamera pindah saat dua-duanya bicara
-              and cur["motion"] < QUIET_MOTION):
-            li = tracks.index(loud)
-            if pending_idx == li:
-                pending_count += 1
-            else:
-                pending_idx, pending_count = li, 1
-            # cooldown: jangan potong bolak-balik lebih cepat dari 1.2s
-            if (pending_count >= SWITCH_FRAMES
-                    and fi - last_cut[0] >= CUT_COOLDOWN
-                    and abs(loud["cx"] - cur["cx"]) >= MIN_CUT_DIST):
-                active_idx = li
-                active_uid[0] = loud["uid"]
-                cut_frames.add(fi)          # PINDAH PEMBICARA → potong keras
-                last_cut[0] = fi
-                switches += 1
-                pending_idx, pending_count = None, 0
-        else:
-            pending_idx, pending_count = None, 0
-
-        at = None
-        if active_uid[0] is not None:
-            at = next((t for t in live if t["uid"] == active_uid[0]), None)
-        at = at or loud
-        targets.append(at["cx"])
-
-    # Trajektori kamera:
-    #  - orang SAMA bergerak  → ikuti wajah HALUS & TERPUSAT
-    #  - GANTI pembicara      → teleport (cam langsung ke posisi orang baru)
-    #
-    # Trajektori dihitung OFFLINE (seluruh klip sudah dianalisis), jadi tidak
-    # perlu filter kausal seperti EMA — EMA selalu tertinggal di belakang wajah
-    # ("miring dari wajahnya") dan kalau dipercepat jadi patah-patah.
-    # Di sini dipakai penghalusan ZERO-PHASE (maju-mundur) per SEGMEN antar
-    # potongan: hasilnya mulus TANPA lag, tetap terpusat di wajah, dan
-    # teleport di titik cut tetap tajam karena tiap segmen dihaluskan sendiri.
-    scale = w / analysis_w
-    crop_w = min(int(h * ASPECT), w)
-    half = crop_w / 2
-
-    def _median3(seq: list[float]) -> list[float]:
-        """Buang jitter deteksi 1 frame."""
-        if len(seq) < 3:
-            return list(seq)
-        out = [seq[0]]
-        for i in range(1, len(seq) - 1):
-            out.append(sorted(seq[i - 1:i + 2])[1])
-        out.append(seq[-1])
-        return out
-
-    def _smooth_zero_phase(seq: list[float], win: int) -> list[float]:
-        """Rata-rata bergerak dua arah (maju lalu mundur) = tanpa pergeseran fase."""
-        if len(seq) < 3 or win < 2:
-            return list(seq)
-        k = min(win, max(2, len(seq) // 2))
-        cur = list(seq)
-        for _ in range(2):                      # 2 lintasan = kurva makin halus
-            # maju
-            acc = cur[0]
-            fwd = []
-            a_ = 2.0 / (k + 1)
-            for v in cur:
-                acc += (v - acc) * a_
-                fwd.append(acc)
-            # mundur (mengembalikan lag yang ditimbulkan lintasan maju)
-            acc = fwd[-1]
-            bwd = [0.0] * len(fwd)
-            for i in range(len(fwd) - 1, -1, -1):
-                acc += (fwd[i] - acc) * a_
-                bwd[i] = acc
-            cur = bwd
-        return cur
-
-    # segmen = potongan trajektori antara dua cut (teleport tidak dihaluskan)
-    bounds = [0] + sorted(c for c in cut_frames if 0 < c < len(targets)) + [len(targets)]
-    SMOOTH_WIN = max(3, int(fps * 0.9))      # jendela ±0.9 detik
-    traj_analysis: list[float] = []
-    for b0, b1 in zip(bounds, bounds[1:]):
-        seg = targets[b0:b1]
-        if not seg:
-            continue
-        seg = _median3(seg)
-        seg = _smooth_zero_phase(seg, SMOOTH_WIN)
-        traj_analysis.extend(seg)
-
-    trajectory: list[float] = []
-    for tc in traj_analysis:
-        cam_x = max(half, min(w - half, tc * scale))
-        trajectory.append(cam_x)
-    return {"trajectory": trajectory, "faces": max_faces,
-            "switches": switches, "cuts": sorted(cut_frames),
-            "analysis_fps": fps}
+    from .speaker_analyze import analyze
+    return analyze(src, start, end, probe_size=probe_size,
+                   run_ffmpeg=run_ffmpeg, aspect=ASPECT)
 
 
 def analyze_face_track(src: str, start: float, end: float) -> list[float]:
@@ -535,9 +277,12 @@ def build_sendcmd_file(trajectory: list[float], src_w: int, src_h: int,
         cx_i = trajectory[i]
         if i in cut_set:
             # teleport: tegaskan posisi tepat di detik itu, tanpa interpolasi
+            # DARI titik sebelumnya (itu yang membuat potongan tajam). Gerakan
+            # SETELAH potongan tetap diinterpolasi, kalau tidak kamera menahan
+            # posisi ~2 frame tiap kali berganti pembicara.
             emit(t_i, cx_i, force=True)
-            continue
-        emit(t_i, cx_i)
+        else:
+            emit(t_i, cx_i)
         if i + 1 < n and (i + 1) not in cut_set:
             cx_next = trajectory[i + 1]
             # sisipkan titik antara supaya pergerakan mulus
@@ -566,6 +311,7 @@ def render_clip(
     face_tracking: bool = True,
     camera_trajectory: Optional[list[float]] = None,
     camera_cuts: Optional[list[int]] = None,
+    camera_fps: float = 15.0,
     watermark: bool = True,
     icon_ass_path: Optional[str] = None,
     icon_png_overlays: Optional[list[dict[str, Any]]] = None,
@@ -597,7 +343,7 @@ def render_clip(
 
     if face_tracking and camera_trajectory and len(camera_trajectory) > 1:
         cmdfile = build_sendcmd_file(camera_trajectory, src_w, src_h,
-                                     cuts=camera_cuts)
+                                     analysis_fps=camera_fps, cuts=camera_cuts)
         crop_w = min(int(src_h * aspect), src_w)
         # dynamic crop with sendcmd-driven x
         vf_parts.append(f"sendcmd=f={cmdfile}")
