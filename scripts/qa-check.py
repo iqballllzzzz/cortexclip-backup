@@ -9,6 +9,7 @@ import json
 import os
 import re
 import base64
+import shlex
 import shutil
 import subprocess
 import time
@@ -544,6 +545,70 @@ try:
        f"{fe_stuck}x 'exceeded maximum lifetime' pid={fpid}")
 except Exception as exc:
     ok("log frontend terbaca", False, str(exc)[:60])
+
+# ---- SHUTDOWN BERSIH: restart tak boleh nyangkut sampai SIGKILL ----
+# Regresi nyata (02 Sep): run.py memanggil uvicorn.run() TANPA
+# timeout_graceful_shutdown (default None = tunggu request in-flight
+# selamanya). /api/render-clip & /api/transcribe jalan menit-an di dalam
+# request handler, jadi tiap `systemctl restart` menggantung sampai
+# TimeoutStopSec systemd (90s) habis lalu SIGKILL: ~90s backend mati total
+# tiap deploy, background task terpotong paksa, status "Failed (timeout)".
+# Kejadian SEBELUM fix ter-deploy diabaikan (dibanding mtime run.py) supaya
+# insiden lama tidak bikin QA gagal terus.
+try:
+    def _journal(args):
+        """journalctl yang benar-benar memuat pesan systemd[1] (bukan cuma stdout app).
+
+        User biasa hanya melihat baris milik unit-nya; pesan systemd sendiri
+        ("stop-sigterm timed out") butuh grup adm/systemd-journal. Tanpa
+        fallback ini cek shutdown akan selalu PASS palsu di cron.
+        """
+        base = ["journalctl", "-u", "cortexclip-backend", "-u", "cortexclip-frontend",
+                "--no-pager", "-q", "-o", "short-iso"] + args
+        out = subprocess.run(base, capture_output=True, text=True, timeout=60).stdout
+        if "systemd[1]:" in out:
+            return out
+        # quoting wajib: argumen seperti "6 hours ago" punya spasi, join mentah
+        # bikin `sg -c` memecahnya jadi 3 argumen dan journalctl error.
+        shell_cmd = " ".join(shlex.quote(a) for a in base)
+        for grp in ("adm", "systemd-journal"):
+            try:
+                alt = subprocess.run(["sg", grp, "-c", shell_cmd],
+                                     capture_output=True, text=True, timeout=60).stdout
+            except Exception:
+                continue
+            if "systemd[1]:" in alt:
+                return alt
+        return out
+
+    _lg = _journal(["--since", "6 hours ago"])
+    ok("log systemd service terbaca", "systemd[1]:" in _lg,
+       "pesan systemd tak terlihat (grup adm?) — cek shutdown tidak valid")
+    _fix_ts = os.path.getmtime(os.path.join(BE, "run.py"))
+    dirty_stop = []
+    for ln in _lg.splitlines():
+        if ("stop-sigterm' timed out" not in ln
+                and "Failed with result 'timeout'" not in ln):
+            continue
+        try:
+            t = datetime.strptime(ln.split()[0], "%Y-%m-%dT%H:%M:%S%z")
+        except (ValueError, IndexError):
+            continue
+        if t.timestamp() > _fix_ts + SLACK:
+            dirty_stop.append(ln.split()[0])
+    ok("shutdown service bersih (tanpa SIGKILL)", not dirty_stop,
+       f"{len(dirty_stop)}x nyangkut, terakhir {dirty_stop[-1] if dirty_stop else '-'}")
+except Exception as exc:
+    ok("shutdown service bersih (tanpa SIGKILL)", False, str(exc)[:60])
+
+# guard statis: batas graceful shutdown wajib tetap ada di launcher produksi
+try:
+    _runpy = open(os.path.join(BE, "run.py"), encoding="utf-8").read()
+    ok("run.py membatasi graceful shutdown",
+       "timeout_graceful_shutdown" in _runpy,
+       "uvicorn.run tanpa timeout_graceful_shutdown → restart nyangkut 90s")
+except Exception as exc:
+    ok("run.py membatasi graceful shutdown", False, str(exc)[:60])
 
 # ============ 10. NGINX 5xx (edge) ============
 # Regresi nyata (01 Sep): asset hash lama diminta browser → Nitro balas 500,

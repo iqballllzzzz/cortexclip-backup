@@ -13,4 +13,13 @@ print(f"[run.py] loaded .env from {HERE}. GROQ key: {bool(os.environ.get('GROQ_A
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8787)
+    # timeout_graceful_shutdown WAJIB diisi. Default uvicorn = None = tunggu
+    # request in-flight SELAMANYA. /api/render-clip & /api/transcribe jalan di
+    # dalam request handler (bisa menit-an), jadi tiap `systemctl restart`
+    # nyangkut sampai TimeoutStopSec systemd (90s) habis lalu SIGKILL —
+    # "Failed with result 'timeout'" + ~90s downtime tiap deploy.
+    # 15s: request pendek tetap selesai rapi, yang panjang di-cancel.
+    # Render yang ikut ke-cancel sudah ditangani startup sweep watchdog
+    # (job "rendering" → failed, user bisa render ulang).
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8787,
+                timeout_graceful_shutdown=15)
