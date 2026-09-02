@@ -1232,6 +1232,10 @@ async def _start_render_watchdog() -> None:
     except Exception as exc:
         print(f"[render-watchdog] startup sweep gagal: {exc}")
     asyncio.create_task(_reap_stale_render_jobs())
+    # order QRIS pending yang lewat 60 menit ditutup otomatis, walau user
+    # sudah menutup tab (get_order_status hanya jalan saat dialog terbuka)
+    from .premium import reap_expired_orders_loop
+    asyncio.create_task(reap_expired_orders_loop())
 
 
 # ---------------------------------------------------------------------------

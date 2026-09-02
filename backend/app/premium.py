@@ -33,6 +33,10 @@ PUBLIC_BASE = (os.environ.get("PUBLIC_BASE_URL") or "https://clip.aqualibrya.my.
 PAKASIR_PROJECT = os.environ.get("PAKASIR_PROJECT", "aqualibriaclip")
 PAKASIR_API_KEY = os.environ.get("PAKASIR_API_KEY", "")
 PAKASIR_BASE = "https://app.pakasir.com/api"
+# QRIS Pakasir berlaku 60 menit sejak transactioncreate (terukur di produksi).
+# Dipakai sebagai cadangan kalau `expired_at` tidak ada / tidak masuk akal —
+# tanpa acuan waktu, order menggantung 'pending' selamanya.
+QRIS_TTL_MIN = 60
 
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/home/muhiqbalsukarno/cortexclip-backup/backend/uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -174,7 +178,19 @@ async def create_checkout(user_id: str, plan_key: str) -> dict[str, Any]:
     pay = await pakasir_create_qris(order_id, plan["amount"])
     # `expired_at` hanya dikembalikan saat create (tidak ada di transactiondetail),
     # jadi WAJIB disimpan — tanpa ini countdown hilang saat user refresh.
+    # Kalau Pakasir tidak mengirimnya (atau nilainya ngawur/lebih awal dari
+    # sekarang), pakai TTL terukur 60 menit supaya countdown & penutupan
+    # otomatis tetap punya acuan.
+    dibuat = datetime.now(timezone.utc)
     expired_at = str(pay.get("expired_at") or "")
+    try:
+        _exp = datetime.fromisoformat(expired_at.replace("Z", "+00:00"))
+        if _exp.tzinfo is None:
+            _exp = _exp.replace(tzinfo=timezone.utc)
+        if _exp <= dibuat:
+            raise ValueError("expired_at lebih awal dari waktu buat")
+    except ValueError:
+        expired_at = (dibuat + timedelta(minutes=QRIS_TTL_MIN)).isoformat()
     await sb("POST", "premium_orders", json_body=[{
         "user_id": user_id, "order_id": order_id, "plan": plan_key,
         "amount": plan["amount"], "status": "pending",
@@ -363,6 +379,33 @@ async def create_share(user_id: str, project_id: str) -> dict[str, Any]:
     return {"url": f"{PUBLIC_BASE}/share/{token}", "expires_at": expires}
 
 
+# Batas waktu bayar dipakai dua tempat: get_order_status (saat dialog terbuka)
+# dan sweep_expired_orders (latar belakang).
+def _order_deadline(order: dict[str, Any]) -> Optional[datetime]:
+    """Batas waktu bayar sebuah order (UTC), atau None kalau tak bisa dihitung.
+
+    `expired_at` dari Pakasir dipakai kalau masuk akal; kalau nilainya lebih awal
+    dari created_at (pernah terjadi: satu baris tersimpan expired 5 menit SEBELUM
+    dibuat) nilainya diabaikan supaya order baru tidak langsung dianggap mati.
+    """
+    def _p(raw: Any) -> Optional[datetime]:
+        if not raw:
+            return None
+        try:
+            dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+    dibuat = _p(order.get("created_at"))
+    exp = _p(order.get("expired_at"))
+    if exp and (dibuat is None or exp > dibuat):
+        return exp
+    if dibuat:
+        return dibuat + timedelta(minutes=QRIS_TTL_MIN)
+    return None
+
+
 async def get_order_status(user_id: str, order_id: str) -> dict[str, Any]:
     """Status order + premium_until; kalau masih pending, cek langsung ke Pakasir.
 
@@ -370,7 +413,7 @@ async def get_order_status(user_id: str, order_id: str) -> dict[str, Any]:
     'pending' selamanya):
       1. Pakasir menjawab 'canceled' — itulah status untuk QRIS yang lewat waktu
          (Pakasir tidak punya status 'expired').
-      2. `expired_at` yang kita simpan sudah terlewat.
+      2. batas waktu order (`expired_at`, atau created_at + 60 menit) terlewat.
     """
     rows = await sb("GET", f"premium_orders?order_id=eq.{order_id}&user_id=eq.{user_id}"
                            "&select=order_id,plan,amount,status,payment_method,"
@@ -387,16 +430,8 @@ async def get_order_status(user_id: str, order_id: str) -> dict[str, Any]:
                                   "status": "completed"})
             order["status"] = "completed"
         else:
-            lewat_waktu = False
-            exp = order.get("expired_at")
-            if exp:
-                try:
-                    dt = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
-                    if dt.tzinfo is None:
-                        dt = dt.replace(tzinfo=timezone.utc)
-                    lewat_waktu = datetime.now(timezone.utc) >= dt
-                except ValueError:
-                    lewat_waktu = False
+            deadline = _order_deadline(order)
+            lewat_waktu = bool(deadline and datetime.now(timezone.utc) >= deadline)
             if st == "canceled" or lewat_waktu:
                 order["status"] = "expired"
                 try:
@@ -406,6 +441,57 @@ async def get_order_status(user_id: str, order_id: str) -> dict[str, Any]:
                     print(f"[premium] tandai expired gagal: {exc}")
     prof = await sb("GET", f"profiles?user_id=eq.{user_id}&select=premium_until")
     return {"order": order, "premium_until": (prof or [{}])[0].get("premium_until")}
+
+
+async def sweep_expired_orders() -> int:
+    """Tandai order 'pending' yang batas waktunya lewat menjadi 'expired'.
+
+    Tanpa sapuan ini order hanya dievaluasi saat user membuka dialog bayar
+    (get_order_status). Begitu tab ditutup, order tetap 'pending' selamanya —
+    dashboard admin & riwayat user menampilkan tagihan hidup yang sudah mati,
+    dan QRIS-nya sendiri sudah dibatalkan di sisi Pakasir.
+    """
+    try:
+        rows = await sb("GET", "premium_orders?status=eq.pending"
+                               "&select=order_id,amount,created_at,expired_at&limit=200")
+    except Exception as exc:
+        print(f"[premium-sweep] baca order gagal: {exc}")
+        return 0
+    now = datetime.now(timezone.utc)
+    n = 0
+    for order in rows or []:
+        deadline = _order_deadline(order)
+        if not (deadline and now >= deadline):
+            continue
+        # Jangan buang order yang justru sudah dibayar tapi webhook-nya lolos:
+        # verifikasi dulu ke Pakasir sebelum menutupnya.
+        st = await pakasir_check(order["order_id"], int(order.get("amount") or 0)) or ""
+        if st == "completed":
+            try:
+                await handle_webhook({"order_id": order["order_id"],
+                                      "amount": order["amount"], "status": "completed"})
+                print(f"[premium-sweep] {order['order_id']} ternyata LUNAS → premium diberikan")
+            except Exception as exc:
+                print(f"[premium-sweep] grant {order['order_id']} gagal: {exc}")
+            continue
+        try:
+            await sb("PATCH", f"premium_orders?order_id=eq.{order['order_id']}",
+                     json_body={"status": "expired"})
+            n += 1
+        except Exception as exc:
+            print(f"[premium-sweep] tandai expired {order['order_id']} gagal: {exc}")
+    if n:
+        print(f"[premium-sweep] {n} order pending kadaluarsa → expired")
+    return n
+
+
+async def reap_expired_orders_loop(interval_sec: int = 600) -> None:
+    while True:
+        try:
+            await sweep_expired_orders()
+        except Exception as exc:
+            print(f"[premium-sweep] error: {exc}")
+        await asyncio.sleep(interval_sec)
 
 
 async def get_shared(token: str) -> dict[str, Any]:

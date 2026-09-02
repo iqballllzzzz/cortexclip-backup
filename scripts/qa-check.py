@@ -197,6 +197,26 @@ except Exception as exc:
     bad_orders = [f"parse error: {exc}"]
 ok("order completed baru punya premium_until", st == 200 and not bad_orders, "; ".join(bad_orders[:3]))
 
+# ---- order pending yang batas waktunya lewat wajib sudah ditutup ------------
+# QRIS Pakasir mati 60 menit setelah dibuat; kalau baris masih 'pending' lewat
+# dari itu berarti sapuan latar (premium.reap_expired_orders_loop) tidak jalan
+# dan user melihat tagihan hidup yang QRIS-nya sudah dibatalkan.
+st, body = get(SB + "/rest/v1/premium_orders?select=order_id,created_at,expired_at"
+                    "&status=eq.pending&limit=200", SRK_H)
+hang = []
+try:
+    for o in json.loads(body):
+        created = _dt(o.get("created_at"))
+        exp = _dt(o.get("expired_at"))
+        deadline = exp if (exp and created and exp > created) else (
+            created + timedelta(minutes=60) if created else None)
+        # beri kelonggaran 15 menit (sapuan jalan tiap 10 menit)
+        if deadline and (NOW - deadline).total_seconds() > 900:
+            hang.append(o["order_id"])
+except Exception as exc:
+    hang = [f"parse error: {exc}"]
+ok("order pending kadaluarsa sudah ditutup", st == 200 and not hang, "; ".join(hang[:3]))
+
 # ---- lonjakan user baru (indikasi bot) ----
 since = (NOW - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%S")
 st, body = get(SB + f"/rest/v1/profiles?select=user_id&created_at=gte.{since}&limit=200", SRK_H)
