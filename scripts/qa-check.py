@@ -250,9 +250,43 @@ ok("asset build lengkap (manifest)", bool(mani) and not missing_assets,
 ROOT = "/home/muhiqbalsukarno/cortexclip-backup"
 
 
-def _newest(paths, exts=None):
-    """(mtime, path) file terbaru di daftar file/dir."""
-    best = (0.0, "")
+def _proc_start(svc):
+    """Waktu mulai proses utama service (mtime /proc/<pid>), 0 kalau gagal."""
+    try:
+        pid = subprocess.run(["systemctl", "show", "-p", "MainPID", "--value", svc],
+                             capture_output=True, text=True, timeout=20).stdout.strip()
+        if pid and pid != "0":
+            return os.path.getmtime(f"/proc/{pid}"), pid
+    except Exception:
+        pass
+    return 0.0, "?"
+
+
+def _dirty_files():
+    """Set path relatif yang belum di-commit (modified/untracked).
+
+    File WIP tidak boleh dihitung sebagai deploy drift: sesi pengembangan yang
+    sedang berjalan hampir selalu punya file lebih baru dari build, dan build
+    di tengah edit justru menerbangkan kode setengah jadi ke produksi. Yang
+    diukur drift adalah kondisi TER-COMMIT (itu yang dianggap rilis).
+    """
+    try:
+        out = subprocess.run(["git", "-C", ROOT, "status", "--porcelain", "-uall"],
+                             capture_output=True, text=True, timeout=60).stdout
+        return {ln[3:].strip().strip('"') for ln in out.splitlines() if len(ln) > 3}
+    except Exception:
+        return set()
+
+
+DIRTY = _dirty_files()
+SLACK = 120   # toleransi: build menyentuh file beberapa detik setelah source
+STALE = 5400  # WIP yang 90 menit tak disentuh = ditinggalkan, bukan lagi aktif
+
+
+def _newest_split(paths, exts=None):
+    """((mtime, path) commit-an, (mtime, path) WIP) — dipisah biar bisa dinilai beda."""
+    clean = (0.0, "")
+    wip = (0.0, "")
     for p in paths:
         full = os.path.join(ROOT, p)
         if os.path.isfile(full):
@@ -266,44 +300,119 @@ def _newest(paths, exts=None):
                 m = os.path.getmtime(f)
             except OSError:
                 continue
-            if m > best[0]:
-                best = (m, f)
-    return best
+            rel = os.path.relpath(f, ROOT)
+            tgt = "wip" if rel in DIRTY else "clean"
+            if tgt == "wip" and m > wip[0]:
+                wip = (m, rel)
+            elif tgt == "clean" and m > clean[0]:
+                clean = (m, rel)
+    return clean, wip
 
 
-def _proc_start(svc):
-    """Waktu mulai proses utama service (mtime /proc/<pid>), 0 kalau gagal."""
-    try:
-        pid = subprocess.run(["systemctl", "show", "-p", "MainPID", "--value", svc],
-                             capture_output=True, text=True, timeout=20).stdout.strip()
-        if pid and pid != "0":
-            return os.path.getmtime(f"/proc/{pid}"), pid
-    except Exception:
-        pass
-    return 0.0, "?"
+NOW_TS = time.time()
 
 
-# frontend: source terbaru harus <= build terbaru, dan proses jalan setelah build
-src_m, src_f = _newest(["src", "app.config.ts", "package.json", "index.html"])
-bld_m, _ = _newest([".output"])
-SLACK = 120  # toleransi: build menyentuh file beberapa detik setelah source
-ok("build frontend sinkron dgn src",
-   bld_m > 0 and src_m > 0 and src_m <= bld_m + SLACK,
-   f"{os.path.basename(src_f)} lebih baru dari build "
-   f"({(src_m - bld_m) / 60:.0f} menit) — perlu 'npm run build' + restart")
+def _drift(label, ref_ts, ref_kind, clean, wip, hint):
+    """Cek drift: kode ter-commit wajib sudah ter-deploy; WIP hanya kalau mangkrak."""
+    ok(label, ref_ts > 0 and clean[0] > 0 and clean[0] <= ref_ts + SLACK,
+       f"{os.path.basename(clean[1])} lebih baru dari {ref_kind} "
+       f"({(clean[0] - ref_ts) / 60:.0f} menit) — {hint}")
+    mangkrak = (wip[0] > 0 and ref_ts > 0 and wip[0] > ref_ts + SLACK
+                and (NOW_TS - wip[0]) > STALE)
+    ok(f"{label} (WIP tidak mangkrak)", not mangkrak,
+       f"{os.path.basename(wip[1])} diedit {(NOW_TS - wip[0]) / 60:.0f} menit lalu, "
+       f"belum {hint}")
 
+
+# frontend: source ter-commit harus <= build terbaru, dan proses jalan setelah build
+src_c, src_w = _newest_split(["src", "app.config.ts", "package.json", "index.html"])
+bld_c, bld_w = _newest_split([".output"])
+bld_m = max(bld_c[0], bld_w[0])   # .output tidak di-git; ambil apa adanya
 fe_start, fe_pid = _proc_start("cortexclip-frontend")
+_drift("build frontend sinkron dgn src", bld_m, "build", src_c, src_w,
+       "perlu 'npm run build' + restart")
 ok("frontend jalan pakai build terbaru",
    fe_start > 0 and bld_m > 0 and fe_start >= bld_m - SLACK,
    f"proses pid={fe_pid} lebih tua dari build ({(bld_m - fe_start) / 60:.0f} menit) — perlu restart")
 
-# backend: .py terbaru harus <= waktu proses mulai (uvicorn tanpa reload di prod)
-be_m, be_f = _newest(["backend/app"], exts=(".py",))
+# backend: .py ter-commit harus <= waktu proses mulai (uvicorn tanpa reload di prod)
+be_c, be_w = _newest_split(["backend/app"], exts=(".py",))
 be_start, be_pid = _proc_start("cortexclip-backend")
-ok("backend jalan pakai kode terbaru",
-   be_start > 0 and be_m > 0 and be_m <= be_start + SLACK,
-   f"{os.path.basename(be_f)} lebih baru dari proses pid={be_pid} "
-   f"({(be_m - be_start) / 60:.0f} menit) — perlu restart")
+_drift("backend jalan pakai kode terbaru", be_start, f"proses pid={be_pid}",
+       be_c, be_w, "perlu restart")
+
+# ---- MANIFEST BACKEND: pyproject/uv.lock harus bisa merakit ulang server ----
+# Regresi nyata (02 Sep): fitur baru pakai cairosvg, tapi pyproject menyatakan
+# requires-python ">=3.12" & numpy">=2.5.2" sementara produksi jalan CPython
+# 3.11 + numpy 1.26 (mediapipe 0.10.x menuntut numpy<2). Selain itu cv2, PIL,
+# qrcode & faster-whisper dipakai kode tapi tak pernah terdaftar. Akibatnya
+# `uv sync` di server baru GAGAL/menghasilkan env tanpa dependency — bug hanya
+# muncul saat restore, jadi tidak pernah tertangkap cek runtime.
+BE = os.path.join(ROOT, "backend")
+VENV_PY = os.path.join(BE, ".venv/bin/python")
+
+
+def _py_ver(exe):
+    r = subprocess.run([exe, "-c", "import sys;print('%d.%d' % sys.version_info[:2])"],
+                       capture_output=True, text=True, timeout=30)
+    return r.stdout.strip()
+
+
+try:
+    pyproj = open(os.path.join(BE, "pyproject.toml")).read()
+    lock = open(os.path.join(BE, "uv.lock")).read()
+    # BUG (dibetulkan): dulu dep_block dipotong di "]" PERTAMA — padahal
+    # "uvicorn[standard]>=..." punya "]" di tengah daftar, jadi dep setelahnya
+    # (termasuk cairosvg) tak pernah diperiksa dan cek ini lolos palsu.
+    dep_block = pyproj.split("dependencies", 1)[1].split("[", 1)[1]
+    depth = 1
+    end = 0
+    for i, ch in enumerate(dep_block):
+        if ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0:
+                end = i
+                break
+    dep_block = dep_block[:end]
+    # buang komentar biar nama paket di dalam komentar tidak ikut terhitung
+    dep_block = "\n".join(ln.split("#", 1)[0] for ln in dep_block.splitlines())
+    deps = re.findall(r'"([A-Za-z0-9_.\-]+)(?:\[[^\]]*\])?\s*[><=!~]', dep_block)
+    locked = {n.lower().replace("_", "-") for n in re.findall(r'^name = "(.+)"', lock, re.M)}
+    miss_lock = [d for d in deps if d.lower().replace("_", "-") not in locked]
+    ok("dep backend terdaftar di uv.lock", len(deps) >= 15 and not miss_lock,
+       f"{len(deps)} dep terbaca, hilang di lock: {miss_lock[:4]}")
+
+    # requires-python harus mencakup interpreter yang benar-benar dipakai service
+    req_py = re.search(r'requires-python\s*=\s*"([^"]+)"', pyproj)
+    req_txt = req_py.group(1) if req_py else ""
+    venv_ver = _py_ver(VENV_PY) if os.path.exists(VENV_PY) else ""
+    floor = re.search(r">=\s*(\d+)\.(\d+)", req_txt)
+    cocok = False
+    if floor and venv_ver:
+        cocok = tuple(int(x) for x in venv_ver.split(".")) >= \
+            (int(floor.group(1)), int(floor.group(2)))
+    ok("requires-python cocok dgn venv produksi", cocok,
+       f"pyproject {req_txt or '?'} vs venv {venv_ver or '?'}")
+except Exception as exc:
+    ok("manifest backend terbaca", False, str(exc)[:70])
+
+# tiap modul pihak-ketiga yang di-import kode HARUS ada di venv (bukan cuma di
+# lock) — mencegah fitur baru live dengan dependency yang belum dipasang
+THIRD_PARTY = ["cv2", "PIL", "numpy", "mediapipe", "scenedetect", "httpx", "dotenv",
+               "jwt", "supabase", "cairosvg", "yt_dlp", "scrapling", "curl_cffi",
+               "anyio", "fastapi", "uvicorn", "pydantic", "multipart", "qrcode",
+               "faster_whisper"]
+if os.path.exists(VENV_PY):
+    probe = ("import importlib.util as u;"
+             f"print(','.join(m for m in {THIRD_PARTY!r} if not u.find_spec(m)))")
+    r = subprocess.run([VENV_PY, "-c", probe], capture_output=True, text=True, timeout=120)
+    absent = [m for m in r.stdout.strip().split(",") if m]
+    ok("modul yg di-import kode ada di venv", r.returncode == 0 and not absent,
+       f"hilang: {absent[:5]}")
+else:
+    ok("venv backend ada", False, VENV_PY)
 
 # ---- asset yang dirujuk HTML produksi harus benar-benar ada di server ----
 st, home = get(BASE + "/", timeout=30)

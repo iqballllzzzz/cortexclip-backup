@@ -2,7 +2,10 @@
 name = "backend"
 version = "0.1.0"
 description = "Add your description here"
-requires-python = ">=3.12"
+# Produksi (systemd cortexclip-backend) jalan di backend/.venv = CPython 3.11.16.
+# Sebelumnya ">=3.12" → `uv sync` menolak interpreter yang benar-benar dipakai,
+# jadi manifest tidak bisa dipakai untuk merakit ulang server.
+requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.141.1",
     "httpx>=0.28.1",
@@ -13,12 +16,19 @@ dependencies = [
     "supabase>=2.31.0",
     "uvicorn[standard]>=0.52.4",
     "yt-dlp>=2026.8.19",
-    "numpy>=2.5.2",
-    "mediapipe>=0.10.14",
+    # numpy WAJIB <2: mediapipe 0.10.x menuntut numpy<2 (produksi: numpy 1.26.4).
+    # Sebelumnya ">=2.5.2" → konflik senyap dgn mediapipe & butuh Python>=3.12.
+    "numpy>=1.26.4,<2",
+    "mediapipe>=0.10.14,<1",
+    # dipakai langsung oleh kode tapi dulu tidak terdaftar sama sekali:
+    "opencv-contrib-python>=4.11.0.86",   # app/render.py, app/scene_detection.py (cv2)
+    "pillow>=12.3.0",                     # app/watermark.py (PIL)
+    "qrcode>=8.2",                        # app/main.py (QR pembayaran)
+    "faster-whisper>=1.2.1",              # app/local_whisper.py (STT fallback lokal)
     "scenedetect>=0.7.1",
     "scrapling>=0.4.15",
     "curl-cffi>=0.16.2",
-    "cairosvg>=2.9.0",
+    "cairosvg>=2.9.0",                    # app/icon_png.py (raster ikon overlay)
 ]
 
 [project.scripts]
