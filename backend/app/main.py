@@ -399,7 +399,11 @@ async def api_preview_clip(body: RenderClipIn, request: Request, authorization: 
 @app.get("/api/preview-clip/status/{clip_id}")
 async def api_preview_status(clip_id: str, request: Request,
                              authorization: str | None = Header(None)):
-    """Status preview: processing | ready | idle (+ url kalau sudah siap)."""
+    """Status preview: processing | ready | idle (+ url kalau sudah siap).
+
+    Menyertakan `progress` (0-100) dan `stage` supaya UI bisa menampilkan
+    "Memuat preview 42%" alih-alih layar hitam tanpa keterangan.
+    """
     await get_user(request, authorization)
     ensure_uuid(clip_id, "Klip")
     async with httpx.AsyncClient(timeout=15) as client:
@@ -411,11 +415,16 @@ async def api_preview_status(clip_id: str, request: Request,
         )
     rows = r.json() if r.status_code == 200 else []
     row = rows[0] if rows else {}
+    from .preview_progress import get_progress
+    prog = get_progress(clip_id) or {}
     if row.get("preview_ready") and row.get("preview_url"):
-        return {"status": "ready", "url": row["preview_url"]}
+        return {"status": "ready", "url": row["preview_url"],
+                "progress": 100, "stage": "Selesai"}
     key = f"preview:{clip_id}"
     running = key in _preview_tasks and not _preview_tasks[key].done()
-    return {"status": "processing" if running else "idle", "url": None}
+    return {"status": "processing" if running else "idle", "url": None,
+            "progress": int(prog.get("pct", 0)),
+            "stage": prog.get("tahap") or ("Menyiapkan" if running else "")}
 
 
 # ---------------------------------------------------------------------------
@@ -668,14 +677,70 @@ async def api_ads_status(request: Request, authorization: str | None = Header(No
     user = await get_user(request, authorization)
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.get(
-            f"{SUPABASE_URL}/rest/v1/profiles?user_id=eq.{user['id']}&select=ads_watched,watermark_removed",
+            f"{SUPABASE_URL}/rest/v1/profiles?user_id=eq.{user['id']}"
+            "&select=ads_watched,watermark_removed,ad_credits,ad_target,premium_until",
             headers={"apikey": SUPABASE_SERVICE_KEY,
                      "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
         )
         rows = r.json() if r.status_code == 200 else []
     watched = int(rows[0].get("ads_watched") or 0) if rows else 0
     removed = bool(rows[0].get("watermark_removed")) if rows else False
-    return {"ads_watched": watched, "watermark_removed": removed, "remaining": max(0, 4 - watched)}
+    prof = rows[0] if rows else {}
+    from .ad_premium import summary as ad_summary
+    return {"ads_watched": watched, "watermark_removed": removed,
+            "remaining": max(0, 4 - watched),
+            "premium_until": prof.get("premium_until"),
+            "ad_premium": ad_summary(prof)}
+
+
+# ---- Premium lewat menonton iklan ------------------------------------------
+
+class AdPlanIn(BaseModel):
+    plan: str          # day | week | month
+
+
+@app.get("/api/ads/premium")
+async def api_ad_premium_status(request: Request,
+                                authorization: str | None = Header(None)):
+    """Progres iklan user + daftar paket (dipakai dialog premium)."""
+    user = await get_user(request, authorization)
+    from .ad_premium import summary as ad_summary
+    from .premium import sb
+    rows = await sb("GET", f"profiles?user_id=eq.{user['id']}"
+                           "&select=ad_credits,ad_target,premium_until")
+    prof = (rows or [{}])[0]
+    out = ad_summary(prof)
+    out["premium_until"] = prof.get("premium_until")
+    return out
+
+
+@app.post("/api/ads/premium/watch")
+async def api_ad_premium_watch(body: AdPlanIn, request: Request,
+                               authorization: str | None = Header(None)):
+    """Catat SATU iklan selesai ditonton untuk paket premium tertentu."""
+    user = await get_user(request, authorization)
+    from .ad_redeem import record_watch
+    from .premium import sb
+    try:
+        return await record_watch(user["id"], body.plan, sb)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.post("/api/ads/premium/redeem")
+async def api_ad_premium_redeem(body: AdPlanIn, request: Request,
+                                authorization: str | None = Header(None)):
+    """Tukar kredit iklan menjadi premium (watermark hilang selama aktif)."""
+    user = await get_user(request, authorization)
+    from .ad_redeem import redeem
+    from .premium import sb
+    try:
+        hasil = await redeem(user["id"], body.plan, sb)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    if not hasil.get("ok"):
+        raise HTTPException(400, hasil.get("reason") or "gagal menukar")
+    return hasil
 
 
 # ---------------------------------------------------------------------------

@@ -58,6 +58,51 @@ def run_ffmpeg(cmd: list[str], *, timeout: int | None = None, nice: int = 10):
     return subprocess.run(prefix + cmd, **kwargs)
 
 
+def run_ffmpeg_progress(cmd: list[str], total_seconds: float,
+                        on_progress, *, timeout: int | None = None,
+                        nice: int = 10) -> None:
+    """Jalankan ffmpeg sambil melaporkan kemajuan NYATA (0-100).
+
+    ffmpeg diberi `-progress pipe:1 -nostats`, lalu baris `out_time_us=` dibaca
+    dan dibandingkan dengan durasi keluaran yang diharapkan. Ini kemajuan
+    sungguhan dari encoder — bukan animasi palsu berbasis waktu tunggu.
+    """
+    prefix: list[str] = []
+    if shutil.which("nice"):
+        prefix += ["nice", "-n", str(nice)]
+    if shutil.which("ionice"):
+        prefix += ["ionice", "-c", "2", "-n", "7"]
+    full = prefix + cmd[:1] + ["-progress", "pipe:1", "-nostats"] + cmd[1:]
+    proc = subprocess.Popen(full, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, bufsize=1)
+    total = max(0.1, float(total_seconds))
+    try:
+        for line in proc.stdout or []:
+            line = line.strip()
+            if line.startswith("out_time_us=") or line.startswith("out_time_ms="):
+                try:
+                    raw = float(line.split("=", 1)[1])
+                except ValueError:
+                    continue
+                # out_time_us dalam mikrodetik; out_time_ms ffmpeg juga mikrodetik
+                secs = raw / 1_000_000.0
+                pct = max(0, min(99, int(secs / total * 100)))
+                try:
+                    on_progress(pct)
+                except Exception:
+                    pass
+            elif line == "progress=end":
+                try:
+                    on_progress(100)
+                except Exception:
+                    pass
+    finally:
+        err = (proc.stderr.read() if proc.stderr else "") or ""
+        rc = proc.wait(timeout=timeout)
+    if rc != 0:
+        raise subprocess.CalledProcessError(rc, full, stderr=err[-4000:])
+
+
 def probe_duration(path: str) -> float:
     out = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -508,12 +553,16 @@ def render_preview_fast(
     out_path: str,
     width: int = 270,
     height: int = 480,
+    on_progress=None,
 ) -> str:
     """Preview KILAT: potong + crop tengah 9:16 + transkode ultrafast.
 
     Tanpa face tracking, tanpa watermark, tanpa subtitle (browser yang
     menampilkan subtitle live overlay). 270x480 CRF30 audio copy → klip
     60 detik selesai ±3-6 detik di CPU 4 core.
+
+    on_progress(pct): dipanggil dengan kemajuan NYATA dari ffmpeg (0-100) supaya
+    UI bisa menampilkan persen, bukan layar hitam tanpa keterangan.
     """
     w, h = width, height
     src_w, src_h = probe_size(src)
@@ -546,7 +595,10 @@ def render_preview_fast(
         "-movflags", "+faststart",
         out_path,
     ]
-    run_ffmpeg(cmd, timeout=600)
+    if on_progress is not None:
+        run_ffmpeg_progress(cmd, end - start, on_progress, timeout=600)
+    else:
+        run_ffmpeg(cmd, timeout=600)
     return out_path
 
 

@@ -308,21 +308,39 @@ async def render_clip_server(
                 traceback.print_exc()
                 traj = None
 
-        # Watermark: ON kecuali user sudah menuntaskan 4 iklan (profiles.ads_watched>=4)
+        # Watermark: OFF kalau (a) user PREMIUM aktif, atau (b) sudah menuntaskan
+        # 4 iklan hapus-watermark. Premium = tanpa watermark, itu inti paketnya.
         watermark_on = True
         try:
             user_id = clip.get("user_id") or project.get("user_id")
             async with httpx.AsyncClient(timeout=10) as c:
                 pr = await c.get(
-                    f"{SUPABASE_URL}/rest/v1/profiles?user_id=eq.{user_id}&select=ads_watched,watermark_removed",
+                    f"{SUPABASE_URL}/rest/v1/profiles?user_id=eq.{user_id}"
+                    "&select=ads_watched,watermark_removed,premium_until",
                     headers={"apikey": SUPABASE_SERVICE_KEY_ENV,
                              "Authorization": f"Bearer {SUPABASE_SERVICE_KEY_ENV}"},
                 )
                 rows = pr.json() if pr.status_code == 200 else []
-                if rows and (rows[0].get("watermark_removed") or int(rows[0].get("ads_watched") or 0) >= 4):
-                    watermark_on = False
-        except Exception:
-            pass
+                if rows:
+                    row = rows[0]
+                    premium_aktif = False
+                    pu = row.get("premium_until")
+                    if pu:
+                        from datetime import datetime, timezone
+                        try:
+                            d = datetime.fromisoformat(str(pu).replace("Z", "+00:00"))
+                            if not d.tzinfo:
+                                d = d.replace(tzinfo=timezone.utc)
+                            premium_aktif = d > datetime.now(timezone.utc)
+                        except ValueError:
+                            premium_aktif = False
+                    if (premium_aktif or row.get("watermark_removed")
+                            or int(row.get("ads_watched") or 0) >= 4):
+                        watermark_on = False
+                    if premium_aktif:
+                        print("[render] user PREMIUM → tanpa watermark")
+        except Exception as exc:
+            print(f"[render] cek watermark gagal ({exc}) → watermark tetap ON")
 
         render_mod.render_clip(
             src, start, end, ass_path, out_path,
@@ -521,11 +539,19 @@ async def render_preview_clip(
         }
 
     workdir = tempfile.mkdtemp(prefix="cortexclip_preview_")
+    from .preview_progress import set_progress
     try:
         abs_start = float(clip["start_time"])
         abs_end = min(float(clip["end_time"]), abs_start + max_seconds)
         out_name = f"{uuid.uuid4().hex[:10]}.mp4"
         out_path = os.path.join(workdir, out_name)
+
+        # Kemajuan dilaporkan ke UI supaya tidak ada layar hitam tanpa
+        # keterangan. Skala: 0-90% = encode, 90-99% = unggah, 100% = siap.
+        def lapor(pct: int, tahap: str = "Menyiapkan video") -> None:
+            set_progress(clip_id, pct, tahap)
+
+        lapor(2, "Menyiapkan video")
 
         # SUMBER: coba HTTP-seek dulu (tanpa unduh file penuh) — ini yang
         # membuat preview klip di menit ke-50 video 1 jam tetap cepat.
@@ -534,7 +560,9 @@ async def render_preview_clip(
         made = False
         if seek_url:
             try:
-                render_mod.render_preview_fast(seek_url, abs_start, abs_end, out_path)
+                render_mod.render_preview_fast(
+                    seek_url, abs_start, abs_end, out_path,
+                    on_progress=lambda p: lapor(int(p * 0.9), "Memproses video"))
                 made = os.path.exists(out_path) and os.path.getsize(out_path) > 8000
                 if made:
                     print("[preview] jalur HTTP-seek (tanpa unduh penuh)")
@@ -542,15 +570,20 @@ async def render_preview_clip(
                 print(f"[preview] HTTP-seek gagal ({str(exc)[:120]}) → unduh lokal")
 
         if not made:
+            lapor(5, "Mengambil potongan sumber")
             src = os.path.join(workdir, "source.mp4")
             src2, rs, re_ = await _ensure_source_segment(
                 project, src, abs_start, abs_end)
             # FACE TRACKING CEPAT: analisis di-skip untuk preview — crop tengah.
             # Jalur KILAT dulu (±3-8 detik); kalau gagal → render_clip biasa.
             try:
-                render_mod.render_preview_fast(src2, rs, re_, out_path)
+                render_mod.render_preview_fast(
+                    src2, rs, re_, out_path,
+                    on_progress=lambda p: lapor(10 + int(p * 0.8),
+                                                "Memproses video"))
             except Exception as exc:
                 print(f"[preview] fast path gagal ({exc}) → fallback render_clip")
+                lapor(15, "Memproses video (mode aman)")
                 render_mod.render_clip(
                     src2, rs, re_, None, out_path,
                     resolution=resolution,
@@ -559,6 +592,7 @@ async def render_preview_clip(
                     watermark=False,
                 )
 
+        lapor(92, "Mengunggah preview")
         user_id = clip.get("user_id") or project.get("user_id")
         storage_key = f"{user_id}/previews/{clip_id}.mp4"
         await upload_to_storage(out_path, storage_key)
@@ -579,6 +613,7 @@ async def render_preview_clip(
                 },
             )
 
+        lapor(100, "Selesai")
         return {
             "file": out_name,
             "storage_path": storage_key,
@@ -587,3 +622,5 @@ async def render_preview_clip(
     finally:
         import shutil
         shutil.rmtree(workdir, ignore_errors=True)
+        # entri kemajuan TIDAK dihapus di sini: klien yang sedang polling harus
+        # bisa melihat 100%. preview_progress membersihkannya sendiri (MAX_AGE_S).

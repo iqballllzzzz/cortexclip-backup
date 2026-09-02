@@ -105,6 +105,16 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       { rel: "icon", type: "image/png", href: "/favicon.png" },
     ],
+    scripts: [
+      // Google AdSense — dipakai untuk "premium gratis dengan menonton iklan"
+      // dan hapus watermark. Iklan pop-up full-screen (vignette) diaktifkan
+      // dari dashboard AdSense (Auto ads → Vignette); skrip ini prasyaratnya.
+      {
+        async: true,
+        src: "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6841543975898069",
+        crossOrigin: "anonymous",
+      },
+    ],
   }),
   shellComponent: RootShell,
   component: RootComponent,

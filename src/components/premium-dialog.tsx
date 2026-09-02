@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Loader2, Crown, X, Check } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { AdPremiumPanel } from "@/components/ad-premium-panel";
 
 interface Plan {
   key: string;
@@ -199,6 +200,16 @@ export function PremiumDialog({
                 <Loader2 className="size-4 animate-spin" /> Menyiapkan QRIS…
               </p>
             )}
+
+            {/* Jalur GRATIS: premium lewat menonton iklan */}
+            <div className="mt-4">
+              <AdPremiumPanel
+                onUpgraded={() => {
+                  onUpgraded?.();
+                  onClose();
+                }}
+              />
+            </div>
           </>
         ) : (
           <div className="space-y-3 text-center">

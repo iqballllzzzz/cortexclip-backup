@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { motion } from "motion/react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Gift } from "lucide-react";
 
 import { CaptionPreview, defaultCaptionStyle } from "@/components/caption-preview";
 import { demoClips } from "@/data/demo-clips";
@@ -43,6 +43,12 @@ export function Hero() {
             Tempel link YouTube atau unggah video. CortexClip mentranskrip audio, memilih momen
             paling kuat, menulis judul dan hashtag, lalu merender klip vertikal dengan caption
             karaoke — kamu tinggal unggah.
+          </p>
+
+          {/* Jalur gratis: premium tanpa bayar, cukup menonton iklan */}
+          <p className="mt-5 inline-flex max-w-prose items-start gap-2 rounded-xl border border-accent/30 bg-accent/8 px-3.5 py-2.5 text-[13px] font-semibold leading-snug text-accent sm:text-sm">
+            <Gift className="mt-0.5 size-4 shrink-0" />
+            Premium bisa didapatkan secara gratis melalui menonton iklan!
           </p>
 
           <div className="mt-9 flex flex-wrap items-center gap-3">

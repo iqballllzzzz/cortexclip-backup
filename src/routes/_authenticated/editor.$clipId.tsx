@@ -21,6 +21,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { getPreset, SubtitleStylePicker, DEFAULT_SUBTITLE_PRESET } from "@/components/subtitle-styles";
 import { ColoredIcon } from "@/components/colored-icon";
 import { BrollPip } from "@/components/broll-pip";
+import { PreviewLoading } from "@/components/preview-loading";
+import { AdFullscreen } from "@/components/ad-fullscreen";
 import { LiveCaptionOverlay, type LiveCaptionStyle, type LiveWord } from "@/components/live-caption-overlay";
 import { startRenderJob, getAccessToken } from "@/lib/backend-api";
 import { Button } from "@/components/ui/button";
@@ -107,6 +109,11 @@ function EditorPage() {
   // unduhan
   const [downloadLocked, setDownloadLocked] = useState(false);
   const [downloadInfo, setDownloadInfo] = useState<string | null>(null);
+
+  // kemajuan preview server (0-100) + tahap, supaya tidak ada layar hitam
+  // tanpa keterangan saat klip panjang sedang diproses
+  const [prevPct, setPrevPct] = useState(0);
+  const [prevStage, setPrevStage] = useState<string>("");
 
   const clipRef = useRef<Clip | null>(null);
   clipRef.current = clip;
@@ -224,21 +231,29 @@ function EditorPage() {
       // Masih diproses di server. Preview instan (sumber + overlay CSS) sudah
       // jalan, jadi polling ini cuma menaikkan kualitas begitu file siap.
       // Proses server TIDAK ikut mati kalau user menutup halaman.
+      setPrevStage("Menyiapkan");
       const clipId = clip.id;
-      for (let i = 0; i < 60; i++) {
-        await new Promise((r) => setTimeout(r, 3000));
+      for (let i = 0; i < 200; i++) {
+        await new Promise((r) => setTimeout(r, 1500));
         const t2 = await getAccessToken();
         const st = await fetch(`/api/preview-clip/status/${clipId}`, {
           headers: { Authorization: `Bearer ${t2}` },
         });
         if (!st.ok) return;
         const sd = await st.json();
+        // persen & tahap NYATA dari ffmpeg (bukan animasi palsu)
+        if (typeof sd.progress === "number") setPrevPct(sd.progress);
+        if (typeof sd.stage === "string" && sd.stage) setPrevStage(sd.stage);
         if (sd.status === "ready" && sd.url) {
+          setPrevPct(100);
           setClip((c) => (c && c.id === clipId ? { ...c, preview_url: sd.url, preview_ready: true } : c));
           if (!videoKindRef.current) videoKindRef.current = "preview";
           return;
         }
-        if (sd.status === "idle") return; // gagal / tidak ada task
+        if (sd.status === "idle") {
+          setPrevStage("");
+          return; // gagal / tidak ada task
+        }
       }
     } catch {
       /* mode instan tetap jalan */
@@ -575,9 +590,17 @@ function EditorPage() {
             ) : (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-4 text-center text-xs text-muted-foreground">
                 <Loader2 className="size-6 animate-spin" />
-                Memuat video…
+                Menyiapkan video…
               </div>
             )}
+
+            {/* Indikator "memuat preview" + persen NYATA dari ffmpeg.
+                Layar penuh kalau belum ada video sama sekali; pita kecil kalau
+                video sumber sudah bisa diputar dan preview cuma menaikkan
+                kualitas — jadi tidak pernah ada layar hitam tanpa keterangan. */}
+            {!clip.preview_ready && prevStage ? (
+              <PreviewLoading pct={prevPct} stage={prevStage} compact={!!videoSrc} />
+            ) : null}
 
             <LiveCaptionOverlay words={words} time={time} style={liveStyle} containerWidth={fit.w} showEmoji={emojiEnabled} />
 
@@ -818,25 +841,16 @@ function EditorPage() {
         ) : null}
       </AnimatePresence>
 
-      {/* ===== popup iklan (slot Google Ads) ===== */}
-      <AnimatePresence>
-        {adPlaying ? (
-          <Overlay onClose={() => setAdPlaying(false)}>
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold">Iklan {adsWatched + 1}/4</p>
-              <button type="button" onClick={() => setAdPlaying(false)} className="text-muted-foreground hover:text-foreground" aria-label="Tutup">
-                <X className="size-4" />
-              </button>
-            </div>
-            <div className="mt-4 flex aspect-video items-center justify-center rounded-xl border border-dashed border-border bg-surface text-xs text-muted-foreground">
-              Slot Google Ads (pop-up video)
-            </div>
-            <Button variant="accent" size="sm" className="mt-4 w-full" onClick={handleAdWatched}>
-              <Sparkles className="size-4" /> Selesai ditonton
-            </Button>
-          </Overlay>
-        ) : null}
-      </AnimatePresence>
+      {/* ===== popup iklan full-screen (AdSense) untuk hapus watermark ===== */}
+      {adPlaying ? (
+        <AdFullscreen
+          client="ca-pub-6841543975898069"
+          index={adsWatched + 1}
+          total={4}
+          onDone={() => void handleAdWatched()}
+          onCancel={() => setAdPlaying(false)}
+        />
+      ) : null}
     </div>
   );
 }
