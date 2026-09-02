@@ -163,8 +163,9 @@ async def render_clip_server(
                     base_fs = int(style.get("font_size") or 32)
                 except (TypeError, ValueError):
                     base_fs = 32
-                em_size = max(24, int(get_scaled_font_size(base_fs, vw) * 1.25))
+                em_size = max(24, int(get_scaled_font_size(base_fs, vw) * 1.12))
                 emoji_count = 0
+                em_items: list[dict[str, Any]] = []
                 for w in words:
                     if emoji_count >= 40:
                         break
@@ -176,9 +177,7 @@ async def render_clip_server(
                         continue
                     t_start_w = float(w.get("start", 0) or 0)
                     t_end_w = float(w.get("end", t_start_w) or 0)
-                    # mirror preview: emoji absolute right:4%, sejajar tengah
-                    # baris subtitle (x/y = TITIK TENGAH ikon di render.py)
-                    icon_png_overlays.append({
+                    em_items.append({
                         "png": png,
                         "x": int(vw * 0.96 - em_size / 2),
                         "y": int(vh * pos_pct / 100.0),
@@ -187,6 +186,15 @@ async def render_clip_server(
                         "t_end": t_end_w + 1.0,
                     })
                     emoji_count += 1
+                # PARITY: preview hanya menampilkan SATU emoji sekaligus
+                # (activeLine.find). Potong t_end kalau emoji berikutnya sudah
+                # mulai, supaya tidak ada dua emoji bertumpuk di render.
+                for i, it in enumerate(em_items):
+                    if i + 1 < len(em_items):
+                        nxt = em_items[i + 1]["t_start"]
+                        if it["t_end"] > nxt:
+                            it["t_end"] = max(it["t_start"] + 0.2, nxt - 0.02)
+                icon_png_overlays.extend(em_items)
             except Exception as exc:
                 print(f"[render] emoji overlay gagal (render tetap jalan): {exc}")
 
@@ -218,6 +226,20 @@ async def render_clip_server(
                 else:
                     placements = await plan_overlays(words, duration, genre=genre)
                     print(f"[render] genre={genre} overlay baru={len(placements or [])}")
+                    # SIMPAN supaya render ulang / preview berikutnya IDENTIK
+                    # (planner AI temperature 0.4 → tiap panggilan beda).
+                    if placements:
+                        try:
+                            async with httpx.AsyncClient(timeout=20) as _c:
+                                await _c.patch(
+                                    f"{SUPABASE_URL}/rest/v1/clips?id=eq.{clip_id}",
+                                    json={"overlay_plan": placements},
+                                    headers={"apikey": SUPABASE_SERVICE_KEY_ENV,
+                                             "Authorization": f"Bearer {SUPABASE_SERVICE_KEY_ENV}",
+                                             "Content-Type": "application/json"},
+                                )
+                        except Exception as exc:
+                            print(f"[render] simpan overlay_plan gagal: {exc}")
                 for p in placements or []:
                     icon_id = str(p.get("icon_id") or "StarIcon")
                     png = icon_png_from_id(icon_id)

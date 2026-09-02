@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
  * BrollPip — jendela b-roll (video stock) di atas video utama.
  *
  * PARITY dengan render unduhan: ffmpeg meng-overlay b-roll di posisi &
- * ukuran yang sama (lebar 78% frame, top 14%), fade masuk/keluar 0.3s.
+ * ukuran yang sama (lebar 74% frame, top 44%), fade masuk/keluar 0.3s.
  * Video di-mute (audio tetap dari klip utama) dan disinkronkan ke waktu
  * lokal placement supaya isi framenya sama dengan hasil render.
  */

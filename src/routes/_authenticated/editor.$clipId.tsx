@@ -465,29 +465,40 @@ function EditorPage() {
     }
   }
 
+  /** Muat placement ikon/b-roll. refresh=true memaksa AI merencanakan ulang;
+   *  tanpa refresh, backend mengembalikan rencana tersimpan supaya preview
+   *  dan hasil unduhan PERSIS sama. */
+  async function loadPlacements(refresh = false) {
+    if (!clip) return;
+    setBrollSearching(true);
+    try {
+      const token = await getAccessToken();
+      const res = await fetch("/api/broll/placements", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ project_id: clip.project_id, clip_id: clip.id, refresh }),
+      });
+      if (res.ok) {
+        const d = await res.json();
+        setLivePlacements(d.placements ?? []);
+        if ((d.placements ?? []).length === 0) toast.info("AI tidak menemukan momen ikon yang cocok di klip ini.");
+        else if (refresh) toast.success("Ikon & b-roll diperbarui.");
+      } else {
+        toast.error("Gagal memuat placement b-roll.");
+      }
+    } catch {
+      toast.error("Gagal memuat placement b-roll.");
+    } finally {
+      setTimeout(() => setBrollSearching(false), 600);
+    }
+  }
+
+  const refreshPlacements = () => loadPlacements(true);
+
   async function toggleBroll(v: boolean) {
     setBrollEnabled(v);
     if (v && clip) {
-      setBrollSearching(true);
-      try {
-        const token = await getAccessToken();
-        const res = await fetch("/api/broll/placements", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ project_id: clip.project_id, clip_id: clip.id }),
-        });
-        if (res.ok) {
-          const d = await res.json();
-          setLivePlacements(d.placements ?? []);
-          if ((d.placements ?? []).length === 0) toast.info("AI tidak menemukan momen ikon yang cocok di klip ini.");
-        } else {
-          toast.error("Gagal memuat placement b-roll.");
-        }
-      } catch {
-        toast.error("Gagal memuat placement b-roll.");
-      } finally {
-        setTimeout(() => setBrollSearching(false), 600);
-      }
+      await loadPlacements(false);
     } else {
       setLivePlacements([]);
     }
@@ -740,16 +751,25 @@ function EditorPage() {
                     </div>
                   ) : null}
                   {brollEnabled && !brollSearching && livePlacements.length > 0 ? (
-                    <ul className="mt-2.5 space-y-1">
-                      {livePlacements.map((p, i) => (
-                        <li key={i} className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px]">
-                          <span className="min-w-0 truncate capitalize">{p.category}</span>
-                          <button type="button" onClick={() => seek(Math.max(0, p.time_start - 1))} className="shrink-0 font-mono text-accent">
-                            {clock(p.time_start)}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
+                    <>
+                      <ul className="mt-2.5 space-y-1">
+                        {livePlacements.map((p, i) => (
+                          <li key={i} className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px]">
+                            <span className="min-w-0 truncate capitalize">{p.category}</span>
+                            <button type="button" onClick={() => seek(Math.max(0, p.time_start - 1))} className="shrink-0 font-mono text-accent">
+                              {clock(p.time_start)}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                      <button
+                        type="button"
+                        onClick={() => void refreshPlacements()}
+                        className="mt-2 w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                      >
+                        Cari ikon &amp; b-roll lain
+                      </button>
+                    </>
                   ) : null}
                   <div className="mt-2.5">
                     <ToggleRow

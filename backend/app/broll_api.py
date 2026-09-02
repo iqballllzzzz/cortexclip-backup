@@ -19,6 +19,8 @@ from fastapi.responses import FileResponse
 class BrollIn(BaseModel):
     project_id: str
     clip_id: str
+    # true = paksa AI merencanakan ulang (tombol "cari ulang" di editor)
+    refresh: bool = False
 
 
 def register_broll_routes(
@@ -41,7 +43,7 @@ def register_broll_routes(
         async with httpx.AsyncClient(timeout=30) as client:
             cr = await client.get(
                 f"{supabase_url}/rest/v1/clips?id=eq.{body.clip_id}"
-                "&select=caption_words,end_time,start_time",
+                "&select=caption_words,end_time,start_time,overlay_plan",
                 headers={"apikey": supabase_anon_key,
                          "Authorization": f"Bearer {token}"},
             )
@@ -79,6 +81,16 @@ def register_broll_routes(
                 genre = "motivation"
 
         from .overlay_plan import plan_overlays
+
+        # PARITY: kalau klip SUDAH punya rencana (dibuat preview sebelumnya
+        # atau oleh render), PAKAI itu — jangan panggil planner lagi. Planner
+        # AI temperature 0.4 menghasilkan penempatan berbeda tiap panggilan,
+        # jadi memanggilnya ulang = preview & hasil unduhan tidak sama.
+        saved = clip.get("overlay_plan")
+        if isinstance(saved, list) and saved and not body.refresh:
+            print(f"[broll] pakai overlay_plan tersimpan: {len(saved)} item")
+            return {"placements": saved, "genre": genre, "cached": True}
+
         placements = await plan_overlays(words, max(1.0, duration), genre=genre)
 
         # SIMPAN rencana ke klip → render unduhan memakai penempatan yang SAMA
