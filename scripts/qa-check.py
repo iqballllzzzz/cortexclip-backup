@@ -229,6 +229,81 @@ if mani:
 ok("asset build lengkap (manifest)", bool(mani) and not missing_assets,
    f"{len(missing_assets)} hilang" if mani else "manifest tak ditemukan")
 
+# ---- DEPLOY DRIFT: kode sumber lebih baru dari yang benar-benar jalan ----
+# Regresi nyata (02 Sep): commit fix subtitle di-push tapi frontend tidak
+# di-build ulang → asset lama masih disajikan produksi, user tetap lihat bug
+# yang "sudah diperbaiki". Script lama tidak menangkap ini karena manifest
+# tetap konsisten dengan build lama.
+ROOT = "/home/muhiqbalsukarno/cortexclip-backup"
+
+
+def _newest(paths, exts=None):
+    """(mtime, path) file terbaru di daftar file/dir."""
+    best = (0.0, "")
+    for p in paths:
+        full = os.path.join(ROOT, p)
+        if os.path.isfile(full):
+            cand = [full]
+        else:
+            cand = [os.path.join(d, f) for d, _, fs in os.walk(full) for f in fs]
+        for f in cand:
+            if exts and not f.endswith(exts):
+                continue
+            try:
+                m = os.path.getmtime(f)
+            except OSError:
+                continue
+            if m > best[0]:
+                best = (m, f)
+    return best
+
+
+def _proc_start(svc):
+    """Waktu mulai proses utama service (mtime /proc/<pid>), 0 kalau gagal."""
+    try:
+        pid = subprocess.run(["systemctl", "show", "-p", "MainPID", "--value", svc],
+                             capture_output=True, text=True, timeout=20).stdout.strip()
+        if pid and pid != "0":
+            return os.path.getmtime(f"/proc/{pid}"), pid
+    except Exception:
+        pass
+    return 0.0, "?"
+
+
+# frontend: source terbaru harus <= build terbaru, dan proses jalan setelah build
+src_m, src_f = _newest(["src", "app.config.ts", "package.json", "index.html"])
+bld_m, _ = _newest([".output"])
+SLACK = 120  # toleransi: build menyentuh file beberapa detik setelah source
+ok("build frontend sinkron dgn src",
+   bld_m > 0 and src_m > 0 and src_m <= bld_m + SLACK,
+   f"{os.path.basename(src_f)} lebih baru dari build "
+   f"({(src_m - bld_m) / 60:.0f} menit) — perlu 'npm run build' + restart")
+
+fe_start, fe_pid = _proc_start("cortexclip-frontend")
+ok("frontend jalan pakai build terbaru",
+   fe_start > 0 and bld_m > 0 and fe_start >= bld_m - SLACK,
+   f"proses pid={fe_pid} lebih tua dari build ({(bld_m - fe_start) / 60:.0f} menit) — perlu restart")
+
+# backend: .py terbaru harus <= waktu proses mulai (uvicorn tanpa reload di prod)
+be_m, be_f = _newest(["backend/app"], exts=(".py",))
+be_start, be_pid = _proc_start("cortexclip-backend")
+ok("backend jalan pakai kode terbaru",
+   be_start > 0 and be_m > 0 and be_m <= be_start + SLACK,
+   f"{os.path.basename(be_f)} lebih baru dari proses pid={be_pid} "
+   f"({(be_m - be_start) / 60:.0f} menit) — perlu restart")
+
+# ---- asset yang dirujuk HTML produksi harus benar-benar ada di server ----
+st, home = get(BASE + "/", timeout=30)
+import re as _re2
+prod_refs = sorted(set(_re2.findall(rb'"(/assets/[A-Za-z0-9._-]+\.(?:js|css))"', home)))
+bad_refs = []
+for ref in prod_refs[:12]:
+    rst, _ = get(BASE + ref.decode(), timeout=20)
+    if rst != 200:
+        bad_refs.append(f"{ref.decode()} HTTP {rst}")
+ok("asset yang dirujuk produksi bisa diambil", bool(prod_refs) and not bad_refs,
+   "; ".join(bad_refs[:3]) or "tak ada referensi asset di HTML")
+
 # ---- route penting tidak 404 ----
 for rp in ("/studio", "/unduh", "/editor/abc", "/projects/abc"):
     st, _ = get(BASE + rp, timeout=25)
@@ -325,7 +400,10 @@ except Exception as exc:
     ok("log backend terbaca", False, str(exc)[:60])
 
 # ============ RINGKASAN ============
-fails = [r for r in results if not r[1]]
+# BUG (diperbaiki 02 Sep): dulu `not r[1]` — r[1] itu NAMA cek (string non-kosong,
+# selalu truthy) → fails selalu kosong → laporan bilang "N/N PASS" walau ada
+# [FAIL] tercetak, dan "PERLU TINDAK LANJUT" tak pernah muncul. Yang benar r[0].
+fails = [r for r in results if not r[0]]
 print(f"QA CORTEXCLIP — {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}")
 print(f"HASIL: {len(results) - len(fails)}/{len(results)} PASS")
 for good, name in results:
