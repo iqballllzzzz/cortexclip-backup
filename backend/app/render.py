@@ -195,17 +195,23 @@ def analyze_speaker_track(src: str, start: float, end: float) -> dict[str, Any]:
     )
 
     MATCH_DIST = analysis_w * 0.16      # jarak maks dianggap orang yang sama
-    SWITCH_FRAMES = 3                   # 3 frame @5fps = 0.6s
-    SWITCH_RATIO = 1.30                 # harus 30% lebih aktif
-    EMA = 0.45
+    SWITCH_FRAMES = 1                   # 1 frame @5fps = 0.2s (langsung)
+    SWITCH_RATIO = 1.25                 # kandidat harus 25% lebih aktif
+    EMA = 0.55                          # (dipakai sbg cadangan; lihat EMA asimetris)
+    MIN_MOTION = 2.0                    # ambang absolut "sedang bicara"
+    CUT_COOLDOWN = int(fps * 0.8)       # jeda minimal antar potong (0.8s)
 
     tracks: list[dict[str, Any]] = []
     active_idx: int | None = None
+    active_uid: list[int | None] = [None]   # uid orang yang sedang disorot
+    _next_uid = [1]
+    last_cut = [-999]                       # frame potong terakhir (cooldown)
     pending_idx: int | None = None
     pending_count = 0
     switches = 0
     max_faces = 0
     targets: list[float] = []
+    cut_frames: set[int] = set()      # frame di mana pembicara BERGANTI → potong keras
 
     for fi in range(n_frames):
         frame = frames[fi]
@@ -246,67 +252,103 @@ def analyze_speaker_track(src: str, start: float, end: float) -> dict[str, Any]:
                         and patch.size > 0):
                     motion = float(np.abs(patch.astype(np.float32)
                                           - prev.astype(np.float32)).mean())
-                tr["motion"] = tr["motion"] * (1 - EMA) + motion * EMA
+                # EMA asimetris: NAIK cepat (mulai bicara langsung terdeteksi),
+                # TURUN lebih lambat (jeda antar kata tidak dianggap berhenti)
+                a = 0.75 if motion > tr["motion"] else 0.35
+                tr["motion"] = tr["motion"] * (1 - a) + motion * a
                 tr["cx"], tr["cy"] = cx, cy
                 tr["patch"] = patch
                 tr["last"] = fi
                 seen.add(best_i)
             else:
                 tracks.append({"cx": cx, "cy": cy, "patch": patch,
-                               "motion": 0.0, "last": fi})
+                               "motion": 0.0, "last": fi,
+                               "uid": _next_uid[0]})
+                _next_uid[0] += 1
                 seen.add(len(tracks) - 1)
 
         # buang track yang lama hilang (>2s)
         tracks = [t for t in tracks if fi - t["last"] <= fps * 2]
         live = [t for t in tracks if fi - t["last"] <= 1]
 
+        prev_uid = active_uid[0]
+
         if not live:
             targets.append(targets[-1] if targets else analysis_w / 2)
             continue
         if len(live) == 1:
             active_idx = tracks.index(live[0])
+            active_uid[0] = live[0]["uid"]
+            if prev_uid is not None and prev_uid != active_uid[0]:
+                cut_frames.add(fi)          # orang berganti → teleport
+                switches += 1
             targets.append(live[0]["cx"])
             continue
 
         # >1 orang: pilih yang mulutnya paling aktif
         loud = max(live, key=lambda t: t["motion"])
-        cur = tracks[active_idx] if (active_idx is not None
-                                     and active_idx < len(tracks)) else None
-        if cur is None or cur not in live:
+        cur = None
+        if active_uid[0] is not None:
+            cur = next((t for t in live if t["uid"] == active_uid[0]), None)
+        if cur is None:
             active_idx = tracks.index(loud)
+            active_uid[0] = loud["uid"]
+            if prev_uid is not None and prev_uid != active_uid[0]:
+                cut_frames.add(fi)
+                last_cut[0] = fi
+                switches += 1
             pending_idx, pending_count = None, 0
-        elif loud is not cur and loud["motion"] > cur["motion"] * SWITCH_RATIO:
+        elif (loud is not cur
+              and loud["motion"] >= MIN_MOTION
+              and loud["motion"] > cur["motion"] * SWITCH_RATIO):
             li = tracks.index(loud)
             if pending_idx == li:
                 pending_count += 1
             else:
                 pending_idx, pending_count = li, 1
-            if pending_count >= SWITCH_FRAMES:
+            # cooldown: jangan potong bolak-balik lebih cepat dari 1.2s
+            if (pending_count >= SWITCH_FRAMES
+                    and fi - last_cut[0] >= CUT_COOLDOWN):
                 active_idx = li
+                active_uid[0] = loud["uid"]
+                cut_frames.add(fi)          # PINDAH PEMBICARA → potong keras
+                last_cut[0] = fi
                 switches += 1
                 pending_idx, pending_count = None, 0
         else:
             pending_idx, pending_count = None, 0
 
-        at = tracks[active_idx] if (active_idx is not None
-                                    and active_idx < len(tracks)) else loud
+        at = None
+        if active_uid[0] is not None:
+            at = next((t for t in live if t["uid"] == active_uid[0]), None)
+        at = at or loud
         targets.append(at["cx"])
 
-    # haluskan jadi trajektori kamera (fisika pan yang sama seperti sebelumnya)
+    # Trajektori kamera:
+    #  - orang SAMA bergerak  → pan halus (smooth_camera, ikut perlahan)
+    #  - GANTI pembicara      → teleport (cam langsung ke posisi orang baru)
     scale = w / analysis_w
     crop_w = min(int(h * ASPECT), w)
     cam_x = w / 2
     target = w / 2
     trajectory: list[float] = []
-    for tc in targets:
+    half = crop_w / 2
+    for fi, tc in enumerate(targets):
         target_scaled = tc * scale
-        # multi-orang: ambang pindah lebih kecil supaya benar-benar menyorot
+        if fi in cut_frames:
+            # POTONG KERAS: tidak ada pan, langsung ke wajah pembicara baru
+            target = target_scaled
+            cam_x = max(half, min(w - half, target_scaled))
+            trajectory.append(cam_x)
+            continue
         thresh = crop_w * (0.10 if max_faces > 1 else SAFE_ZONE_FRACTION)
         if abs(target_scaled - target) > thresh:
             target = target_scaled
         cam_x = smooth_camera(cam_x, target, crop_w, w)
         trajectory.append(cam_x)
-    return {"trajectory": trajectory, "faces": max_faces, "switches": switches}
+    return {"trajectory": trajectory, "faces": max_faces,
+            "switches": switches, "cuts": sorted(cut_frames),
+            "analysis_fps": fps}
 
 
 def analyze_face_track(src: str, start: float, end: float) -> list[float]:
@@ -378,15 +420,26 @@ def _analyze_face_track_single(src: str, start: float, end: float) -> list[float
     return trajectory
 
 
-def build_sendcmd_file(trajectory: list[float], src_w: int, src_h: int, out_fps: float = 30.0, analysis_fps: float = 5.0) -> str:
-    """Generate ffmpeg sendcmd file for dynamic crop following trajectory."""
+def build_sendcmd_file(trajectory: list[float], src_w: int, src_h: int,
+                       out_fps: float = 30.0, analysis_fps: float = 5.0,
+                       cuts: Optional[list[int]] = None) -> str:
+    """File sendcmd untuk crop dinamis mengikuti trajektori.
+
+    cuts = indeks frame analisis tempat pembicara BERGANTI. Di titik itu
+    posisi crop di-set tepat pada waktu tersebut (potong keras/teleport);
+    di luar itu, perubahan x berjalan bertahap mengikuti trajektori (pan).
+    """
     crop_w = min(int(src_h * ASPECT), src_w)
+    cut_set = set(cuts or [])
     lines = []
     for i, cx in enumerate(trajectory):
         t = i / analysis_fps
         x = max(0, min(src_w - crop_w, int(round(cx - crop_w / 2))))
-        # set crop x over a short interval for smoothness
         lines.append(f"{t:.3f} crop x {x};")
+        if i in cut_set:
+            # tegaskan lompatan: set ulang beberapa milidetik setelahnya supaya
+            # tidak ada interpolasi sisa dari perintah sebelumnya
+            lines.append(f"{t + 0.001:.3f} crop x {x};")
     fd, path = tempfile.mkstemp(suffix=".cmd", prefix="cam_")
     with os.fdopen(fd, "w") as f:
         f.write("\n".join(lines) + "\n")
@@ -406,6 +459,7 @@ def render_clip(
     resolution: str = "1080x1920",
     face_tracking: bool = True,
     camera_trajectory: Optional[list[float]] = None,
+    camera_cuts: Optional[list[int]] = None,
     watermark: bool = True,
     icon_ass_path: Optional[str] = None,
     icon_png_overlays: Optional[list[dict[str, Any]]] = None,
@@ -436,7 +490,8 @@ def render_clip(
     vf_parts: list[str] = []
 
     if face_tracking and camera_trajectory and len(camera_trajectory) > 1:
-        cmdfile = build_sendcmd_file(camera_trajectory, src_w, src_h)
+        cmdfile = build_sendcmd_file(camera_trajectory, src_w, src_h,
+                                     cuts=camera_cuts)
         crop_w = min(int(src_h * aspect), src_w)
         # dynamic crop with sendcmd-driven x
         vf_parts.append(f"sendcmd=f={cmdfile}")

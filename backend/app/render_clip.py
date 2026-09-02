@@ -254,10 +254,16 @@ async def render_clip_server(
         out_path = os.path.join(workdir, out_name)
 
         traj = None
+        cam_cuts: list[int] = []
         if face_tracking:
             try:
-                traj = render_mod.analyze_face_track(src, start, end)
-            except Exception:
+                st = render_mod.analyze_speaker_track(src, start, end)
+                traj = st.get("trajectory") or None
+                cam_cuts = list(st.get("cuts") or [])
+                print(f"[render] speaker track: wajah={st.get('faces')} "
+                      f"pindah={st.get('switches')} cuts={len(cam_cuts)}")
+            except Exception as exc:
+                print(f"[render] speaker track gagal: {exc}")
                 traj = None
 
         # Watermark: ON kecuali user sudah menuntaskan 4 iklan (profiles.ads_watched>=4)
@@ -281,6 +287,7 @@ async def render_clip_server(
             resolution=resolution,
             face_tracking=bool(traj),
             camera_trajectory=traj,
+            camera_cuts=cam_cuts,
             watermark=watermark_on,
             icon_ass_path=icon_ass_path,
             icon_png_overlays=icon_png_overlays,  # FIX: sebelumnya overlay DIBUANG
