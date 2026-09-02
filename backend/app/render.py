@@ -365,26 +365,67 @@ def analyze_speaker_track(src: str, start: float, end: float) -> dict[str, Any]:
         targets.append(at["cx"])
 
     # Trajektori kamera:
-    #  - orang SAMA bergerak  → pan halus (smooth_camera, ikut perlahan)
+    #  - orang SAMA bergerak  → ikuti wajah HALUS & TERPUSAT
     #  - GANTI pembicara      → teleport (cam langsung ke posisi orang baru)
+    #
+    # Trajektori dihitung OFFLINE (seluruh klip sudah dianalisis), jadi tidak
+    # perlu filter kausal seperti EMA — EMA selalu tertinggal di belakang wajah
+    # ("miring dari wajahnya") dan kalau dipercepat jadi patah-patah.
+    # Di sini dipakai penghalusan ZERO-PHASE (maju-mundur) per SEGMEN antar
+    # potongan: hasilnya mulus TANPA lag, tetap terpusat di wajah, dan
+    # teleport di titik cut tetap tajam karena tiap segmen dihaluskan sendiri.
     scale = w / analysis_w
     crop_w = min(int(h * ASPECT), w)
-    cam_x = w / 2
-    target = w / 2
-    trajectory: list[float] = []
     half = crop_w / 2
-    for fi, tc in enumerate(targets):
-        target_scaled = tc * scale
-        if fi in cut_frames:
-            # POTONG KERAS: tidak ada pan, langsung ke wajah pembicara baru
-            target = target_scaled
-            cam_x = max(half, min(w - half, target_scaled))
-            trajectory.append(cam_x)
+
+    def _median3(seq: list[float]) -> list[float]:
+        """Buang jitter deteksi 1 frame."""
+        if len(seq) < 3:
+            return list(seq)
+        out = [seq[0]]
+        for i in range(1, len(seq) - 1):
+            out.append(sorted(seq[i - 1:i + 2])[1])
+        out.append(seq[-1])
+        return out
+
+    def _smooth_zero_phase(seq: list[float], win: int) -> list[float]:
+        """Rata-rata bergerak dua arah (maju lalu mundur) = tanpa pergeseran fase."""
+        if len(seq) < 3 or win < 2:
+            return list(seq)
+        k = min(win, max(2, len(seq) // 2))
+        cur = list(seq)
+        for _ in range(2):                      # 2 lintasan = kurva makin halus
+            # maju
+            acc = cur[0]
+            fwd = []
+            a_ = 2.0 / (k + 1)
+            for v in cur:
+                acc += (v - acc) * a_
+                fwd.append(acc)
+            # mundur (mengembalikan lag yang ditimbulkan lintasan maju)
+            acc = fwd[-1]
+            bwd = [0.0] * len(fwd)
+            for i in range(len(fwd) - 1, -1, -1):
+                acc += (fwd[i] - acc) * a_
+                bwd[i] = acc
+            cur = bwd
+        return cur
+
+    # segmen = potongan trajektori antara dua cut (teleport tidak dihaluskan)
+    bounds = [0] + sorted(c for c in cut_frames if 0 < c < len(targets)) + [len(targets)]
+    SMOOTH_WIN = max(3, int(fps * 0.9))      # jendela ±0.9 detik
+    traj_analysis: list[float] = []
+    for b0, b1 in zip(bounds, bounds[1:]):
+        seg = targets[b0:b1]
+        if not seg:
             continue
-        thresh = crop_w * (0.10 if max_faces > 1 else SAFE_ZONE_FRACTION)
-        if abs(target_scaled - target) > thresh:
-            target = target_scaled
-        cam_x = smooth_camera(cam_x, target, crop_w, w)
+        seg = _median3(seg)
+        seg = _smooth_zero_phase(seg, SMOOTH_WIN)
+        traj_analysis.extend(seg)
+
+    trajectory: list[float] = []
+    for tc in traj_analysis:
+        cam_x = max(half, min(w - half, tc * scale))
         trajectory.append(cam_x)
     return {"trajectory": trajectory, "faces": max_faces,
             "switches": switches, "cuts": sorted(cut_frames),
@@ -465,21 +506,46 @@ def build_sendcmd_file(trajectory: list[float], src_w: int, src_h: int,
                        cuts: Optional[list[int]] = None) -> str:
     """File sendcmd untuk crop dinamis mengikuti trajektori.
 
+    Trajektori dihitung pada `analysis_fps` (5 fps). Kalau perintah crop hanya
+    ditulis 5x per detik, gerakan kamera terlihat PATAH-PATAH (melompat tiap
+    200 ms). Karena itu di sini trajektori di-INTERPOLASI ke `out_fps` supaya
+    perintah keluar tiap ~33 ms → gerakan mulus.
+
     cuts = indeks frame analisis tempat pembicara BERGANTI. Di titik itu
-    posisi crop di-set tepat pada waktu tersebut (potong keras/teleport);
-    di luar itu, perubahan x berjalan bertahap mengikuti trajektori (pan).
+    interpolasi TIDAK dilakukan (posisi melompat seketika = teleport).
     """
     crop_w = min(int(src_h * ASPECT), src_w)
     cut_set = set(cuts or [])
-    lines = []
-    for i, cx in enumerate(trajectory):
-        t = i / analysis_fps
-        x = max(0, min(src_w - crop_w, int(round(cx - crop_w / 2))))
+    max_x = max(0, src_w - crop_w)
+    step = max(1.0, out_fps) / max(1.0, analysis_fps)   # frame keluar per titik
+    lines: list[str] = []
+    last_written: Optional[int] = None
+
+    def emit(t: float, cx: float, force: bool = False) -> None:
+        nonlocal last_written
+        x = max(0, min(max_x, int(round(cx - crop_w / 2))))
+        if not force and last_written is not None and x == last_written:
+            return                      # hemat: jangan tulis nilai yang sama
         lines.append(f"{t:.3f} crop x {x};")
+        last_written = x
+
+    n = len(trajectory)
+    for i in range(n):
+        t_i = i / analysis_fps
+        cx_i = trajectory[i]
         if i in cut_set:
-            # tegaskan lompatan: set ulang beberapa milidetik setelahnya supaya
-            # tidak ada interpolasi sisa dari perintah sebelumnya
-            lines.append(f"{t + 0.001:.3f} crop x {x};")
+            # teleport: tegaskan posisi tepat di detik itu, tanpa interpolasi
+            emit(t_i, cx_i, force=True)
+            continue
+        emit(t_i, cx_i)
+        if i + 1 < n and (i + 1) not in cut_set:
+            cx_next = trajectory[i + 1]
+            # sisipkan titik antara supaya pergerakan mulus
+            sub = int(step)
+            for k in range(1, sub):
+                f = k / step
+                emit(t_i + (k / max(1.0, out_fps)),
+                     cx_i + (cx_next - cx_i) * f)
     fd, path = tempfile.mkstemp(suffix=".cmd", prefix="cam_")
     with os.fdopen(fd, "w") as f:
         f.write("\n".join(lines) + "\n")

@@ -12,6 +12,7 @@ const nav = [
   { label: "Cara kerja", href: "/#cara" },
   { label: "Fitur", href: "/#fitur" },
   { label: "Harga", href: "/#harga" },
+  { label: "Docs", href: "/docs" },
   { label: "FAQ", href: "/#faq" },
 ];
 

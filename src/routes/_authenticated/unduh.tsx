@@ -15,6 +15,7 @@ import {
 
 import { supabase } from "@/integrations/supabase/client";
 import { listRenderJobs, type RenderJob } from "@/lib/backend-api";
+import { clipFileName } from "@/lib/clip-file";
 import { deleteRenderJob } from "@/lib/project-api";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
@@ -265,12 +266,20 @@ function DownloadsPage() {
                         variant="accent"
                         size="sm"
                         onClick={() => {
+                          // Nama file = potongan JUDUL KLIP (tiap klip beda).
+                          // Pakai parameter ?download= milik Supabase Storage:
+                          // server yang mengirim Content-Disposition, jadi nama
+                          // file tetap benar walau URL beda origin.
+                          const name = clipFileName(title);
+                          const url = new URL(job.rendered_url!);
+                          url.searchParams.set("download", name);
                           const a = document.createElement("a");
-                          a.href = job.rendered_url!;
-                          a.download = `${title.replace(/[^\w\s-]/g, "").slice(0, 40) || "clip"}.mp4`;
-                          a.target = "_blank";
+                          a.href = url.toString();
+                          a.download = name;
                           a.rel = "noopener";
+                          document.body.appendChild(a);
                           a.click();
+                          a.remove();
                         }}
                       >
                         <Download className="size-4" />

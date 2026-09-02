@@ -425,6 +425,7 @@ async def api_preview_status(clip_id: str, request: Request,
 class RenderJobIn(BaseModel):
     project_id: str
     clip_id: str
+    clip_title: Optional[str] = None
     caption_style: Optional[dict[str, Any]] = None
 
 
@@ -443,6 +444,22 @@ async def api_start_render_job(body: RenderJobIn, request: Request, authorizatio
     if not ok:
         raise HTTPException(429, reason)
 
+    # Judul klip: dipakai untuk NAMA FILE unduhan (tiap klip beda nama).
+    # Kalau klien tidak mengirim, ambil dari DB supaya tidak pernah kosong.
+    clip_title = (body.clip_title or "").strip()
+    if not clip_title:
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                cr = await client.get(
+                    f"{SUPABASE_URL}/rest/v1/clips?id=eq.{body.clip_id}&select=title",
+                    headers={"apikey": SUPABASE_SERVICE_KEY,
+                             "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
+                )
+            rows = cr.json() if cr.status_code == 200 else []
+            clip_title = str((rows[0] if rows else {}).get("title") or "").strip()
+        except Exception as exc:
+            print(f"[render-jobs] ambil judul klip gagal: {exc}")
+
     # simpan job ke DB
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.post(
@@ -457,6 +474,7 @@ async def api_start_render_job(body: RenderJobIn, request: Request, authorizatio
                 "user_id": user["id"],
                 "project_id": body.project_id,
                 "clip_id": body.clip_id,
+                "clip_title": clip_title or None,
                 "status": "pending",
                 "caption_style": body.caption_style or {},
             },

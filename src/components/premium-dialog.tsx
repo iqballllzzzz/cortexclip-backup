@@ -16,6 +16,35 @@ interface Order {
   amount: number;
   total_payment: number;
   label: string;
+  /** ISO 8601 UTC dari Pakasir (transactioncreate.payment.expired_at). */
+  expired_at?: string | null;
+}
+
+/** Sisa waktu QRIS dalam mm:ss, atau null kalau tidak diketahui. */
+function useCountdown(expiredAt?: string | null) {
+  const [left, setLeft] = useState<number | null>(null);
+  useEffect(() => {
+    if (!expiredAt) {
+      setLeft(null);
+      return;
+    }
+    const target = new Date(expiredAt).getTime();
+    if (!Number.isFinite(target)) {
+      setLeft(null);
+      return;
+    }
+    const tick = () => setLeft(Math.max(0, Math.floor((target - Date.now()) / 1000)));
+    tick();
+    const iv = setInterval(tick, 1000);
+    return () => clearInterval(iv);
+  }, [expiredAt]);
+  return left;
+}
+
+function fmtLeft(sec: number) {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 async function api(path: string, init?: RequestInit) {
@@ -50,6 +79,16 @@ export function PremiumDialog({
   const [loading, setLoading] = useState(false);
   const [order, setOrder] = useState<Order | null>(null);
   const [waiting, setWaiting] = useState(false);
+  const [expired, setExpired] = useState(false);
+  const left = useCountdown(order?.expired_at);
+
+  // QRIS kadaluarsa saat hitungan habis → hentikan polling & minta buat ulang
+  useEffect(() => {
+    if (left === 0 && order) {
+      setExpired(true);
+      setWaiting(false);
+    }
+  }, [left, order]);
 
   useEffect(() => {
     if (open && plans.length === 0) {
@@ -61,28 +100,35 @@ export function PremiumDialog({
   }, [open, plans.length]);
 
   useEffect(() => {
-    if (!order) return;
+    if (!order || expired) return;
     const iv = setInterval(async () => {
       try {
         const d = await api(`/api/premium/order/${order.order_id}`);
-        if (d.order?.status === "completed") {
+        const st = d.order?.status;
+        if (st === "completed") {
           clearInterval(iv);
           setWaiting(false);
           toast.success("Pembayaran diterima — Premium aktif! 🎉");
           onUpgraded?.();
           onClose();
+        } else if (st === "expired" || st === "canceled") {
+          // Pakasir memakai 'canceled' untuk QRIS yang lewat waktu
+          clearInterval(iv);
+          setExpired(true);
+          setWaiting(false);
         }
       } catch {
         /* keep polling */
       }
     }, 3500);
     return () => clearInterval(iv);
-  }, [order]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [order, expired]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!open) return null;
 
   async function pay(p: Plan) {
     setLoading(true);
+    setExpired(false);
     try {
       const d = await api("/api/premium/checkout", {
         method: "POST",
@@ -95,6 +141,13 @@ export function PremiumDialog({
     } finally {
       setLoading(false);
     }
+  }
+
+  /** QRIS kadaluarsa tidak bisa dipakai lagi — harus order baru. */
+  function reset() {
+    setOrder(null);
+    setExpired(false);
+    setWaiting(false);
   }
 
   return (
@@ -152,19 +205,63 @@ export function PremiumDialog({
             <p className="font-semibold">
               {order.label} — Rp{order.total_payment.toLocaleString("id-ID")}
             </p>
-            <img
-              src={`/api/premium/qr/${order.order_id}`}
-              alt="QRIS"
-              className="mx-auto size-56 rounded-xl border border-border bg-white p-2"
-            />
-            <p className="text-xs text-muted-foreground">
-              Scan pakai aplikasi bank / e-wallet apa pun (QRIS). Halaman ini otomatis mendeteksi
-              pembayaran — jangan tutup sebelum berhasil.
-            </p>
-            {waiting && (
-              <p className="flex items-center justify-center gap-2 text-sm">
-                <Loader2 className="size-4 animate-spin" /> Menunggu pembayaran…
-              </p>
+            <div className="relative mx-auto w-fit">
+              <img
+                src={`/api/premium/qr/${order.order_id}`}
+                alt="QRIS"
+                className={`mx-auto size-56 rounded-xl border border-border bg-white p-2 transition ${
+                  expired ? "opacity-30 blur-[2px]" : ""
+                }`}
+              />
+              {expired ? (
+                <div className="absolute inset-0 grid place-items-center">
+                  <span className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-bold text-white">
+                    QRIS KADALUARSA
+                  </span>
+                </div>
+              ) : null}
+            </div>
+
+            {expired ? (
+              <>
+                <p className="text-sm font-medium text-red-600 dark:text-red-400">
+                  Waktu pembayaran habis. QRIS ini tidak bisa dipakai lagi.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Buat pesanan baru untuk mendapatkan QRIS yang masih berlaku.
+                </p>
+                <Button variant="accent" size="sm" onClick={reset}>
+                  Buat QRIS baru
+                </Button>
+              </>
+            ) : (
+              <>
+                {left !== null ? (
+                  <p
+                    className={`text-sm font-semibold tabular-nums ${
+                      left <= 300 ? "text-red-600 dark:text-red-400" : "text-foreground"
+                    }`}
+                  >
+                    Bayar sebelum {fmtLeft(left)}
+                    <span className="ml-1.5 font-normal text-muted-foreground">
+                      ({new Date(order.expired_at!).toLocaleTimeString("id-ID", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}{" "}
+                      WIB)
+                    </span>
+                  </p>
+                ) : null}
+                <p className="text-xs text-muted-foreground">
+                  Scan pakai aplikasi bank / e-wallet apa pun (QRIS). Halaman ini otomatis
+                  mendeteksi pembayaran — jangan tutup sebelum berhasil.
+                </p>
+                {waiting && (
+                  <p className="flex items-center justify-center gap-2 text-sm">
+                    <Loader2 className="size-4 animate-spin" /> Menunggu pembayaran…
+                  </p>
+                )}
+              </>
             )}
             <Button variant="outline" size="sm" onClick={onClose}>
               Tutup

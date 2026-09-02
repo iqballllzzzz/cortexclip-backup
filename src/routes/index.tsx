@@ -8,10 +8,17 @@ import { Pipeline } from "@/components/pipeline";
 import { ClipShowcase } from "@/components/clip-showcase";
 import { PricingFaq } from "@/components/pricing-faq";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  SITE_URL,
+  ldScript,
+  organizationLd,
+  softwareLd,
+  websiteLd,
+} from "@/lib/seo-jsonld";
 
-const title = "CortexClip — AI Auto Clipper Video Panjang Jadi Klip Viral";
+const title = "CortexClip AI — Auto Clipper Video Panjang Jadi Klip Viral";
 const description =
-  "Ubah podcast, webinar, atau ceramah jadi puluhan klip vertikal siap unggah dengan caption karaoke, virality score, face tracking, dan metadata otomatis.";
+  "CortexClip AI (CortexclipAI) mengubah podcast, webinar, atau ceramah jadi puluhan klip vertikal siap unggah: subtitle karaoke, virality score, face tracking, ikon & b-roll otomatis.";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -21,8 +28,15 @@ export const Route = createFileRoute("/")({
       { property: "og:title", content: title },
       { property: "og:description", content: description },
       { property: "og:type", content: "website" },
+      { property: "og:url", content: SITE_URL },
+      { property: "og:site_name", content: "CortexClip" },
+      { property: "og:locale", content: "id_ID" },
+      { property: "og:image", content: `${SITE_URL}/favicon.png` },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "application-name", content: "CortexClip" },
     ],
+    links: [{ rel: "canonical", href: `${SITE_URL}/` }],
+    scripts: [ldScript(organizationLd), ldScript(websiteLd), ldScript(softwareLd)],
   }),
   component: Index,
 });

@@ -13,6 +13,15 @@ const cols = [
     ],
   },
   {
+    title: "Bantuan",
+    links: [
+      { label: "Dokumentasi", href: "/docs" },
+      { label: "Cara pakai", href: "/docs#mulai" },
+      { label: "Batas & harga", href: "/docs#batas" },
+      { label: "Masalah umum", href: "/docs#masalah" },
+    ],
+  },
+  {
     title: "Akun",
     links: [
       { label: "Dashboard", href: "/dashboard" },

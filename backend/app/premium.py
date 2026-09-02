@@ -144,7 +144,13 @@ async def pakasir_create_qris(order_id: str, amount: int) -> dict[str, Any]:
 
 
 async def pakasir_check(order_id: str, amount: int) -> Optional[str]:
-    """Return status ('completed'/...) via transactiondetail, atau None."""
+    """Return status transaksi dari Pakasir, atau None kalau gagal dihubungi.
+
+    Nilai yang benar-benar dipakai Pakasir (diverifikasi ke API produksi):
+    'pending', 'completed', 'canceled'. TIDAK ADA status 'expired' — QRIS yang
+    lewat waktu berubah menjadi 'canceled' (halaman bayar Pakasir sendiri
+    menampilkan "Transaksi telah dibatalkan atau kadaluwarsa" untuk status itu).
+    """
     if not PAKASIR_API_KEY:
         return None
     try:
@@ -166,9 +172,13 @@ async def create_checkout(user_id: str, plan_key: str) -> dict[str, Any]:
     plan = PLANS[plan_key]
     order_id = f"CX-{uuid.uuid4().hex[:10].upper()}"
     pay = await pakasir_create_qris(order_id, plan["amount"])
+    # `expired_at` hanya dikembalikan saat create (tidak ada di transactiondetail),
+    # jadi WAJIB disimpan — tanpa ini countdown hilang saat user refresh.
+    expired_at = str(pay.get("expired_at") or "")
     await sb("POST", "premium_orders", json_body=[{
         "user_id": user_id, "order_id": order_id, "plan": plan_key,
         "amount": plan["amount"], "status": "pending",
+        "expired_at": expired_at or None,
     }])
     return {
         "order_id": order_id,
@@ -177,7 +187,7 @@ async def create_checkout(user_id: str, plan_key: str) -> dict[str, Any]:
         "amount": plan["amount"],
         "total_payment": pay.get("total_payment") or plan["amount"],
         "qris": pay.get("payment_number") or "",
-        "expired_at": pay.get("expired_at") or "",
+        "expired_at": expired_at,
         "qr_url": f"{PUBLIC_BASE}/api/premium/qr/{order_id}",
     }
 
@@ -354,16 +364,46 @@ async def create_share(user_id: str, project_id: str) -> dict[str, Any]:
 
 
 async def get_order_status(user_id: str, order_id: str) -> dict[str, Any]:
-    """Status order + premium_until; kalau masih pending, cek langsung ke Pakasir."""
-    rows = await sb("GET", f"premium_orders?order_id=eq.{order_id}&user_id=eq.{user_id}&select=order_id,plan,amount,status,payment_method,created_at,completed_at")
+    """Status order + premium_until; kalau masih pending, cek langsung ke Pakasir.
+
+    Menandai KADALUARSA dengan dua cara (tanpa ini order mati menggantung
+    'pending' selamanya):
+      1. Pakasir menjawab 'canceled' — itulah status untuk QRIS yang lewat waktu
+         (Pakasir tidak punya status 'expired').
+      2. `expired_at` yang kita simpan sudah terlewat.
+    """
+    rows = await sb("GET", f"premium_orders?order_id=eq.{order_id}&user_id=eq.{user_id}"
+                           "&select=order_id,plan,amount,status,payment_method,"
+                           "created_at,completed_at,expired_at")
     if not rows:
         raise LookupError("Order tidak ditemukan")
     order = rows[0]
-    if order["status"] == "pending" and PAKASIR_API_KEY:
-        st = await pakasir_check(order_id, int(order["amount"])) or ""
+    if order["status"] == "pending":
+        st = ""
+        if PAKASIR_API_KEY:
+            st = await pakasir_check(order_id, int(order["amount"])) or ""
         if st == "completed":
-            await handle_webhook({"order_id": order_id, "amount": order["amount"], "status": "completed"})
+            await handle_webhook({"order_id": order_id, "amount": order["amount"],
+                                  "status": "completed"})
             order["status"] = "completed"
+        else:
+            lewat_waktu = False
+            exp = order.get("expired_at")
+            if exp:
+                try:
+                    dt = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    lewat_waktu = datetime.now(timezone.utc) >= dt
+                except ValueError:
+                    lewat_waktu = False
+            if st == "canceled" or lewat_waktu:
+                order["status"] = "expired"
+                try:
+                    await sb("PATCH", f"premium_orders?order_id=eq.{order_id}",
+                             json_body={"status": "expired"})
+                except Exception as exc:
+                    print(f"[premium] tandai expired gagal: {exc}")
     prof = await sb("GET", f"profiles?user_id=eq.{user_id}&select=premium_until")
     return {"order": order, "premium_until": (prof or [{}])[0].get("premium_until")}
 
