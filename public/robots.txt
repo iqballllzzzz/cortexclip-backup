@@ -9,4 +9,4 @@ Disallow: /unduh
 Disallow: /editor/
 Disallow: /projects/
 
-Sitemap: https://clip.aqualibrya.my.id/sitemap.xml
+Sitemap: https://cortexclip.eu.cc/sitemap.xml

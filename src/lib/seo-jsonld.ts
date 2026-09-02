@@ -8,7 +8,7 @@
  *    menampilkan sitelinks (Docs, Studio, dsb). Sitelinks TIDAK bisa
  *    dipaksa — Google memilih sendiri dari navigasi & tautan internal.
  */
-export const SITE_URL = "https://clip.aqualibrya.my.id";
+export const SITE_URL = "https://cortexclip.eu.cc";
 
 const BRAND_ALIASES = [
   "CortexClip",

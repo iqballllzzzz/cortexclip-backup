@@ -53,27 +53,33 @@ MIN_FACE_RATIO = 0.030    # wajah < 3% lebar frame = latar, bukan kandidat
 MATCH_FACE_RATIO = 0.85   # jarak maks pencocokan identitas = 0.85 x lebar wajah
 
 SAMPLE_FPS = 15           # bicara 3-4 suku kata/detik; 5 fps teraliasing
-WIN_SAMPLES = 15          # jendela penilaian = 1 detik (dalam FRAME, bukan sampel)
-MIN_SAMPLES = 6           # di bawah ini belum bisa dinilai
+WIN_FRAMES = 9            # jendela penilaian 0.6 detik, diukur dalam WAKTU
+MIN_SAMPLES = 4           # di bawah ini belum bisa dinilai
 
 # penemuan + penyempurnaan per-ROI (lihat docstring speaker_detect.py):
 # FaceMesh frame penuh kehilangan wajah 15-30% frame pada podcast 3 orang, dan
 # jendela penilaian 1 detik jadi bolong. ROI di sekitar posisi terakhir tiap
 # track membuat wajah mengisi hampir seluruh potongan → landmark presisi dan
 # wajah praktis tidak pernah hilang.
-DISCOVER_EVERY = 15       # cari wajah baru pada frame penuh 1x per detik
-ROI_SCALE = 0.95          # setengah-lebar ROI = 0.95 x lebar wajah
+DISCOVER_EVERY = 1        # cari wajah pada frame penuh SETIAP frame (~8ms)
+ROI_SCALE = 1.30          # setengah-lebar ROI = 1.3 x lebar wajah
+ROI_RETRY = 2.10          # kalau gagal, coba sekali lagi dengan ROI lebih lebar
+MAX_DRIFT = 0.80          # hasil ROI ditolak kalau bergeser > 0.8 x lebar wajah
+MERGE_RATIO = 0.45        # dua track < 0.45 x lebar wajah = wajah sama, digabung
+RECENT_FRAMES = 8         # kandidat tetap dihitung kalau terlihat < 8 frame lalu
 
 SPEAK_ON = 0.0060         # simpangan bukaan mulut untuk dianggap bicara
 SPEAK_OFF = 0.0035        # di bawah ini dianggap berhenti bicara
 DOMINANCE = 1.60          # kandidat harus 60% lebih "bicara" dari yang aktif
-EMA_UP = 0.70             # skor naik cepat
+CUT_MIN_SAMPLES = 6       # kandidat baru boleh memicu potong kalau datanya cukup
+EMA_UP = 0.85             # skor naik cepat (pindah pembicara harus responsif)
 EMA_DOWN = 0.30           # turun lambat (jeda antar kata bukan berhenti)
 
-HOLD_FRAMES = 3           # kandidat harus dominan 3 frame (0.2s @15fps)
-COOLDOWN_S = 1.0          # jeda minimal antar potong kamera
-LOST_S = 1.5              # track hilang lebih lama dari ini -> dipensiunkan
-RETIRE_S = 6.0            # identitas pensiun masih bisa dipakai ulang
+HOLD_FRAMES = 2           # kandidat harus dominan 2 frame (0.13s @15fps)
+COOLDOWN_S = 0.8          # jeda minimal antar potong kamera
+STICKY_S = 0.5            # setelah pindah, kandidat lain ditahan dulu
+LOST_S = 3.0              # track hilang lebih lama dari ini -> dipensiunkan
+RETIRE_S = 8.0            # identitas pensiun masih bisa dipakai ulang
 SCENE_CUT_DIFF = 22.0     # ambang potongan adegan (beda rata-rata piksel)
 
 

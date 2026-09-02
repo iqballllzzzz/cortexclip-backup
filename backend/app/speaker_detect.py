@@ -25,9 +25,10 @@ from typing import Any, Optional
 import numpy as np
 
 from .speaker_track import (DISCOVER_EVERY, EMA_DOWN, EMA_UP, LOST_S,
-                            MAX_FACES, MIN_FACE_RATIO, MIN_SAMPLES, RETIRE_S,
-                            ROI_SCALE, WIN_SAMPLES, assign,
-                            face_from_landmarks)
+                            MAX_DRIFT, MAX_FACES, MERGE_RATIO,
+                            MIN_FACE_RATIO, MIN_SAMPLES, RECENT_FRAMES,
+                            RETIRE_S, ROI_RETRY, ROI_SCALE, WIN_FRAMES,
+                            assign, face_from_landmarks)
 
 _mesh: Any = None
 _roi_mesh: Any = None
@@ -77,25 +78,85 @@ def discover_faces(mesh, frame: np.ndarray) -> list[dict[str, Any]]:
     return out
 
 
-def refine_track(frame: np.ndarray, t: dict[str, Any]) -> Optional[dict[str, Any]]:
-    """Ukur ulang satu track memakai potongan di sekitar posisi terakhirnya."""
+def _roi_once(frame: np.ndarray, t: dict[str, Any], scale: float
+              ) -> Optional[dict[str, Any]]:
+    """Satu percobaan pengukuran pada ROI dengan lebar tertentu."""
     h, w = frame.shape[:2]
-    hw = max(12.0, t["fw"] * ROI_SCALE)
-    hh = max(12.0, t["fh"] * ROI_SCALE)
+    hw = max(14.0, t["fw"] * scale)
+    hh = max(14.0, t["fh"] * scale)
     x0, x1 = int(max(0, t["cx"] - hw)), int(min(w, t["cx"] + hw))
     y0, y1 = int(max(0, t["cy"] - hh)), int(min(h, t["cy"] + hh))
-    if x1 - x0 < 24 or y1 - y0 < 24:
+    if x1 - x0 < 32 or y1 - y0 < 32:
         return None
-    sub = np.ascontiguousarray(frame[y0:y1, x0:x1])
-    res = _get_roi_mesh().process(sub)
+    res = _get_roi_mesh().process(np.ascontiguousarray(frame[y0:y1, x0:x1]))
     faces = res.multi_face_landmarks or []
     if not faces:
         return None
-    d = face_from_landmarks(faces[0].landmark, x1 - x0, y1 - y0)
-    d["cx"] += x0
-    d["cy"] += y0
+    # kalau ROI kebetulan memuat dua wajah (orang berdempetan), ambil yang
+    # PALING DEKAT dengan posisi track ini — jangan sampai identitas tertukar
+    best = None
+    for f in faces:
+        d = face_from_landmarks(f.landmark, x1 - x0, y1 - y0)
+        d["cx"] += x0
+        d["cy"] += y0
+        dist = abs(d["cx"] - t["cx"]) + abs(d["cy"] - t["cy"]) * 0.6
+        if best is None or dist < best[0]:
+            best = (dist, d)
+    if best is None:
+        return None
+    d = best[1]
     d["area"] = (d["fw"] * d["fh"]) / (w * h)
     return d
+
+
+def refine_track(frame: np.ndarray, t: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """Ukur ulang satu track memakai potongan di sekitar posisi terakhirnya.
+
+    Dua percobaan: ROI normal, lalu ROI lebih lebar. Kepala yang bergerak cepat
+    (justru saat orangnya bicara) bisa keluar dari ROI sempit; kalau pengukuran
+    gagal, jendela penilaian 1 detik jadi bolong dan pembicaranya kehilangan skor.
+
+    Hasil yang MELOMPAT jauh ditolak: ROI lebar bisa menangkap wajah tetangga
+    (dua orang berdempetan), dan kalau diterima, dua track akan menempel pada
+    satu wajah — dulu ini membuat satu orang muncul sebagai 5 identitas.
+    """
+    d = _roi_once(frame, t, ROI_SCALE)
+    if d is None:
+        d = _roi_once(frame, t, ROI_RETRY)
+    if d is None:
+        return None
+    if abs(d["cx"] - t["cx"]) > t["fw"] * MAX_DRIFT:
+        return None
+    return d
+
+
+def merge_duplicate_tracks(tracks: list[dict[str, Any]]) -> None:
+    """Gabungkan track yang menempel pada wajah yang sama.
+
+    Penemuan berkala pada frame penuh bisa memberi kotak yang cukup bergeser dari
+    track yang sudah ada sehingga lolos asosiasi dan menjadi identitas kedua untuk
+    orang yang sama. Track yang lebih tua dipertahankan beserta riwayat bukaan
+    mulutnya (yang lebih panjang), yang muda dibuang.
+    """
+    i = 0
+    while i < len(tracks):
+        j = i + 1
+        while j < len(tracks):
+            a, b = tracks[i], tracks[j]
+            lim = max(6.0, min(a["fw"], b["fw"]) * MERGE_RATIO)
+            if abs(a["cx"] - b["cx"]) <= lim and abs(a["cy"] - b["cy"]) <= lim:
+                keep, drop = (a, b) if a["uid"] <= b["uid"] else (b, a)
+                if len(drop["ap"]) > len(keep["ap"]):
+                    keep["ap"] = drop["ap"]
+                    keep["speak"] = drop["speak"]
+                keep["last"] = max(a["last"], b["last"])
+                tracks.remove(drop)
+                if drop is a:
+                    i -= 1
+                    break
+            else:
+                j += 1
+        i += 1
 
 
 def track_frame(frame: np.ndarray, mesh, tracks: list[dict[str, Any]],
@@ -109,21 +170,44 @@ def track_frame(frame: np.ndarray, mesh, tracks: list[dict[str, Any]],
     for t in tracks:
         d = refine_track(frame, t)
         if d is None:
+            # Skor diturunkan (bukan riwayatnya dibuang): wajah bisa hilang
+            # sebentar 1-2 frame, dan kalau riwayat dihapus si pembicara justru
+            # kehilangan skornya sama sekali (terbukti merusak: skor jadi 0).
+            t["speak"] *= EMA_DOWN
             continue
         t.update({"cx": d["cx"], "cy": d["cy"], "fw": d["fw"],
                   "fh": d["fh"], "area": d["area"], "last": fi})
         if not freeze:
-            t["ap"].append(d["aperture"])
-            if len(t["ap"]) > WIN_SAMPLES:
-                t["ap"].pop(0)
+            # riwayat menyimpan (frame, bukaan) supaya jendela penilaian diukur
+            # dalam WAKTU: kalau diukur dalam jumlah sampel, wajah yang deteksinya
+            # bolong akan menilai rentang waktu yang jauh lebih panjang dari 1
+            # detik dan skornya tidak sebanding dengan wajah lain
+            t["ap"].append((fi, d["aperture"]))
+            t["ap"] = [(f, a) for (f, a) in t["ap"] if fi - f < WIN_FRAMES]
         matched.append(t)
 
-    # penemuan wajah baru: berkala, atau saat belum ada track sama sekali
+    # penemuan wajah pada frame penuh SETIAP frame. Sebelumnya hanya 1x/detik
+    # dan itu terbukti fatal: kalau ROI satu track gagal beberapa kali (paling
+    # sering justru saat orangnya bicara — kepala bergerak), track-nya mati dan
+    # tidak dihidupkan lagi sampai penemuan berikutnya. Kandidat pembicara
+    # hilang 2+ detik dan kamera terkunci pada orang yang salah.
     if fi % DISCOVER_EVERY == 0 or not tracks:
         dets = discover_faces(mesh, frame)
         pairing = assign(dets, tracks)
         for di, d in enumerate(dets):
-            if di in pairing:
+            ti = pairing.get(di)
+            if ti is not None:
+                # wajah ini sudah punya identitas; kalau ROI-nya gagal tadi,
+                # pakai hasil penemuan ini supaya riwayat tidak bolong
+                t = tracks[ti]
+                if t["last"] != fi:
+                    t.update({"cx": d["cx"], "cy": d["cy"], "fw": d["fw"],
+                              "fh": d["fh"], "area": d["area"], "last": fi})
+                    if not freeze:
+                        t["ap"].append((fi, d["aperture"]))
+                        t["ap"] = [(f, a) for (f, a) in t["ap"]
+                                   if fi - f < WIN_FRAMES]
+                    matched.append(t)
                 continue
             reuse: Optional[dict[str, Any]] = None
             for rt in retired:
@@ -138,12 +222,12 @@ def track_frame(frame: np.ndarray, mesh, tracks: list[dict[str, Any]],
             if reuse is not None:
                 retired.remove(reuse)
                 reuse.update(base)
-                reuse["ap"].append(d["aperture"])
+                reuse["ap"].append((fi, d["aperture"]))
                 tracks.append(reuse)
                 matched.append(reuse)
             else:
                 nt = {"uid": next_uid[0], "speak": 0.0,
-                      "ap": [d["aperture"]], **base}
+                      "ap": [(fi, d["aperture"])], **base}
                 tracks.append(nt)
                 matched.append(nt)
                 next_uid[0] += 1
@@ -154,18 +238,31 @@ def track_frame(frame: np.ndarray, mesh, tracks: list[dict[str, Any]],
         retired[:] = [t for t in retired
                       if fi - t["last"] <= fps * RETIRE_S][-12:]
     tracks[:] = [t for t in tracks if fi - t["last"] <= fps * LOST_S]
-    return [t for t in tracks if t["last"] == fi]
+    merge_duplicate_tracks(tracks)
+    # Kandidat = wajah yang terlihat BARU SAJA, bukan hanya pada frame ini.
+    # Deteksi wajah kadang bolong 1-3 frame; kalau kandidat dibatasi frame ini
+    # saja, pembicara yang wajahnya sekejap hilang langsung dianggap tidak ada
+    # dan kamera berpindah ke orang lain (face tracking "mati senyap").
+    return [t for t in tracks if fi - t["last"] <= RECENT_FRAMES]
 
 
-def commit_speak(tracks: list[dict[str, Any]]) -> None:
-    """Skor bicara = simpangan baku bukaan mulut 1 detik terakhir (ber-EMA).
+def commit_speak(tracks: list[dict[str, Any]], fi: int) -> None:
+    """Skor bicara = simpangan baku bukaan mulut pada jendela terakhir (ber-EMA).
 
     Orang yang bicara: bukaan mulut naik-turun terus, simpangan besar.
     Orang yang diam: bukaan hampir tetap, simpangan mendekati nol.
+
+    Jendela dibersihkan di sini memakai `fi` untuk SEMUA track, bukan hanya yang
+    dapat sampel baru. Tanpa itu, track yang deteksinya bolong menahan sampel
+    lama selamanya sehingga skornya "macet tinggi" — persis penyebab kamera
+    terkunci pada orang yang sudah berhenti bicara.
     """
     for t in tracks:
+        t["ap"] = [(f, a) for (f, a) in t["ap"] if fi - f < WIN_FRAMES]
         if len(t["ap"]) < MIN_SAMPLES:
+            t["speak"] *= (1.0 - EMA_DOWN)      # tidak ada bukti → luruh
             continue
-        score = float(np.std(np.asarray(t["ap"], dtype=np.float32)))
+        vals = np.asarray([a for (_f, a) in t["ap"]], dtype=np.float32)
+        score = float(vals.std())
         a = EMA_UP if score > t["speak"] else EMA_DOWN
         t["speak"] = t["speak"] * (1 - a) + score * a

@@ -294,8 +294,18 @@ async def render_clip_server(
                 print(f"[render] speaker track: wajah={st.get('faces')} "
                       f"pindah={st.get('switches')} cuts={len(cam_cuts)} "
                       f"fps={cam_fps}")
+                # Face tracking TIDAK BOLEH mati senyap: kalau trajektorinya
+                # terlalu pendek atau tidak ada wajah, katakan di log dan pakai
+                # crop tengah — jangan diam-diam menghasilkan klip yang framing-
+                # nya salah tanpa jejak apa pun.
+                if not traj or len(traj) < 2:
+                    print("[render] PERINGATAN face tracking: trajektori kosong "
+                          f"(wajah={st.get('faces')}) → crop tengah")
+                    traj = None
             except Exception as exc:
-                print(f"[render] speaker track gagal: {exc}")
+                import traceback
+                print(f"[render] FACE TRACKING GAGAL: {exc.__class__.__name__}: {exc}")
+                traceback.print_exc()
                 traj = None
 
         # Watermark: ON kecuali user sudah menuntaskan 4 iklan (profiles.ads_watched>=4)

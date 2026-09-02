@@ -19,7 +19,10 @@ import urllib.parse
 import sys
 from datetime import datetime, timedelta, timezone
 
-BASE = "https://clip.aqualibrya.my.id"
+# Domain utama produksi. Diganti ke cortexclip.eu.cc saat domain baru
+# disambungkan; PUBLIC_BASE backend juga menunjuk ke sini, jadi pengecekan
+# "link share pakai domain produksi" harus memakai domain yang sama.
+BASE = "https://cortexclip.eu.cc"
 SB = "http://localhost:8000"
 ENV = "/home/muhiqbalsukarno/supabase-docker/docker/.env"
 results: list[tuple[bool, str]] = []

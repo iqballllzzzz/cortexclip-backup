@@ -13,12 +13,13 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from .speaker_track import (COOLDOWN_S, DOMINANCE, HOLD_FRAMES, SPEAK_OFF,
-                            SPEAK_ON)
+from .speaker_track import (COOLDOWN_S, CUT_MIN_SAMPLES, DOMINANCE,
+                            HOLD_FRAMES, SPEAK_ON, STICKY_S)
 
 
 def pick_active(live: list[dict[str, Any]], state: dict[str, Any], fi: int,
-                fps: float) -> tuple[Optional[dict[str, Any]], bool]:
+                fps: float, all_tracks: Optional[list[dict[str, Any]]] = None,
+                ) -> tuple[Optional[dict[str, Any]], bool]:
     """Pilih wajah yang disorot. Balik (track, apakah_ini_potongan)."""
     if not live:
         return None, False
@@ -26,9 +27,19 @@ def pick_active(live: list[dict[str, Any]], state: dict[str, Any], fi: int,
     cur = None
     if state["uid"] is not None:
         cur = next((t for t in live if t["uid"] == state["uid"]), None)
+        if cur is None and all_tracks:
+            # Wajah yang disorot HILANG SEJENAK dari daftar kandidat (deteksi
+            # bolong, kepala menoleh, tertutup mikrofon). Jangan langsung
+            # berpindah orang: itu penyebab kamera "mati senyap" lalu terkunci
+            # pada orang yang salah selama beberapa detik. Selama identitasnya
+            # masih ada, kamera BERTAHAN di posisi terakhirnya.
+            cur = next((t for t in all_tracks
+                        if t["uid"] == state["uid"]), None)
+            if cur is not None:
+                return cur, False
 
-    # belum ada / orangnya hilang → ambil yang paling bicara; kalau tidak ada
-    # yang bicara ambil wajah terbesar (paling depan)
+    # belum ada / orangnya benar-benar hilang → ambil yang paling bicara; kalau
+    # tidak ada yang bicara ambil wajah terbesar (paling depan)
     if cur is None:
         speaking = [t for t in live if t["speak"] >= SPEAK_ON]
         pick = (max(speaking, key=lambda t: t["speak"]) if speaking
@@ -48,11 +59,25 @@ def pick_active(live: list[dict[str, Any]], state: dict[str, Any], fi: int,
     if cand is None:
         return cur, False
 
+    # Rem histeresis: setelah baru berpindah, kandidat lain ditahan sebentar.
+    # Tanpa ini kamera bisa bolak-balik tiap ~1 detik saat dua orang skornya
+    # berdekatan (terlihat pada uji: B->C->B->C dalam 3 detik).
+    if fi - state["last_cut"] < fps * STICKY_S:
+        return cur, False
+
     layak = (
         cand["speak"] >= SPEAK_ON                      # benar-benar bicara
-        and cur["speak"] < SPEAK_OFF                   # yang disorot sudah diam
         and cand["speak"] > cur["speak"] * DOMINANCE   # jelas lebih dominan
+        # dan datanya cukup: track yang baru muncul kembali punya sedikit sampel
+        # sehingga simpangannya mudah melonjak. Tanpa syarat ini, wajah yang baru
+        # terdeteksi ulang langsung "menang" dan kamera pindah ke orang yang diam.
+        and len(cand["ap"]) >= CUT_MIN_SAMPLES
     )
+    # Catatan: TIDAK ada syarat "yang disorot harus sudah diam" (cur < SPEAK_OFF).
+    # Syarat itu terbukti menunda perpindahan 2-4 detik: skor orang yang baru
+    # berhenti bicara turun perlahan (EMA_DOWN), jadi selama itu kandidat yang
+    # sudah jelas bicara tetap ditolak. DOMINANCE + HOLD_FRAMES + cooldown sudah
+    # cukup mencegah kamera bolak-balik.
     if not layak:
         state["hold"] = 0
         return cur, False

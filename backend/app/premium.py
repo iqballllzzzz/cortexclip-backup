@@ -170,6 +170,26 @@ async def pakasir_check(order_id: str, amount: int) -> Optional[str]:
         return None
 
 
+async def pakasir_cancel(order_id: str, amount: int) -> bool:
+    """Batalkan transaksi di Pakasir. Balik True kalau berhasil.
+
+    Dipakai penutup otomatis (qris_sweeper) supaya tidak ada QRIS aktif yang
+    tertinggal setelah kami menandai order kadaluarsa di sisi kami.
+    """
+    if not PAKASIR_API_KEY:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(
+                f"{PAKASIR_BASE}/transactioncancel",
+                json={"project": PAKASIR_PROJECT, "amount": amount,
+                      "order_id": order_id, "api_key": PAKASIR_API_KEY},
+            )
+        return r.status_code < 300
+    except Exception:
+        return False
+
+
 async def create_checkout(user_id: str, plan_key: str) -> dict[str, Any]:
     if plan_key not in PLANS:
         raise ValueError("Plan tidak dikenal")
@@ -474,6 +494,12 @@ async def sweep_expired_orders() -> int:
             except Exception as exc:
                 print(f"[premium-sweep] grant {order['order_id']} gagal: {exc}")
             continue
+        # Batalkan juga di sisi Pakasir supaya tidak ada QRIS yang masih bisa
+        # dibayar setelah kami menutupnya (uang masuk tanpa premium diberikan).
+        try:
+            await pakasir_cancel(order["order_id"], int(order.get("amount") or 0))
+        except Exception:
+            pass
         try:
             await sb("PATCH", f"premium_orders?order_id=eq.{order['order_id']}",
                      json_body={"status": "expired"})
@@ -485,7 +511,13 @@ async def sweep_expired_orders() -> int:
     return n
 
 
-async def reap_expired_orders_loop(interval_sec: int = 600) -> None:
+async def reap_expired_orders_loop(interval_sec: int = 300) -> None:
+    """Loop penutup order menggantung.
+
+    5 menit (bukan 10): kalau user membayar di menit-menit terakhir dan webhook
+    Pakasir gagal terkirim, sapuan inilah yang menyelamatkan pembayarannya —
+    makin sering makin kecil jeda antara bayar dan premium aktif.
+    """
     while True:
         try:
             await sweep_expired_orders()

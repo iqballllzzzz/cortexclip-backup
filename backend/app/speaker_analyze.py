@@ -28,10 +28,17 @@ def analyze(src: str, start: float, end: float, *, probe_size, run_ffmpeg,
              "analysis_fps": SAMPLE_FPS}
     try:
         w, h = probe_size(src)
-    except Exception:
+    except Exception as exc:
+        print(f"[speaker-track] probe_size gagal: {exc}")
         return empty
 
     dur = min(end - start, max_seconds)
+    if dur <= 0.3:
+        # start==end atau rentang tak masuk akal: ffmpeg `-t 0` justru mendekode
+        # SELURUH berkas, dan trajektori sepanjang itu akan dipakai untuk klip
+        # yang durasinya lain → framing kacau. Lebih baik crop tengah.
+        print(f"[speaker-track] durasi tidak valid ({dur:.2f}s) → crop tengah")
+        return empty
     analysis_h = max(180, int(analysis_width * h / w / 2) * 2)
     analysis_w = int(analysis_h * w / h / 2) * 2
     try:
@@ -40,12 +47,14 @@ def analyze(src: str, start: float, end: float, *, probe_size, run_ffmpeg,
                           "-vf", f"scale={analysis_w}:{analysis_h}",
                           "-r", str(SAMPLE_FPS), "-f", "rawvideo",
                           "-pix_fmt", "rgb24", "-"], timeout=900).stdout
-    except Exception:
+    except Exception as exc:
+        print(f"[speaker-track] decode frame gagal: {exc}")
         return empty
 
     fb = analysis_w * analysis_h * 3
     n = len(raw) // fb
     if n < 8:
+        print(f"[speaker-track] frame terlalu sedikit ({n}) → crop tengah")
         return empty
     frames = np.frombuffer(raw[: n * fb], dtype=np.uint8).reshape(
         n, analysis_h, analysis_w, 3)
@@ -73,8 +82,9 @@ def analyze(src: str, start: float, end: float, *, probe_size, run_ffmpeg,
         live = track_frame(frames[fi], mesh, tracks, retired, fi, SAMPLE_FPS,
                            next_uid, freeze=scene_cut)
         max_faces = max(max_faces, len(live))
-        commit_speak(tracks)
-        act, is_cut = pick_active(live, state, fi, SAMPLE_FPS)
+        commit_speak(tracks, fi)
+        act, is_cut = pick_active(live, state, fi, SAMPLE_FPS,
+                                  all_tracks=tracks)
         if act is None:
             # tidak ada wajah: pertahankan posisi terakhir (jangan ke tengah)
             targets.append(targets[-1] if targets else analysis_w / 2)
