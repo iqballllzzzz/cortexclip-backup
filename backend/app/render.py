@@ -40,6 +40,24 @@ mp_face_detection = mp.solutions.face_detection
 _face_detector = mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
 
 
+def run_ffmpeg(cmd: list[str], *, timeout: int | None = None, nice: int = 10):
+    """Jalankan ffmpeg dengan prioritas RENDAH (nice+ionice).
+
+    Tanpa ini ffmpeg menyita CPU/IO → web server ikut lag & halaman blank
+    beberapa detik saat user menekan Unduh. nice=10 + ionice best-effort 7
+    membuat kernel selalu mengutamakan proses web/API.
+    """
+    prefix: list[str] = []
+    if shutil.which("nice"):
+        prefix += ["nice", "-n", str(nice)]
+    if shutil.which("ionice"):
+        prefix += ["ionice", "-c", "2", "-n", "7"]
+    kwargs: dict[str, Any] = {"check": True, "capture_output": True}
+    if timeout:
+        kwargs["timeout"] = timeout
+    return subprocess.run(prefix + cmd, **kwargs)
+
+
 def probe_duration(path: str) -> float:
     out = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -96,7 +114,7 @@ def render_preview(
         "-movflags", "+faststart",
         out_path,
     ]
-    subprocess.run(cmd, check=True, capture_output=True)
+    run_ffmpeg(cmd)
     return out_path
 
 
@@ -133,12 +151,171 @@ def smooth_camera(
     return new
 
 
-def analyze_face_track(src: str, start: float, end: float) -> list[float]:
-    """Analyze the clip for a per-frame camera-center trajectory (x in source px).
+def analyze_speaker_track(src: str, start: float, end: float) -> dict[str, Any]:
+    """Trajektori kamera MULTI-ORANG: sorot orang yang SEDANG BICARA.
 
-    Uses MediaPipe BlazeFace (like OpenShorts TRACK mode) for robust face detection
-    at low resolution. Falls back to center if no faces detected.
+    Cara kerja (tanpa model tambahan):
+    1. MediaPipe BlazeFace mendeteksi SEMUA wajah tiap frame (5 fps).
+    2. Deteksi dikelompokkan jadi 'track' per orang (jarak antar-frame).
+    3. Aktivitas bicara diukur dari GERAK MULUT: selisih piksel di area
+       keypoint mulut antar frame (EMA, jadi kebal noise 1 frame).
+    4. Kamera hanya berpindah kalau orang lain dominan bicara selama
+       >=0.6 detik (histeresis) — mencegah kamera bolak-balik.
+
+    Return {"trajectory": [...], "faces": n_max, "switches": n}.
+    Kalau hanya 1 orang → perilaku sama seperti face tracking biasa.
     """
+    import numpy as np
+
+    try:
+        w, h = probe_size(src)
+    except Exception:
+        return {"trajectory": [], "faces": 0, "switches": 0}
+    dur = min(end - start, 180)
+    analysis_h = max(180, int(ANALYSIS_WIDTH * h / w / 2) * 2)
+    analysis_w = int(analysis_h * w / h / 2) * 2
+    fps = 5
+    cmd = [
+        "ffmpeg", "-v", "error",
+        "-ss", f"{start:.3f}", "-t", f"{dur:.3f}", "-i", src,
+        "-vf", f"scale={analysis_w}:{analysis_h}",
+        "-r", str(fps),
+        "-f", "rawvideo", "-pix_fmt", "rgb24", "-",
+    ]
+    try:
+        raw = run_ffmpeg(cmd, timeout=900).stdout
+    except Exception:
+        return {"trajectory": [], "faces": 0, "switches": 0}
+    frame_bytes = analysis_w * analysis_h * 3
+    n_frames = len(raw) // frame_bytes
+    if n_frames < 4:
+        return {"trajectory": [], "faces": 0, "switches": 0}
+    frames = np.frombuffer(raw[: n_frames * frame_bytes], dtype=np.uint8).reshape(
+        n_frames, analysis_h, analysis_w, 3
+    )
+
+    MATCH_DIST = analysis_w * 0.16      # jarak maks dianggap orang yang sama
+    SWITCH_FRAMES = 3                   # 3 frame @5fps = 0.6s
+    SWITCH_RATIO = 1.30                 # harus 30% lebih aktif
+    EMA = 0.45
+
+    tracks: list[dict[str, Any]] = []
+    active_idx: int | None = None
+    pending_idx: int | None = None
+    pending_count = 0
+    switches = 0
+    max_faces = 0
+    targets: list[float] = []
+
+    for fi in range(n_frames):
+        frame = frames[fi]
+        gray = frame.mean(axis=2)
+        res = _face_detector.process(frame)
+        dets = list(res.detections or [])
+        max_faces = max(max_faces, len(dets))
+
+        seen: set[int] = set()
+        for d in dets:
+            bb = d.location_data.relative_bounding_box
+            cx = (bb.xmin + bb.width / 2) * analysis_w
+            cy = (bb.ymin + bb.height / 2) * analysis_h
+            # keypoint mulut (index 3) → fallback ke bawah bbox
+            try:
+                kp = d.location_data.relative_keypoints[3]
+                mx, my = kp.x * analysis_w, kp.y * analysis_h
+            except Exception:
+                mx, my = cx, (bb.ymin + bb.height * 0.80) * analysis_h
+            r = max(4, int(bb.width * analysis_w * 0.22))
+            y0, y1 = max(0, int(my - r)), min(analysis_h, int(my + r))
+            x0, x1 = max(0, int(mx - r)), min(analysis_w, int(mx + r))
+            patch = gray[y0:y1, x0:x1]
+
+            # cocokkan ke track terdekat
+            best_i, best_d = None, 1e9
+            for i, tr in enumerate(tracks):
+                if i in seen:
+                    continue
+                dist = abs(tr["cx"] - cx) + abs(tr["cy"] - cy) * 0.5
+                if dist < best_d:
+                    best_i, best_d = i, dist
+            if best_i is not None and best_d <= MATCH_DIST:
+                tr = tracks[best_i]
+                prev = tr.get("patch")
+                motion = 0.0
+                if (prev is not None and prev.shape == patch.shape
+                        and patch.size > 0):
+                    motion = float(np.abs(patch.astype(np.float32)
+                                          - prev.astype(np.float32)).mean())
+                tr["motion"] = tr["motion"] * (1 - EMA) + motion * EMA
+                tr["cx"], tr["cy"] = cx, cy
+                tr["patch"] = patch
+                tr["last"] = fi
+                seen.add(best_i)
+            else:
+                tracks.append({"cx": cx, "cy": cy, "patch": patch,
+                               "motion": 0.0, "last": fi})
+                seen.add(len(tracks) - 1)
+
+        # buang track yang lama hilang (>2s)
+        tracks = [t for t in tracks if fi - t["last"] <= fps * 2]
+        live = [t for t in tracks if fi - t["last"] <= 1]
+
+        if not live:
+            targets.append(targets[-1] if targets else analysis_w / 2)
+            continue
+        if len(live) == 1:
+            active_idx = tracks.index(live[0])
+            targets.append(live[0]["cx"])
+            continue
+
+        # >1 orang: pilih yang mulutnya paling aktif
+        loud = max(live, key=lambda t: t["motion"])
+        cur = tracks[active_idx] if (active_idx is not None
+                                     and active_idx < len(tracks)) else None
+        if cur is None or cur not in live:
+            active_idx = tracks.index(loud)
+            pending_idx, pending_count = None, 0
+        elif loud is not cur and loud["motion"] > cur["motion"] * SWITCH_RATIO:
+            li = tracks.index(loud)
+            if pending_idx == li:
+                pending_count += 1
+            else:
+                pending_idx, pending_count = li, 1
+            if pending_count >= SWITCH_FRAMES:
+                active_idx = li
+                switches += 1
+                pending_idx, pending_count = None, 0
+        else:
+            pending_idx, pending_count = None, 0
+
+        at = tracks[active_idx] if (active_idx is not None
+                                    and active_idx < len(tracks)) else loud
+        targets.append(at["cx"])
+
+    # haluskan jadi trajektori kamera (fisika pan yang sama seperti sebelumnya)
+    scale = w / analysis_w
+    crop_w = min(int(h * ASPECT), w)
+    cam_x = w / 2
+    target = w / 2
+    trajectory: list[float] = []
+    for tc in targets:
+        target_scaled = tc * scale
+        # multi-orang: ambang pindah lebih kecil supaya benar-benar menyorot
+        thresh = crop_w * (0.10 if max_faces > 1 else SAFE_ZONE_FRACTION)
+        if abs(target_scaled - target) > thresh:
+            target = target_scaled
+        cam_x = smooth_camera(cam_x, target, crop_w, w)
+        trajectory.append(cam_x)
+    return {"trajectory": trajectory, "faces": max_faces, "switches": switches}
+
+
+def analyze_face_track(src: str, start: float, end: float) -> list[float]:
+    """Trajektori kamera (kompatibel lama) — kini memakai speaker tracking."""
+    return analyze_speaker_track(src, start, end)["trajectory"]
+
+
+def _analyze_face_track_single(src: str, start: float, end: float) -> list[float]:
+    """Versi lama: selalu ikut wajah TERBESAR (dipakai sebagai cadangan)."""
     import numpy as np
     try:
         w, h = probe_size(src)
@@ -157,7 +334,7 @@ def analyze_face_track(src: str, start: float, end: float) -> list[float]:
         "-f", "rawvideo", "-pix_fmt", "rgb24", "-",
     ]
     try:
-        raw = subprocess.run(cmd, capture_output=True, check=True, timeout=600).stdout
+        raw = run_ffmpeg(cmd, timeout=600).stdout
     except Exception:
         return []
     frame_bytes = analysis_w * analysis_h * 3
@@ -176,8 +353,8 @@ def analyze_face_track(src: str, start: float, end: float) -> list[float]:
         results = _face_detector.process(frame_rgb)
         if results.detections:
             # take the largest face (by box area)
-            best = max(results.detections, key=lambda d: 
-                d.location_data.relative_bounding_box.width * 
+            best = max(results.detections, key=lambda d:
+                d.location_data.relative_bounding_box.width *
                 d.location_data.relative_bounding_box.height)
             bbox = best.location_data.relative_bounding_box
             center_x = (bbox.xmin + bbox.width / 2) * analysis_w
@@ -402,8 +579,10 @@ def render_clip(
             cmd += ["-vf", ",".join(vf_parts)] if vf_parts else ["-vf", "null"]
 
     cmd += [
+        # threads 2 (VPS 4 core): sisakan core untuk web server — dengan
+        # threads=4 ffmpeg menyita seluruh CPU → web lag/blank saat render.
         "-c:v", "libx264", "-preset", "medium", "-crf", "18",
-        "-threads", "4",
+        "-threads", "2",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
         "-ac", "2",
@@ -411,7 +590,7 @@ def render_clip(
         "-metadata", "comment=Made with CortexClip AI",
         out_path,
     ]
-    subprocess.run(cmd, check=True, capture_output=True)
+    run_ffmpeg(cmd)
     return out_path
 
 
@@ -453,7 +632,7 @@ def render_preview_fast(
         "-movflags", "+faststart",
         out_path,
     ]
-    subprocess.run(cmd, check=True, capture_output=True, timeout=600)
+    run_ffmpeg(cmd, timeout=600)
     return out_path
 
 
@@ -508,7 +687,7 @@ def burn_hook_overlay(
         "-movflags", "+faststart",
         out_path,
     ]
-    subprocess.run(cmd, check=True, capture_output=True)
+    run_ffmpeg(cmd)
     return out_path
 
 def render_clip_webm_style(
@@ -522,5 +701,5 @@ def render_clip_webm_style(
         "-c:a", "aac", "-b:a", "128k",
         out_path,
     ]
-    subprocess.run(cmd, check=True, capture_output=True)
+    run_ffmpeg(cmd)
     return out_path

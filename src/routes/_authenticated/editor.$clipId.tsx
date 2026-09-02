@@ -58,10 +58,13 @@ interface Placement {
   time_end: number;
   category: string;
   icon?: string | null;
+  /** id ikon katalog (mis. 'MoneyIcon-blue') — PNG dari /api/icons/{id} */
+  icon_id?: string;
   iconEmoji?: string;
   side: string;
   animation: string;
   broll_url?: string | null;
+  genre?: string;
 }
 
 /* ------------------------------------------------------------------- page */
@@ -378,7 +381,7 @@ function EditorPage() {
       let queueNote = "";
       try {
         const tokenQ = await getAccessToken();
-        const res = await fetch("/api/render-jobs/queue-position/x", {
+        const res = await fetch("/api/render-jobs/queue", {
           headers: { Authorization: `Bearer ${tokenQ}` },
         });
         if (res.ok) {
@@ -595,7 +598,17 @@ function EditorPage() {
                       }}
                     >
                       <div style={{ width: fit.w * 0.24, height: fit.w * 0.24 }}>
-                        <ColoredIcon category={p.category} icon={p.icon ?? null} />
+                        {p.icon_id ? (
+                          /* PARITY: PNG dari backend = berkas yang dibakar ffmpeg */
+                          <img
+                            src={`/api/icons/${p.icon_id}`}
+                            alt=""
+                            className="size-full object-contain"
+                            style={{ filter: "drop-shadow(0 3px 4px rgba(0,0,0,0.45))" }}
+                          />
+                        ) : (
+                          <ColoredIcon category={p.category} icon={p.icon ?? null} />
+                        )}
                       </div>
                     </div>
                   );

@@ -427,7 +427,20 @@ async def run_media_pipeline(project_id: str, user_id: str, src_path: str, targe
                                       duration_seconds=round(duration))
 
         await jobs_mod.update_project(project_id, status="analyzing")
-        clips = await detect_clips(transcript, target_count)
+        # GENRE video → dipakai memilih ikon/b-roll/emoji yang relate +
+        # mempertajam judul/deskripsi/hashtag agar sesuai isi & genre.
+        genre = ""
+        try:
+            from .genre import detect_genre
+            from .transcribe import transcript_to_text
+            g = await detect_genre(transcript_to_text(transcript))
+            genre = str(g.get("genre") or "")
+            print(f"[pipeline] genre terdeteksi: {genre} (sumber {g.get('source')})")
+            await jobs_mod.update_project(project_id, genre=genre)
+        except Exception as exc:
+            print(f"[pipeline] deteksi genre gagal: {exc}")
+
+        clips = await detect_clips(transcript, target_count, genre=genre)
         if not clips:
             raise RuntimeError("AI tidak menemukan klip yang layak dari video ini.")
         try:

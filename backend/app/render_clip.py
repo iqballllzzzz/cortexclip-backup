@@ -182,33 +182,43 @@ async def render_clip_server(
             except Exception as exc:
                 print(f"[render] emoji overlay gagal (render tetap jalan): {exc}")
 
-        # IKON & B-ROLL overlay (AI pilih momen → PNG ikon via ffmpeg overlay).
-        # PARITY: PNG diraster dari icon_svgs.py — SVG yang digenerate dari
-        # colored-icon.tsx, artwork SAMA PERSIS dengan ColoredIcon preview.
-        # Animasi "zoom-fade" masuk 0.5s (mirror transisi CSS preview).
+        # IKON & B-ROLL overlay: planner baru (genre-aware, katalog 500+).
+        # PARITY: preview memuat PNG dari GET /api/icons/{icon_id} — berkas
+        # yang SAMA dengan yang dibakar ffmpeg di sini.
         broll_video_overlays: list[dict[str, Any]] = []
         if broll_enabled:
             try:
-                from .broll import compute_placements
-                from .broll_video import broll_local_path
-                from .icon_png import icon_png_path
-                from .icon_svgs import resolve_icon
                 from anyio import to_thread
 
+                from .broll_video import broll_local_path
+                from .icon_png import icon_png_from_id
+                from .overlay_plan import plan_overlays
+
                 duration = float(clip["end_time"]) - float(clip["start_time"])
-                placements = await compute_placements(words, duration)
-                for p in placements or []:
-                    comp = resolve_icon(
-                        str(p.get("category") or "") or None,
-                        str(p.get("icon") or "") or None,
+                genre = str(project.get("genre") or "")
+                if not genre:
+                    from .genre import detect_genre_keywords
+                    genre, _ = detect_genre_keywords(
+                        " ".join(str(w.get("word", "")) for w in words)
                     )
-                    png = icon_png_path(comp)
+                # PAKAI rencana yang sudah disimpan preview (parity mutlak);
+                # kalau belum ada (user langsung unduh), hitung sekarang.
+                saved = clip.get("overlay_plan")
+                if isinstance(saved, list) and saved:
+                    placements = saved
+                    print(f"[render] overlay_plan dari preview: {len(placements)} item")
+                else:
+                    placements = await plan_overlays(words, duration, genre=genre)
+                    print(f"[render] genre={genre} overlay baru={len(placements or [])}")
+                for p in placements or []:
+                    icon_id = str(p.get("icon_id") or "StarIcon")
+                    png = icon_png_from_id(icon_id)
                     if not png:
                         continue
                     ts = float(p.get("time_start", 0))
                     te = max(ts + 0.5, float(p.get("time_end", ts + 2.5)))
                     side = str(p.get("side", "right"))
-                    # mirror preview: left:20%/50%/80%, top:38%, translate(-50%,-50%)
+                    # mirror preview: left:20%/50%/80%, top:26%, translate(-50%,-50%)
                     px = int(vw * (0.20 if side == "left" else 0.80 if side == "right" else 0.5))
                     py = int(vh * 0.26)
                     icon_png_overlays.append({
@@ -218,15 +228,13 @@ async def render_clip_server(
                         "anim": str(p.get("animation") or "slide-left"),
                     })
 
-                    # B-ROLL VIDEO PiP (mirror <video> PiP preview): unduh sekali,
-                    # tampil di area atas selama window placement.
+                    # B-ROLL VIDEO PiP (mirror <video> PiP preview)
                     burl = p.get("broll_url")
                     if burl:
                         bfile = await to_thread.run_sync(broll_local_path, str(burl))
                         if bfile:
                             # Jendela b-roll di bawah wajah pembicara (wajah
                             # ~25-41% tinggi) & di atas subtitle (80%), lebar 74%
-                            # → tidak menutupi watermark (atas) maupun teks.
                             bw = int(vw * 0.74)
                             broll_video_overlays.append({
                                 "file": bfile,

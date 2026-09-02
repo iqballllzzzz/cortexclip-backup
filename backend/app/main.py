@@ -438,7 +438,7 @@ async def api_start_render_job(body: RenderJobIn, request: Request, authorizatio
                         render_clip_server(
                             body.project_id, body.clip_id, token=token,
                             caption_style=body.caption_style,
-                            resolution="1080x1920",
+                            resolution="720x1280",   # 720p sesuai permintaan user
                             face_tracking=True,
                         )
                     )
@@ -480,6 +480,18 @@ async def api_list_render_jobs(request: Request, authorization: str | None = Hea
                      "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
         )
     return {"jobs": r.json()}
+
+
+@app.get("/api/render-jobs/queue")
+async def api_render_queue(request: Request, authorization: Optional[str] = Header(None)):
+    """Posisi antrean render — dipakai editor sebelum menekan Unduh."""
+    await get_user(request, authorization)
+    from .limits import resource_status
+    st = resource_status()
+    return {
+        "total_active": int(st.get("active_renders", 0)),
+        "max_concurrent": int(st.get("max_concurrent_renders", 2)),
+    }
 
 
 @app.delete("/api/render-jobs/{job_id}")

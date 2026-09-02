@@ -14,6 +14,7 @@ import asyncio
 import json
 import math
 import os
+import re
 from typing import Any, Optional
 
 from .hydra import gateway
@@ -24,18 +25,108 @@ OVERLAP_SECONDS = 10
 MIN_CLIP = 15
 MAX_CLIP = 75
 
+# Kata pengisi / basa-basi: dipakai menilai kepadatan isi sebuah kandidat klip.
+FILLER_WORDS = {
+    "eh", "ehm", "em", "mmm", "hmm", "anu", "apa", "gitu", "gini", "kan", "sih",
+    "nih", "tuh", "ya", "yah", "iya", "oke", "ok", "nah", "jadi", "terus",
+    "pokoknya", "kayak", "kaya", "kalo", "kalau", "tapi", "cuma", "aja", "aja.",
+    "dong", "deh", "loh", "lah", "um", "uh", "er", "like", "you", "know",
+}
+
+# Frasa pembuka/penutup siaran yang biasanya BUKAN materi viral.
+BOILERPLATE_PATTERNS = (
+    "selamat datang", "kembali lagi", "jangan lupa subscribe", "like dan subscribe",
+    "sebelum kita mulai", "di episode kali ini", "sampai jumpa", "terima kasih sudah",
+    "tinggalkan komentar", "nyalakan notifikasi", "video kali ini disponsori",
+    "iklan", "sponsor", "welcome back", "don't forget to subscribe",
+)
+
 SCORE_SYSTEM = (
-    "Kamu adalah editor konten viral kelas dunia (setara tim OpusClip). "
-    "Kamu menilai potensi viral sebuah bagian video dari transkrip. "
-    "Jawab HANYA dengan JSON valid, tanpa teks lain."
+    "Kamu editor konten viral kelas dunia (setara tim OpusClip). Kamu menilai "
+    "potensi viral sebuah bagian video dari transkrip. Kamu SANGAT ketat: "
+    "bagian yang isinya basa-basi, perkenalan, iklan, atau ngobrol tanpa poin "
+    "harus diberi skor RENDAH (0-25). Jawab HANYA JSON valid, tanpa teks lain."
 )
 
 DETAIL_SYSTEM = (
-    "Kamu adalah editor short-form kelas dunia. Kamu memilih potongan video "
-    "pendek yang punya hook kuat, konteks utuh, dan penutup memuaskan. "
-    "Jawab HANYA dengan JSON array valid. Semua judul/deskripsi/hashtag dalam "
-    "bahasa transkrip."
+    "Kamu editor short-form kelas dunia. Kamu memilih potongan video pendek "
+    "yang punya HOOK kuat di 3 detik pertama, satu ide utuh, dan penutup "
+    "memuaskan (bukan kalimat menggantung). Judul/deskripsi/hashtag WAJIB "
+    "berasal dari isi klip itu sendiri — dilarang generik. Jawab HANYA dengan "
+    "JSON array valid. Semua teks dalam bahasa transkrip."
 )
+
+VIRAL_CRITERIA = (
+    "KRITERIA WAJIB klip berpotensi viral:\n"
+    "1. HOOK: 3 detik pertama sudah bikin penasaran (pertanyaan tajam, klaim "
+    "berani, angka mengejutkan, konflik, atau pengakuan personal).\n"
+    "2. SATU IDE UTUH: ada pembuka → isi → kesimpulan/punchline. Bukan "
+    "potongan tengah kalimat.\n"
+    "3. NILAI EMOSI: bikin kaget, ketawa, terinspirasi, marah, atau relate.\n"
+    "4. BISA DIPAHAMI SENDIRIAN: penonton tak perlu tahu konteks sebelumnya.\n"
+    "5. ADA YANG BISA DIBAWA PULANG: pelajaran, cerita, atau lelucon jelas.\n\n"
+    "TOLAK (skor 0-25) kalau: perkenalan/sapaan, iklan/sponsor, obrolan "
+    "ngalor-ngidul tanpa poin, mengulang hal sama, penuh 'eh/anu/gitu', "
+    "atau kalimatnya terputus di awal/akhir."
+)
+
+
+def content_density(text: str) -> float:
+    """Rasio kata bermakna (0..1). Rendah = banyak basa-basi/filler."""
+    toks = [t for t in re.findall(r"[a-zA-Z\u00c0-\u024f']+", (text or "").lower()) if t]
+    if not toks:
+        return 0.0
+    meaningful = [t for t in toks if t not in FILLER_WORDS and len(t) > 2]
+    return len(meaningful) / len(toks)
+
+
+def boilerplate_penalty(text: str) -> int:
+    """Penalti skor untuk sapaan/iklan/penutup siaran."""
+    t = (text or "").lower()
+    hits = sum(1 for p in BOILERPLATE_PATTERNS if p in t)
+    return min(45, hits * 18)
+
+
+def hook_bonus(text: str) -> int:
+    """Bonus untuk penanda hook: pertanyaan, angka, kata kejut."""
+    t = (text or "").lower()
+    bonus = 0
+    if "?" in t:
+        bonus += 6
+    if re.search(r"\d", t):
+        bonus += 5
+    strong = ("rahasia", "ternyata", "kesalahan", "jangan", "gila", "kaget",
+              "parah", "penting", "harus", "gagal", "berhasil", "pertama kali",
+              "gak nyangka", "nggak nyangka", "sebenarnya", "faktanya",
+              "bahaya", "cara", "kenapa", "alasan")
+    bonus += min(12, sum(4 for w in strong if w in t))
+    return min(20, bonus)
+
+
+def quality_adjust(text: str, base_score: int) -> tuple[int, str]:
+    """Skor akhir + alasan, memakai heuristik isi (bukan cuma AI)."""
+    density = content_density(text)
+    score = base_score
+    notes = []
+    if density < 0.45:
+        score -= 25
+        notes.append(f"filler tinggi ({density:.0%} kata bermakna)")
+    elif density < 0.6:
+        score -= 10
+        notes.append(f"agak banyak filler ({density:.0%})")
+    pen = boilerplate_penalty(text)
+    if pen:
+        score -= pen
+        notes.append("berisi sapaan/iklan")
+    bon = hook_bonus(text)
+    if bon:
+        score += bon
+        notes.append(f"penanda hook +{bon}")
+    words = len(text.split())
+    if words < 25:
+        score -= 20
+        notes.append("terlalu sedikit ucapan")
+    return max(0, min(100, score)), "; ".join(notes)
 
 
 def build_windows(transcript: dict[str, Any]) -> list[dict[str, Any]]:
@@ -139,14 +230,16 @@ def _parse_json(raw: str) -> Any:
 
 
 async def score_windows(windows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Pass 1: score each window 0-100 for viral potential."""
+    """Pass 1: skor 0-100 potensi viral + koreksi heuristik kualitas isi."""
     listing = "\n".join(
         f"{w['id']} [{w['start']:.0f}-{w['end']:.0f}s]: {w['text'][:600]}"
         for w in windows
     )
     prompt = (
         "Nilai potensi viral tiap window transkrip video berikut untuk "
-        "short-form vertikal (TikTok/Reels/Shorts). Balas JSON object: "
+        "short-form vertikal (TikTok/Reels/Shorts).\n\n"
+        + VIRAL_CRITERIA
+        + "\n\nBalas JSON object: "
         '{"windows": [{"id": "...", "score": 0-100, "reason": "singkat"}]}\n\n'
         f"{listing}\n\nBalas maksimal 300 kata."
     )
@@ -159,8 +252,14 @@ async def score_windows(windows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         data = _parse_json(content)
     except Exception:
         print(f"[clip_selection] score_windows parse gagal, content: {content[:300]!r}")
-        # uniform fallback: all windows neutral score
-        return [dict(w, score=50, reason="fallback") for w in windows]
+        # fallback: pakai heuristik kualitas saja (bukan skor seragam 50 —
+        # itu penyebab klip basa-basi ikut terpilih saat AI gagal)
+        out = []
+        for w in windows:
+            score, note = quality_adjust(w["text"], 55)
+            out.append(dict(w, score=score, reason=f"heuristik: {note or 'netral'}"))
+        out.sort(key=lambda w: w["score"], reverse=True)
+        return out
     if isinstance(data, list):
         data = {"windows": data}
     scores = {str(w.get("id")): w for w in data.get("windows", []) if isinstance(w, dict)}
@@ -171,7 +270,10 @@ async def score_windows(windows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             score = max(0, min(100, int(sc.get("score", 50))))
         except (TypeError, ValueError):
             score = 50
-        out.append(dict(w, score=score, reason=str(sc.get("reason", ""))[:200]))
+        ai_reason = str(sc.get("reason", ""))[:160]
+        score, note = quality_adjust(w["text"], score)
+        reason = f"{ai_reason} | {note}" if note else ai_reason
+        out.append(dict(w, score=score, reason=reason[:200]))
     out.sort(key=lambda w: w["score"], reverse=True)
     return out
 
@@ -180,6 +282,7 @@ async def detail_pass(
     transcript: dict[str, Any],
     shortlist: list[dict[str, Any]],
     target_count: int,
+    genre: str = "",
 ) -> list[dict[str, Any]]:
     """Pass 2: exact boundaries + metadata per shortlisted window."""
     floor, ceiling = clip_count_targets(len(shortlist))
@@ -192,20 +295,35 @@ async def detail_pass(
         text = " ".join(s["text"] for s in segs)
         listing.append(f"WINDOW {w['id']} [{w['start']:.0f}-{w['end']:.0f}s] skor {w['score']}:\n{text[:4000]}")
     duration = transcript.get("duration") or (segments[-1]["end"] if segments else 0)
+    genre_note = (
+        f"Genre video: **{genre}**. Judul, deskripsi, dan hashtag WAJIB terasa "
+        f"khas genre {genre} dan menyebut hal konkret yang dibicarakan di klip.\n\n"
+        if genre else ""
+    )
     prompt = (
-        f"Dari window transkrip berikut, pilih total {target} klip terbaik "
+        f"Dari window transkrip berikut, pilih total {target} klip TERBAIK "
         f"(WAJIB minimal {floor}) untuk short-form vertikal. Durasi tiap klip "
         f"{MIN_CLIP}-{MAX_CLIP} detik, tidak boleh tumpang tindih, urut dari "
         f"skor tertinggi. Total durasi video: {duration:.0f} detik.\n\n"
+        + genre_note
+        + VIRAL_CRITERIA
+        + "\n\nBATAS AWAL/AKHIR: mulai TEPAT di awal kalimat hook (jangan "
+          "potong tengah kalimat) dan akhiri setelah kalimat penutup selesai.\n\n"
         + "\n\n".join(listing)
         + '\n\nUntuk tiap klip kembalikan objek:\n'
-          '{"title": "judul clickbait tapi jujur, maks 60 karakter", '
-          '"description": "1-2 kalimat caption siap unggah", '
-          '"hashtags": ["#tag1","#tag2","#tag3","#tag4","#tag5"], '
+          '{"title": "judul clickbait tapi jujur, maks 60 karakter, ambil dari isi klip", '
+          '"description": "2-3 kalimat caption siap unggah yang MENYEBUT isi klip '
+          '(bukan kalimat umum), diakhiri ajakan komentar/simpan", '
+          '"hashtags": ["#tag1","#tag2","#tag3","#tag4","#tag5","#tag6"], '
           '"start": detik_mulai_angka, "end": detik_selesai_angka, '
-          '"score": 0-100, "hook": "tipe hook singkat", '
+          '"score": 0-100, "hook": "kutipan/parafrase hook 3 detik pertama", '
+          '"quote": "1 kalimat paling kuat di klip", '
+          '"topic": "topik konkret klip 2-4 kata", '
           '"source_window_id": "id window"}\n\n'
-        f"Balas JSON object: {{\"shorts\": [ ... ]}}. Maksimal 400 kata total."
+        "ATURAN hashtag: 2 hashtag topik spesifik (mis. #investasisaham), "
+        "2 hashtag genre/niche, 2 hashtag umum (#fyp #shorts). "
+        "DILARANG hashtag yang tidak berhubungan dengan isi klip.\n\n"
+        f"Balas JSON object: {{\"shorts\": [ ... ]}}. Maksimal 600 kata total."
     )
     content = await gateway.chat(
         [{"role": "system", "content": DETAIL_SYSTEM},
@@ -240,7 +358,9 @@ async def detail_pass(
             "start": round(max(0, start), 2),
             "end": round(end, 2),
             "score": max(0, min(100, int(float(c.get("score", 70) or 70)))),
-            "hook": str(c.get("hook", "Hook kuat di 3 detik pertama"))[:120],
+            "hook": str(c.get("hook", "Hook kuat di 3 detik pertama"))[:160],
+            "quote": str(c.get("quote", ""))[:200],
+            "topic": str(c.get("topic", ""))[:60],
             "source_window_id": str(c.get("source_window_id", "")),
         })
     # dedupe overlaps (keep higher score)
@@ -294,25 +414,62 @@ def words_in_range(transcript: dict[str, Any], start: float, end: float) -> list
     return out
 
 
-async def detect_clips(transcript: dict[str, Any], target_count: int = 10) -> list[dict[str, Any]]:
-    """Full two-pass selection. Returns clip dicts with caption words."""
+def clip_text(transcript: dict[str, Any], start: float, end: float) -> str:
+    """Teks ucapan dalam rentang klip (untuk validasi kualitas)."""
+    parts = []
+    for s in transcript.get("segments", []):
+        if s["end"] <= start or s["start"] >= end:
+            continue
+        parts.append(str(s.get("text", "")))
+    return " ".join(parts).strip()
+
+
+async def detect_clips(
+    transcript: dict[str, Any],
+    target_count: int = 10,
+    genre: str = "",
+) -> list[dict[str, Any]]:
+    """Full two-pass selection + filter kualitas. Returns clip dicts."""
     windows = build_windows(transcript)
     if not windows:
         return []
     scored = await score_windows(windows)
-    shortlist = scored[: max(3, math.ceil(len(scored) * 0.5))]
+    # buang window sampah lebih awal (skor < 30 = basa-basi/iklan) tapi
+    # sisakan minimal 4 supaya video pendek tetap dapat klip
+    good = [w for w in scored if w["score"] >= 30]
+    if len(good) < 4:
+        good = scored[:4]
+    shortlist = good[: max(4, math.ceil(len(good) * 0.6))]
     # detail_pass bisa gagal parse (provider garbage / rate-limit) — retry 3x
     clips: list[dict[str, Any]] = []
     for attempt in range(3):
-        clips = await detail_pass(transcript, shortlist, target_count)
+        clips = await detail_pass(transcript, shortlist, target_count, genre)
         if clips:
             break
         print(f"[clip_selection] detail_pass kosong (attempt {attempt + 1}/3), retry 20s…")
         await asyncio.sleep(20)
+
     out = []
     for c in clips:
         c = snap_clip_to_words(c, transcript)
+        text = clip_text(transcript, c["start"], c["end"])
+        # skor akhir DIKOREKSI oleh isi klip yang benar-benar terpotong,
+        # bukan hanya window kandidat → klip filler otomatis turun/keluar
+        final_score, note = quality_adjust(text, c["score"])
+        c["score"] = final_score
+        c["quality_note"] = note
         c["caption_words"] = words_in_range(transcript, c["start"], c["end"])
+        if len(c["caption_words"]) < 12:
+            print(f"[clip_selection] buang klip {c['start']}-{c['end']}: kata terlalu sedikit")
+            continue
+        if final_score < 25:
+            print(f"[clip_selection] buang klip skor {final_score} ({note})")
+            continue
         out.append(c)
+    # kalau filter terlalu ganas dan semua terbuang, pakai 3 terbaik apa adanya
+    if not out and clips:
+        for c in clips[:3]:
+            c["caption_words"] = words_in_range(transcript, c["start"], c["end"])
+            out.append(c)
     out.sort(key=lambda c: c["score"], reverse=True)
     return out
