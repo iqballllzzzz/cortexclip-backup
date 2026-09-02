@@ -267,19 +267,48 @@ async def ai_placements(
     return out or None
 
 
+def _merge_topup(base: list[dict[str, Any]], extra: list[dict[str, Any]],
+                 max_overlays: int, min_gap: float = 4.0) -> list[dict[str, Any]]:
+    """Tambahkan kandidat `extra` yang tidak bertabrakan waktu dengan `base`."""
+    out = list(base)
+    for e in extra:
+        if len(out) >= max_overlays:
+            break
+        ts = float(e.get("time_start", 0) or 0)
+        if any(abs(ts - float(o.get("time_start", 0) or 0)) < min_gap for o in out):
+            continue
+        out.append(e)
+    out.sort(key=lambda p: float(p.get("time_start", 0) or 0))
+    return out
+
+
 async def plan_overlays(
     words: list[dict[str, Any]],
     duration: float,
     genre: str = DEFAULT_GENRE,
     use_ai: bool = True,
     max_overlays: int = 6,
+    min_overlays: int = 3,
 ) -> list[dict[str, Any]]:
-    """AI dulu; fallback keyword. Selalu ber-tag genre & aset dari katalog."""
+    """AI dulu; fallback keyword. Selalu ber-tag genre & aset dari katalog.
+
+    AI kadang hanya mengembalikan 1-2 momen (atau gagal parse) sehingga klip
+    60 detik nyaris tanpa overlay. Karena itu hasil AI DILENGKAPI dari
+    kandidat keyword sampai minimal `min_overlays`, dengan jeda >=4s supaya
+    tidak bertumpuk.
+    """
+    ai: list[dict[str, Any]] = []
     if use_ai:
-        ai = await ai_placements(words, duration, genre, max_overlays)
-        if ai:
-            return ai
-    return fallback_placements(words, genre, max_overlays)
+        ai = await ai_placements(words, duration, genre, max_overlays) or []
+    kw = fallback_placements(words, genre, max_overlays)
+    if not ai:
+        return kw
+    if len(ai) >= min_overlays:
+        return ai
+    merged = _merge_topup(ai, kw, max_overlays)
+    print(f"[overlay_plan] AI {len(ai)} momen → dilengkapi keyword jadi "
+          f"{len(merged)} (genre {genre})")
+    return merged
 
 
 CATALOG_STATS = {
