@@ -24,6 +24,8 @@ export interface LiveWord {
 export interface LiveCaptionStyle {
   fontFamily: string;
   fontSize: number; // px pada lebar preview tertentu (basis 360px)
+  /** kata per baris — mirror max_words_per_line backend (parity wrap) */
+  maxWords?: number;
   fontColor: string;
   highlightColor: string;
   emphasisColor?: string;
@@ -123,8 +125,8 @@ export function LiveCaptionOverlay({
 }) {
   const scale = containerWidth / 360;
 
-  // maxWords per baris — mirror backend template (4 default, 3 utk hormozi dll)
-  const maxWords = style.uppercase ? 4 : 5;
+  // maxWords per baris — mirror max_words_per_line backend (parity persis)
+  const maxWords = style.maxWords ?? (style.uppercase ? 4 : 5);
   const lines = useMemo(() => chunkWords(words, maxWords), [words, maxWords]);
 
   // cari baris aktif berdasarkan waktu

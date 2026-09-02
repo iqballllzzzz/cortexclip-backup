@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { getPreset, SubtitleStylePicker, DEFAULT_SUBTITLE_PRESET } from "@/components/subtitle-styles";
 import { ColoredIcon } from "@/components/colored-icon";
+import { BrollPip } from "@/components/broll-pip";
 import { LiveCaptionOverlay, type LiveCaptionStyle, type LiveWord } from "@/components/live-caption-overlay";
 import { startRenderJob, getAccessToken } from "@/lib/backend-api";
 import { Button } from "@/components/ui/button";
@@ -60,6 +61,7 @@ interface Placement {
   iconEmoji?: string;
   side: string;
   animation: string;
+  broll_url?: string | null;
 }
 
 /* ------------------------------------------------------------------- page */
@@ -316,6 +318,7 @@ function EditorPage() {
   const liveStyle: LiveCaptionStyle = {
     fontFamily: preset.cssFontFamily,
     fontSize: effFontSize * 0.42,
+    ...(preset.style.max_words ? { maxWords: preset.style.max_words } : {}),
     fontColor: preset.style.font_color,
     highlightColor: preset.style.highlight_color,
     emphasisColor: preset.style.highlight_color,
@@ -543,6 +546,25 @@ function EditorPage() {
 
             <LiveCaptionOverlay words={words} time={time} style={liveStyle} containerWidth={fit.w} showEmoji={emojiEnabled} />
 
+            {/* B-ROLL VIDEO PiP — parity dengan render unduhan (ffmpeg overlay) */}
+            {brollEnabled
+              ? livePlacements
+                  .filter((p) => !!p.broll_url)
+                  .map((p, idx) => {
+                    const active = time >= p.time_start && time <= p.time_end;
+                    return (
+                      <BrollPip
+                        key={`broll-${p.time_start}-${idx}`}
+                        url={p.broll_url as string}
+                        active={active}
+                        localTime={Math.max(0, time - p.time_start)}
+                        width={fit.w * 0.74}
+                        top={fit.h * 0.44}
+                      />
+                    );
+                  })
+              : null}
+
             {/* Ikon & b-roll live */}
             {brollEnabled && livePlacements.length > 0
               ? livePlacements.map((p, idx) => {
@@ -567,7 +589,7 @@ function EditorPage() {
                       className="pointer-events-none absolute flex items-center justify-center transition-[transform,opacity] duration-500 ease-out"
                       style={{
                         left: p.side === "left" ? "20%" : p.side === "center" ? "50%" : "80%",
-                        top: "38%",
+                        top: "26%",
                         transform: active ? "translate(-50%, -50%)" : hidden,
                         opacity: active ? 1 : 0,
                       }}

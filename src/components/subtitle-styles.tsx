@@ -21,6 +21,7 @@ export interface SubtitlePreset {
     font_color: string;
     highlight_color: string;
     position: number; // % dari atas
+    max_words?: number;
     word_box?: boolean;
     word_box_color?: string;
     emoji?: boolean;
@@ -36,7 +37,7 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
     cssFontFamily: "THE BOLD FONT",
     label: "Default",
     style: {
-      preset: "default", font_family: "THE BOLD FONT", font_size: 32,
+      max_words: 4, preset: "default", font_family: "THE BOLD FONT", font_size: 32,
       font_color: "#FFFFFF", highlight_color: "#FFE000",
       position: 80, emoji: true,
     },
@@ -51,7 +52,7 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
     cssFontFamily: "THE BOLD FONT",
     label: "Hormozi",
     style: {
-      preset: "hormozi", font_family: "THE BOLD FONT", font_size: 38,
+      max_words: 3, preset: "hormozi", font_family: "THE BOLD FONT", font_size: 38,
       font_color: "#FFFFFF", highlight_color: "#00FF66",
       position: 74, word_box: true, word_box_color: "#00BF49",
       emoji: true, uppercase: true,
@@ -68,7 +69,7 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
     cssFontFamily: "THE BOLD FONT",
     label: "MrBeast",
     style: {
-      preset: "mrbeast", font_family: "THE BOLD FONT", font_size: 42,
+      max_words: 3, preset: "mrbeast", font_family: "THE BOLD FONT", font_size: 42,
       font_color: "#FFFF00", highlight_color: "#FF2D2D",
       position: 70, emoji: true, uppercase: true,
     },
@@ -84,7 +85,7 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
     cssFontFamily: "TikTok Sans",
     label: "TikTok Pop",
     style: {
-      preset: "tiktok", font_family: "TikTok Sans", font_size: 34,
+      max_words: 4, preset: "tiktok", font_family: "TikTok Sans", font_size: 34,
       font_color: "#FFFFFF", highlight_color: "#FE2C55",
       position: 78, emoji: true,
     },
@@ -99,7 +100,7 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
     cssFontFamily: "THE BOLD FONT",
     label: "Neon Glow",
     style: {
-      preset: "neon", font_family: "THE BOLD FONT", font_size: 36,
+      max_words: 4, preset: "neon", font_family: "THE BOLD FONT", font_size: 36,
       font_color: "#00FFFF", highlight_color: "#FF00FF",
       position: 76,
     },
@@ -115,7 +116,7 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
     cssFontFamily: "TikTok Sans",
     label: "Clean Minimal",
     style: {
-      preset: "minimal", font_family: "TikTok Sans", font_size: 26,
+      max_words: 6, preset: "minimal", font_family: "TikTok Sans", font_size: 26,
       font_color: "#FFFFFF", highlight_color: "#FFFFFF",
       position: 82, uppercase: false,
     },
@@ -131,7 +132,7 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
     cssFontFamily: "Bangers",
     label: "Comic Bang",
     style: {
-      preset: "comic", font_family: "Bangers", font_size: 40,
+      max_words: 3, preset: "comic", font_family: "Bangers", font_size: 40,
       font_color: "#FFE600", highlight_color: "#FF2200",
       position: 70, emoji: true, uppercase: true,
     },
@@ -147,7 +148,7 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
     cssFontFamily: "TikTok Sans",
     label: "Sermon Elegan",
     style: {
-      preset: "podcast", font_family: "TikTok Sans", font_size: 28,
+      max_words: 5, preset: "podcast", font_family: "TikTok Sans", font_size: 28,
       font_color: "#FFFFFF", highlight_color: "#FFB800",
       position: 80,
     },
@@ -162,7 +163,7 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
     cssFontFamily: "Courier Prime",
     label: "Typewriter",
     style: {
-      preset: "typewriter", font_family: "Courier Prime", font_size: 30,
+      max_words: 5, preset: "typewriter", font_family: "Courier Prime", font_size: 30,
       font_color: "#D8FFD0", highlight_color: "#4AF626",
       position: 78, word_box: true, word_box_color: "#0A3300",
     },
@@ -178,7 +179,7 @@ export const SUBTITLE_PRESETS: SubtitlePreset[] = [
     cssFontFamily: "Anton",
     label: "Gaming Energy",
     style: {
-      preset: "gaming", font_family: "Anton", font_size: 38,
+      max_words: 3, preset: "gaming", font_family: "Anton", font_size: 38,
       font_color: "#FFFFFF", highlight_color: "#7CFC00",
       position: 72, emoji: true, uppercase: true,
     },

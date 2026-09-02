@@ -138,62 +138,107 @@ async def render_clip_server(
         icon_png_overlays: list[dict[str, Any]] = []
 
         # EMOJI per-kata → PNG Twemoji overlay (libass tak bisa render emoji).
-        # Hitung annotation yang sama seperti build_ass (deterministik) lalu
-        # render PNG di posisi setelah kata terkait.
+        # PARITY: kata→emoji dihitung dari word_emoji.py — port EXACT dari
+        # WORD_EMOJI live-caption-overlay.tsx, kata & emojinya sama dengan
+        # yang tampil di preview. Posisi: kanan-subtitle (mirror overlay).
         emoji_in_text = bool(style.get("emoji", True))
         if emoji_in_text:
             try:
-                from .subtitles import annotate_caption_words
+                from .subtitles import get_scaled_font_size
                 from .twemoji import twemoji_png
-                emoji_by_idx, _ = annotate_caption_words(words)
-                for idx, emoji in emoji_by_idx.items():
-                    if idx >= len(words):
+                from .word_emoji import word_emoji
+
+                pos_pct = float(style.get("position", 75))
+                # parity ukuran: preview render emoji sebagai teks fontSize*1.1
+                # (fontSize = font_size*0.42*vw/360) → PNG seukuran itu.
+                try:
+                    base_fs = int(style.get("font_size") or 32)
+                except (TypeError, ValueError):
+                    base_fs = 32
+                em_size = max(24, int(get_scaled_font_size(base_fs, vw) * 1.25))
+                emoji_count = 0
+                for w in words:
+                    if emoji_count >= 40:
+                        break
+                    emoji = word_emoji(str(w.get("word", w.get("text", ""))))
+                    if not emoji:
                         continue
-                    w = words[idx]
                     png = twemoji_png(emoji)
                     if not png:
                         continue
-                    t_end_w = float(w.get("end", w.get("start", 0)) or 0)
                     t_start_w = float(w.get("start", 0) or 0)
+                    t_end_w = float(w.get("end", t_start_w) or 0)
+                    # mirror preview: emoji absolute right:4%, sejajar tengah
+                    # baris subtitle (x/y = TITIK TENGAH ikon di render.py)
                     icon_png_overlays.append({
                         "png": png,
-                        "x": int(vw * 0.45),
-                        "y": int(vh * (float(style.get("position", 75)) / 100.0) + int(vh * 0.09)),
-                        "size": int(vw * 0.10),
+                        "x": int(vw * 0.96 - em_size / 2),
+                        "y": int(vh * pos_pct / 100.0),
+                        "size": em_size,
                         "t_start": t_start_w,
-                        "t_end": t_end_w + 1.2,
+                        "t_end": t_end_w + 1.0,
                     })
+                    emoji_count += 1
             except Exception as exc:
                 print(f"[render] emoji overlay gagal (render tetap jalan): {exc}")
 
-        # IKON & B-ROLL overlay (AI pilih momen → PNG Twemoji via ffmpeg overlay;
-        # ASS emoji tidak andal → PNG 100% konsisten dengan preview browser)
+        # IKON & B-ROLL overlay (AI pilih momen → PNG ikon via ffmpeg overlay).
+        # PARITY: PNG diraster dari icon_svgs.py — SVG yang digenerate dari
+        # colored-icon.tsx, artwork SAMA PERSIS dengan ColoredIcon preview.
+        # Animasi "zoom-fade" masuk 0.5s (mirror transisi CSS preview).
+        broll_video_overlays: list[dict[str, Any]] = []
         if broll_enabled:
             try:
-                from .broll import compute_placements, ICON_EMOJI
-                from .twemoji import twemoji_png
+                from .broll import compute_placements
+                from .broll_video import broll_local_path
+                from .icon_png import icon_png_path
+                from .icon_svgs import resolve_icon
+                from anyio import to_thread
+
                 duration = float(clip["end_time"]) - float(clip["start_time"])
                 placements = await compute_placements(words, duration)
-                if placements:
-                    # posisi overlay PNG dalam koordinat OUTPUT (w,h)
-                    for p in placements:
-                        emoji = ICON_EMOJI.get(str(p.get("icon") or ""), "✨")
-                        png = twemoji_png(emoji)
-                        if not png:
-                            continue
-                        ts = float(p.get("time_start", 0))
-                        te = max(ts + 0.5, float(p.get("time_end", ts + 2.5)))
-                        side = str(p.get("side", "right"))
-                        px = int(vw * (0.26 if side == "left" else 0.74 if side == "right" else 0.5))
-                        py = int(vh * 0.30)
-                        icon_png_overlays.append({
-                            "png": png, "x": px - int(vw * 0.10), "y": py,
-                            "size": int(vw * 0.20),
-                            "t_start": ts, "t_end": te,
-                        })
+                for p in placements or []:
+                    comp = resolve_icon(
+                        str(p.get("category") or "") or None,
+                        str(p.get("icon") or "") or None,
+                    )
+                    png = icon_png_path(comp)
+                    if not png:
+                        continue
+                    ts = float(p.get("time_start", 0))
+                    te = max(ts + 0.5, float(p.get("time_end", ts + 2.5)))
+                    side = str(p.get("side", "right"))
+                    # mirror preview: left:20%/50%/80%, top:38%, translate(-50%,-50%)
+                    px = int(vw * (0.20 if side == "left" else 0.80 if side == "right" else 0.5))
+                    py = int(vh * 0.26)
+                    icon_png_overlays.append({
+                        "png": png, "x": px, "y": py,
+                        "size": int(vw * 0.24),   # mirror width fit.w*0.24
+                        "t_start": ts, "t_end": te,
+                        "anim": str(p.get("animation") or "slide-left"),
+                    })
+
+                    # B-ROLL VIDEO PiP (mirror <video> PiP preview): unduh sekali,
+                    # tampil di area atas selama window placement.
+                    burl = p.get("broll_url")
+                    if burl:
+                        bfile = await to_thread.run_sync(broll_local_path, str(burl))
+                        if bfile:
+                            # Jendela b-roll di bawah wajah pembicara (wajah
+                            # ~25-41% tinggi) & di atas subtitle (80%), lebar 74%
+                            # → tidak menutupi watermark (atas) maupun teks.
+                            bw = int(vw * 0.74)
+                            broll_video_overlays.append({
+                                "file": bfile,
+                                "x": (vw - bw) // 2,
+                                "y": int(vh * 0.44),
+                                "width": bw,
+                                "height": int(bw * 9 / 16),
+                                "t_start": ts,
+                                "t_end": te,
+                            })
             except Exception as exc:
                 print(f"[render] broll overlay gagal (render tetap jalan): {exc}")
-                icon_png_overlays = []
 
         start = float(clip["start_time"])
         end = float(clip["end_time"])
@@ -230,6 +275,8 @@ async def render_clip_server(
             camera_trajectory=traj,
             watermark=watermark_on,
             icon_ass_path=icon_ass_path,
+            icon_png_overlays=icon_png_overlays,  # FIX: sebelumnya overlay DIBUANG
+            broll_video_overlays=broll_video_overlays,
         )
 
         # optional hook overlay burn

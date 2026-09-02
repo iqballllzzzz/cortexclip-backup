@@ -232,6 +232,7 @@ def render_clip(
     watermark: bool = True,
     icon_ass_path: Optional[str] = None,
     icon_png_overlays: Optional[list[dict[str, Any]]] = None,
+    broll_video_overlays: Optional[list[dict[str, Any]]] = None,
 ) -> str:
     """Cut + reframe + burn subtitles (+ ikon overlay) -> vertical MP4.
 
@@ -308,19 +309,77 @@ def render_clip(
     fc_parts.append(f"[{cur}]{fc_head}[vbase]")
     cur = "vbase"
     input_idx = 1
+    clip_dur = max(0.2, float(end) - float(start))
 
-    # ikon & b-roll PNG: enable='between(t,..)' + posisi side (kanan/kiri/tengah)
-    for ov in png_overlays:
-        px = ov.get("x", int(w * 0.62))
-        py = ov.get("y", int(h * 0.30))
-        size = ov.get("size", int(w * 0.20))
-        ts = float(ov.get("t_start", 0))
-        te = float(ov.get("t_end", ts + 2.5))
-        cmd += ["-i", ov["png"]]
+    # --- B-ROLL VIDEO: PiP di atas video utama (mirror preview <video> PiP) ---
+    # Muncul di jendela membulat area atas; audio b-roll dibuang (hanya visual).
+    for bv in (broll_video_overlays or []):
+        path = bv.get("file")
+        if not path or not os.path.exists(path):
+            continue
+        ts = max(0.0, float(bv.get("t_start", 0)))
+        te = min(clip_dur, float(bv.get("t_end", ts + 2.5)))
+        if te - ts < 0.3:
+            continue
+        bw = int(bv.get("width", int(w * 0.78)))
+        bh = int(bv.get("height", int(bw * 9 / 16)))
+        bx = int(bv.get("x", (w - bw) // 2))
+        by = int(bv.get("y", int(h * 0.14)))
+        fade_d = min(0.3, max(0.1, (te - ts) / 4.0))
+        # loop b-roll biar cukup panjang, mulai dari 0, dipotong ke durasi tampil
+        cmd += ["-stream_loop", "-1", "-t", f"{te - ts:.3f}", "-i", path]
         fc_parts.append(
-            f"[{input_idx}:v]scale={size}:-1[ico{input_idx}];"
-            f"[{cur}][ico{input_idx}]overlay="
-            f"x={px}:y={py}:enable='between(t,{ts:.2f},{te:.2f})'[vo{input_idx}]"
+            f"[{input_idx}:v]scale={bw}:{bh}:force_original_aspect_ratio=increase,"
+            f"crop={bw}:{bh},setsar=1,format=rgba,"
+            f"fade=t=in:st=0:d={fade_d:.2f}:alpha=1,"
+            f"fade=t=out:st={max(0.0, (te - ts) - fade_d):.2f}:d={fade_d:.2f}:alpha=1,"
+            f"setpts=PTS-STARTPTS+{ts:.3f}/TB[brl{input_idx}]"
+        )
+        fc_parts.append(
+            f"[{cur}][brl{input_idx}]overlay=x={bx}:y={by}:"
+            f"eof_action=pass:enable='between(t,{ts:.2f},{te:.2f})'[vb{input_idx}]"
+        )
+        cur = f"vb{input_idx}"
+        input_idx += 1
+
+    # ikon & b-roll PNG: fade in/out + slide masuk (mirror transisi CSS preview).
+    # x/y dari caller = TITIK TENGAH ikon (mirror translate(-50%,-50%) preview).
+    for ov in png_overlays:
+        size = int(ov.get("size", int(w * 0.20)))
+        cx = int(ov.get("x", int(w * 0.62)))
+        cy = int(ov.get("y", int(h * 0.30)))
+        px = cx - size // 2
+        py = cy - size // 2
+        ts = max(0.0, float(ov.get("t_start", 0)))
+        te = min(clip_dur, float(ov.get("t_end", ts + 2.5)))
+        if te <= ts:
+            continue
+        fade_d = min(0.28, max(0.08, (te - ts) / 3.0))
+        fade_out_st = max(ts + 0.02, te - fade_d)
+        # -loop 1 -t: PNG jadi stream berdurasi klip → filter fade (timeline) jalan
+        cmd += ["-loop", "1", "-t", f"{clip_dur:.3f}", "-i", ov["png"]]
+        fc_parts.append(
+            f"[{input_idx}:v]scale={size}:-1,format=rgba,"
+            f"fade=t=in:st={ts:.2f}:d={fade_d:.2f}:alpha=1,"
+            f"fade=t=out:st={fade_out_st:.2f}:d={fade_d:.2f}:alpha=1[ico{input_idx}]"
+        )
+        # slide masuk 0.35s: posisi awal offset → posisi final (ease linear)
+        anim = str(ov.get("anim") or "")
+        xe, ye = str(px), str(py)
+        if anim in ("slide-left", "slide-right", "slide-up", "slide-down"):
+            k = f"max(0,1-(t-{ts:.2f})/0.35)"
+            dist = int(w * 0.35)
+            if anim == "slide-left":
+                xe = f"'{px}+{dist}*{k}'"
+            elif anim == "slide-right":
+                xe = f"'{px}-{dist}*{k}'"
+            elif anim == "slide-up":
+                ye = f"'{py}+{dist}*{k}'"
+            else:
+                ye = f"'{py}-{dist}*{k}'"
+        fc_parts.append(
+            f"[{cur}][ico{input_idx}]overlay=x={xe}:y={ye}:"
+            f"enable='between(t,{ts:.2f},{te:.2f})'[vo{input_idx}]"
         )
         cur = f"vo{input_idx}"
         input_idx += 1
@@ -328,13 +387,15 @@ def render_clip(
     if wm_path:
         x = int(w * 0.055)
         y = int(h * 0.045)
-        wm_w = int(w * 0.30)
+        # 0.30 → 0.52: watermark ~1.7x lebih besar & sekarang setara blok
+        # watermark preview editor (logo 9.5% + teks tagline ≈ 50% lebar).
+        wm_w = int(w * 0.52)
         cmd += ["-i", wm_path]
         fc_parts.append(f"[{input_idx}:v]scale={wm_w}:-1[wm]")
         fc_parts.append(f"[{cur}][wm]overlay={x}:{y}:format=auto[vout]")
         cmd += ["-filter_complex", ";".join(fc_parts), "-map", "[vout]", "-map", "0:a?"]
     else:
-        if png_overlays:
+        if png_overlays or (broll_video_overlays or []):
             fc_parts.append(f"[{cur}]null[vout]")
             cmd += ["-filter_complex", ";".join(fc_parts), "-map", "[vout]", "-map", "0:a?"]
         else:

@@ -91,17 +91,26 @@ def emoji_rendering_supported() -> bool:
 # Skala font ala Supoclip
 # ---------------------------------------------------------------------------
 def get_scaled_font_size(base_font_size: int, video_width: int) -> int:
-    """Scale font dari lebar output; range penuh 12-72 tetap bermakna."""
-    scaled = round(base_font_size * (video_width / 560.0))
-    return max(26, min(132, scaled))
+    """Parity frontend: LiveCaptionOverlay pakai fontSize = base*0.42*(width/360).
+
+    Formula lama (base*width/560) menghasilkan font ~53% lebih besar dari
+    preview — penyebab subtitle di RESULT "gede banget sampai ngelebihin ujung".
+    """
+    scaled = round(base_font_size * 0.42 * (video_width / 360.0))
+    return max(12, min(96, scaled))
 
 
 def get_safe_vertical_position(video_height: int, text_height: int, position_y: float) -> int:
-    """Posisi y di-clamp ke safe area (atas 5%, bawah 10%)."""
-    min_top = max(40, int(video_height * 0.05))
+    """Titik TENGAH teks (Alignment=5 middle-center), clamp ke safe area.
+
+    Parity preview: outer div `top: position%` + `translateY(-50%)` →
+    pusat teks tepat di position% tinggi frame (dulu digeser -h/2 → 18px
+    lebih tinggi dari preview).
+    """
+    min_top = max(40, int(video_height * 0.05)) + text_height // 2
     min_bottom = max(120, int(video_height * 0.10))
-    desired_y = int(video_height * position_y - text_height // 2)
-    max_y = video_height - min_bottom - text_height
+    desired_y = int(video_height * position_y)
+    max_y = video_height - min_bottom - text_height // 2
     return max(min_top, min(desired_y, max_y))
 
 
@@ -588,8 +597,9 @@ def build_ass(
 
     font_px = get_scaled_font_size(effective_font_size, video_width)
     base_stroke = int(template.get("stroke_width", 3) or 0)
+    # Parity stroke frontend: strokeWidth px @360 → dikali width/360
     outline_px = (
-        max(base_stroke, round(font_px * base_stroke / 26))
+        max(base_stroke, round(base_stroke * video_width / 360.0))
         if (has_outline and base_stroke)
         else 0
     )
@@ -666,12 +676,31 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     events: list[str] = []
     total = len(words)
+    # PARITY preview: LiveCaptionOverlay menampilkan baris BERIKUTNYA selama
+    # jeda bicara (fallback `lines.find(l => time < l[0].start)`), jadi teks
+    # tidak pernah kosong. ASS lama hanya tampil [chunk.start..chunk.end] →
+    # subtitle hilang di gap. Solusi: baris tampil sejak akhir chunk sebelumnya.
+    prev_chunk_end = 0.0
     for chunk_start in range(0, total, max_words):
         chunk = words[chunk_start : chunk_start + max_words]
         indices = list(range(chunk_start, chunk_start + len(chunk)))
         chunk_end = float(chunk[-1]["end"])
+        chunk_begin = float(chunk[0]["start"])
+        # window pre-roll: dari akhir chunk sebelumnya sampai kata pertama mulai
+        pre_start = min(prev_chunk_end, chunk_begin)
 
         if animation == "karaoke":
+            # pre-roll: seluruh baris idle (belum ada kata aktif) — mirror preview
+            if chunk_begin - pre_start > 0.02:
+                idle_parts = [
+                    idle_span(indices[j], render_text(indices[j], other))
+                    for j, other in enumerate(chunk)
+                ]
+                entrance = f"{{{line_entrance}}}" if line_entrance else ""
+                events.append(
+                    f"Dialogue: 0,{ass_timestamp(pre_start)},{ass_timestamp(chunk_begin)},"
+                    f"Default,,0,0,0,,{line_prefix}{entrance}{' '.join(idle_parts)}"
+                )
             for local_i, word in enumerate(chunk):
                 start = float(word["start"])
                 end = (
@@ -687,12 +716,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     disp = render_text(gj, other)
                     parts.append(active_span(disp) if local_j == local_i else idle_span(gj, disp))
                 line = " ".join(parts)
-                entrance = f"{{{line_entrance}}}" if (line_entrance and local_i == 0) else ""
+                entrance = (
+                    f"{{{line_entrance}}}"
+                    if (line_entrance and local_i == 0 and chunk_begin - pre_start <= 0.02)
+                    else ""
+                )
                 events.append(
                     f"Dialogue: 0,{ass_timestamp(start)},{ass_timestamp(end)},Default,,0,0,0,,{line_prefix}{entrance}{line}"
                 )
         else:
-            start = float(chunk[0]["start"])
+            start = pre_start
             end = chunk_end
             if end <= start:
                 end = start + 0.05
@@ -714,6 +747,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             events.append(
                 f"Dialogue: 0,{ass_timestamp(start)},{ass_timestamp(end)},Default,,0,0,0,,{line_prefix}{effect}{chunk_text}"
             )
+        prev_chunk_end = chunk_end
 
     return header + "\n".join(events) + "\n"
 

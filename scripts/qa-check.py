@@ -425,6 +425,14 @@ try:
     fe_err = flg.count("ENOENT") + flg.count("Error:") + flg.count("uncaughtException")
     ok("tak ada error di log frontend (proses aktif)", fe_err == 0,
        f"{fe_err} baris error pid={fpid}")
+    # Regresi nyata (02 Sep): tiap request HEAD bikin stream SSR TanStack tidak
+    # pernah di-drain → nyangkut sampai safety-net 120s kebakar. Warning-nya
+    # bukan "Error:" jadi lolos dari cek di atas; 35 kejadian dalam 2 jam
+    # menahan render React + timer, dan bot uptime yang pakai HEAD bisa
+    # menumpuknya sampai server sesak.
+    fe_stuck = flg.count("exceeded maximum lifetime")
+    ok("tak ada stream SSR nyangkut (frontend)", fe_stuck == 0,
+       f"{fe_stuck}x 'exceeded maximum lifetime' pid={fpid}")
 except Exception as exc:
     ok("log frontend terbaca", False, str(exc)[:60])
 
@@ -491,6 +499,31 @@ ok("tak ada 5xx nginx sejak restart terakhir", not recent_5xx,
 for acc in ("application/json", "text/event-stream"):
     st, _ = get(BASE + "/", {"Accept": acc}, timeout=20)
     ok(f"Accept {acc} bukan 5xx", st < 500, f"HTTP {st}")
+
+
+# ---- HEAD tidak boleh nyangkut (uptime monitor / curl -I) ----
+# Regresi nyata (02 Sep): HEAD dibalas 200 cepat oleh nginx, tapi di dalam Nitro
+# stream SSR-nya tidak pernah ditutup dan baru dibersihkan paksa setelah 120s.
+# Jadi status code saja tidak cukup — yang diukur di sini efek sampingnya:
+# beberapa HEAD berturut-turut tidak boleh meninggalkan stream nyangkut.
+def head(url: str, timeout=20):
+    req = urllib.request.Request(url, method="HEAD")
+    t0 = time.time()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, time.time() - t0
+    except urllib.error.HTTPError as e:
+        return e.code, time.time() - t0
+    except Exception:
+        return 0, time.time() - t0
+
+
+head_bad = []
+for p in ("/", "/dashboard", "/studio"):
+    hst, hdur = head(BASE + p)
+    if hst >= 500 or hst == 0 or hdur > 15:
+        head_bad.append(f"{p} HTTP {hst} {hdur:.1f}s")
+ok("HEAD route SSR sehat", not head_bad, "; ".join(head_bad))
 
 # ============ 11. LINK PUBLIK HARUS HTTPS DOMAIN, BUKAN IP ============
 # Regresi nyata (02 Sep): PUBLIC_BASE_URL tidak diset → default "http://<IP>",
