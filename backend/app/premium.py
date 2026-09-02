@@ -24,7 +24,11 @@ import httpx
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "http://localhost:8000")
 SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
-PUBLIC_BASE = os.environ.get("PUBLIC_BASE_URL", "http://38.47.93.148")
+# PENTING: default WAJIB domain produksi (https). Dulu default-nya
+# "http://38.47.93.148" → link share/QR yang dikirim ke user mengarah ke IP,
+# lalu nginx 301 ke https://<IP> yang sertifikatnya cuma untuk
+# clip.aqualibrya.my.id → browser user kena "connection not private".
+PUBLIC_BASE = (os.environ.get("PUBLIC_BASE_URL") or "https://clip.aqualibrya.my.id").rstrip("/")
 
 PAKASIR_PROJECT = os.environ.get("PAKASIR_PROJECT", "aqualibriaclip")
 PAKASIR_API_KEY = os.environ.get("PAKASIR_API_KEY", "")

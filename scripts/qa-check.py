@@ -7,6 +7,8 @@ Output: ringkasan PASS/FAIL per kelompok (untuk cron delivery).
 """
 import json
 import os
+import re
+import base64
 import shutil
 import subprocess
 import time
@@ -49,6 +51,17 @@ def post(url: str, data: dict, headers=None, timeout=25):
             return r.status, r.read()
     except urllib.error.HTTPError as e:
         return e.code, e.read()
+
+
+def delete(url: str, headers=None, timeout=25):
+    req = urllib.request.Request(url, headers=headers or {}, method="DELETE")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+    except Exception as e:
+        return 0, str(e).encode()
 
 
 def ok(name: str, cond: bool, detail: str = "") -> None:
@@ -398,6 +411,120 @@ try:
        f"{n500}x500 {ntb}xtraceback pid={pid}")
 except Exception as exc:
     ok("log backend terbaca", False, str(exc)[:60])
+
+# ---- log frontend (Nitro): crash / ENOENT asset pada proses yang jalan ----
+try:
+    fpid = subprocess.run(["systemctl", "show", "-p", "MainPID", "--value",
+                           "cortexclip-frontend"], capture_output=True, text=True,
+                          timeout=20).stdout.strip()
+    fcmd = ["journalctl", "-u", "cortexclip-frontend", "--no-pager", "-q",
+            "--since", "2 hours ago"]
+    if fpid and fpid != "0":
+        fcmd.append(f"_PID={fpid}")
+    flg = subprocess.run(fcmd, capture_output=True, text=True, timeout=60).stdout
+    fe_err = flg.count("ENOENT") + flg.count("Error:") + flg.count("uncaughtException")
+    ok("tak ada error di log frontend (proses aktif)", fe_err == 0,
+       f"{fe_err} baris error pid={fpid}")
+except Exception as exc:
+    ok("log frontend terbaca", False, str(exc)[:60])
+
+# ============ 10. NGINX 5xx (edge) ============
+# Regresi nyata (01 Sep): asset hash lama diminta browser → Nitro balas 500,
+# dan bot scanner memancing 500 di route SSR. Backend log saja tidak cukup:
+# 500 dari layer frontend/nginx cuma kelihatan di access.log.
+# Catatan: cron user belum tentu punya grup 'adm' aktif di prosesnya, jadi
+# fallback lewat `sg adm -c`.
+def _read_nginx_log(path="/var/log/nginx/access.log", tail=8000):
+    try:
+        with open(path, "r", errors="ignore") as f:
+            return f.readlines()[-tail:]
+    except Exception:
+        pass
+    try:
+        out = subprocess.run(["sg", "adm", "-c", f"tail -n {tail} {path}"],
+                             capture_output=True, text=True, timeout=60).stdout
+        return out.splitlines()
+    except Exception:
+        return []
+
+
+LOG_TS = re.compile(r"\[(\d{2}/[A-Za-z]{3}/\d{4}:\d{2}:\d{2}:\d{2}) ")
+LOG_REQ = re.compile(r'"(?:[A-Z]+) ([^ "]*) [^"]*" (\d{3}) ')
+nginx_lines = _read_nginx_log()
+# Hanya hitung 5xx SETELAH restart service terakhir — sama alasannya dengan cek
+# log backend: 500 dari versi kode sebelum fix bukan isu aktif, dan kalau tidak
+# difilter, satu insiden lama bikin QA gagal terus selama 2 jam penuh.
+svc_start = max(fe_start, be_start, 0.0)
+recent_5xx: dict[str, int] = {}
+old_5xx = 0
+parsed = 0
+for line in nginx_lines:
+    mt = LOG_TS.search(line)
+    mr = LOG_REQ.search(line)
+    if not mt or not mr:
+        continue
+    try:
+        t = datetime.strptime(mt.group(1), "%d/%b/%Y:%H:%M:%S").replace(tzinfo=timezone.utc)
+    except ValueError:
+        continue
+    parsed += 1
+    if (NOW - t).total_seconds() > 7200:
+        continue
+    code = int(mr.group(2))
+    # 499 = klien memutus koneksi (scanner), bukan bug server
+    if not 500 <= code <= 599:
+        continue
+    if t.timestamp() < svc_start:
+        old_5xx += 1
+        continue
+    key = f"{mr.group(1)[:48]} → {code}"
+    recent_5xx[key] = recent_5xx.get(key, 0) + 1
+ok("access.log nginx terbaca", parsed > 0, "log tidak terbaca (grup adm?)")
+top5xx = sorted(recent_5xx.items(), key=lambda kv: -kv[1])
+ok("tak ada 5xx nginx sejak restart terakhir", not recent_5xx,
+   "; ".join(f"{k} x{v}" for k, v in top5xx[:3]))
+
+# ---- Accept non-HTML tidak boleh 5xx (bot/monitor eksternal) ----
+# Regresi nyata (01-02 Sep): TanStack Start balas 500 "Only HTML requests are
+# supported here" untuk Accept: application/json / text/event-stream, jadi
+# scanner & uptime-monitor melihat situs 500 padahal sehat. Jawaban benar: 406.
+for acc in ("application/json", "text/event-stream"):
+    st, _ = get(BASE + "/", {"Accept": acc}, timeout=20)
+    ok(f"Accept {acc} bukan 5xx", st < 500, f"HTTP {st}")
+
+# ============ 11. LINK PUBLIK HARUS HTTPS DOMAIN, BUKAN IP ============
+# Regresi nyata (02 Sep): PUBLIC_BASE_URL tidak diset → default "http://<IP>",
+# jadi link share & QR yang dikirim ke user mengarah ke IP; https://<IP>
+# sertifikatnya tidak cocok (CN=clip.aqualibrya.my.id) → user lihat peringatan
+# "Not secure" dan link dianggap berbahaya.
+if TOK:
+    try:
+        uid_tok = json.loads(base64.urlsafe_b64decode(
+            TOK.split(".")[1] + "=" * (-len(TOK.split(".")[1]) % 4)).decode())["sub"]
+    except Exception:
+        uid_tok = ""
+    pst, pbody = get(SB + f"/rest/v1/projects?select=id&user_id=eq.{uid_tok}&limit=1", SRK_H)
+    proj_id = ""
+    try:
+        rows = json.loads(pbody)
+        proj_id = rows[0]["id"] if rows else ""
+    except Exception:
+        proj_id = ""
+    if proj_id:
+        sst, sbody = post(BASE + f"/api/projects/{proj_id}/share", {}, H, timeout=30)
+        surl = ""
+        try:
+            surl = json.loads(sbody).get("url", "")
+        except Exception:
+            pass
+        ok("link share pakai https domain produksi",
+           sst == 200 and surl.startswith(BASE + "/share/"), f"HTTP {sst} url={surl[:60]}")
+        # link harus bisa dibuka dengan verifikasi TLS ketat (tanpa -k)
+        lst, _ = get(surl, timeout=25) if surl.startswith("https://") else (0, b"")
+        ok("link share bisa dibuka (TLS valid)", lst == 200, f"HTTP {lst}")
+        # bersihkan token tes biar tabel tidak menumpuk
+        if surl:
+            delete(SB + f"/rest/v1/share_tokens?token=eq.{surl.rsplit('/', 1)[-1]}", SRK_H)
 
 # ============ RINGKASAN ============
 # BUG (diperbaiki 02 Sep): dulu `not r[1]` — r[1] itu NAMA cek (string non-kosong,
