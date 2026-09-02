@@ -393,20 +393,48 @@ async def run_media_pipeline(project_id: str, user_id: str, src_path: str, targe
         parts = await asyncio.to_thread(_wav_chunk_paths, wav_path)
 
         segments: list[dict[str, Any]] = []
-        offset = 0.0
-        for p, chunk_dur in parts:
-            try:
-                with open(p, "rb") as f:
-                    segs = await transcribe_wav_chunk(f.read(), offset, chunk_dur)
-                segments.extend(segs or [])
-            except Exception as exc:
-                print(f"[pipeline] chunk @ {offset:.0f}s gagal: {exc}")
-            finally:
+        # PARALEL: chunk dikirim bersamaan (bukan berurutan) → video 1 jam
+        # yang tadinya 8 chunk × ~40s = ~5 menit jadi ~1.5 menit.
+        # Dibatasi semaphore supaya tidak kena rate-limit provider STT.
+        workers = int(os.environ.get("STT_PARALLEL", "3"))
+        sem = asyncio.Semaphore(max(1, workers))
+        done_count = [0]
+        total_chunks = len(parts)
+
+        async def do_chunk(idx: int, path: str, off: float, dur: float):
+            async with sem:
                 try:
-                    os.unlink(p)
-                except OSError:
-                    pass
-            offset += chunk_dur
+                    with open(path, "rb") as f:
+                        data = f.read()
+                    segs = await transcribe_wav_chunk(data, off, dur)
+                    return segs or []
+                except Exception as exc:
+                    print(f"[pipeline] chunk @ {off:.0f}s gagal: {exc}")
+                    return []
+                finally:
+                    try:
+                        os.unlink(path)
+                    except OSError:
+                        pass
+                    done_count[0] += 1
+                    # progres terlihat di UI meski user keluar halaman
+                    try:
+                        pct = int(done_count[0] * 100 / max(1, total_chunks))
+                        await jobs_mod.update_project(
+                            project_id, status="transcribing", progress=pct)
+                    except Exception:
+                        pass
+
+        offs = []
+        _o = 0.0
+        for p, cd in parts:
+            offs.append((p, _o, cd))
+            _o += cd
+        results = await asyncio.gather(
+            *[do_chunk(i, p, o, d) for i, (p, o, d) in enumerate(offs)]
+        )
+        for segs in results:
+            segments.extend(segs)
 
         if not segments:
             raise RuntimeError("Transkripsi gagal / video tidak berisi ucapan.")

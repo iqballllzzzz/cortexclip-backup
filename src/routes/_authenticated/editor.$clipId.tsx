@@ -204,7 +204,7 @@ function EditorPage() {
     })();
   }, []);
 
-  /* --- pemanasan preview server di belakang (opsional) --- */
+  /* --- pemanasan preview server di belakang + polling status --- */
   const warmServerPreview = useCallback(async () => {
     if (!clip || clip.preview_ready) return;
     try {
@@ -214,10 +214,31 @@ function EditorPage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ project_id: clip.project_id, clip_id: clip.id }),
       });
-      if (res.ok) {
-        const d = await res.json();
+      if (!res.ok) return;
+      const d = await res.json();
+      if (d.url) {
         setClip((c) => (c ? { ...c, preview_url: d.url, preview_ready: true } : c));
         if (!videoKindRef.current) videoKindRef.current = "preview";
+        return;
+      }
+      // Masih diproses di server. Preview instan (sumber + overlay CSS) sudah
+      // jalan, jadi polling ini cuma menaikkan kualitas begitu file siap.
+      // Proses server TIDAK ikut mati kalau user menutup halaman.
+      const clipId = clip.id;
+      for (let i = 0; i < 60; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const t2 = await getAccessToken();
+        const st = await fetch(`/api/preview-clip/status/${clipId}`, {
+          headers: { Authorization: `Bearer ${t2}` },
+        });
+        if (!st.ok) return;
+        const sd = await st.json();
+        if (sd.status === "ready" && sd.url) {
+          setClip((c) => (c && c.id === clipId ? { ...c, preview_url: sd.url, preview_ready: true } : c));
+          if (!videoKindRef.current) videoKindRef.current = "preview";
+          return;
+        }
+        if (sd.status === "idle") return; // gagal / tidak ada task
       }
     } catch {
       /* mode instan tetap jalan */
@@ -225,7 +246,7 @@ function EditorPage() {
   }, [clip]);
 
   useEffect(() => {
-    const t = setTimeout(() => void warmServerPreview(), 1500);
+    const t = setTimeout(() => void warmServerPreview(), 1200);
     return () => clearTimeout(t);
   }, [warmServerPreview]);
 

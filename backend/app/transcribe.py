@@ -166,6 +166,68 @@ async def transcribe_wav_chunk(wav_bytes: bytes, offset: float, duration: float)
     except Exception as exc:
         print(f"[stt-chain] lokal whisper gagal: {exc}")
 
+    # Path 1d: aidictation.com (CADANGAN TERAKHIR, layanan pihak ketiga).
+    # Hanya dicoba kalau semua jalur di atas gagal; kalau solver/endpoint mati
+    # fungsinya balik None cepat (ada cooldown) sehingga tidak menahan pipeline.
+    try:
+        from .aidictation_stt import transcribe_aidictation
+        # kirim mp3 (jauh lebih kecil dari wav) — endpoint menerima audio biasa
+        import subprocess as _sp
+        import tempfile as _tf
+        mp3_bytes = b""
+        with _tf.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            f.write(wav_bytes)
+            wav_tmp = f.name
+        mp3_tmp = wav_tmp + ".mp3"
+        try:
+            _sp.run(["ffmpeg", "-y", "-v", "error", "-i", wav_tmp, "-vn",
+                     "-ac", "1", "-ar", "16000", "-b:a", "64k", mp3_tmp],
+                    check=True, capture_output=True, timeout=300)
+            with open(mp3_tmp, "rb") as fh:
+                mp3_bytes = fh.read()
+        finally:
+            for p in (wav_tmp, mp3_tmp):
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
+        if mp3_bytes:
+            aid = await transcribe_aidictation(mp3_bytes, duration=duration)
+            if aid:
+                segs = aid.get("segments") or []
+                out = []
+                for s in segs:
+                    st_ = float(s.get("start", 0)) + offset
+                    en_ = float(s.get("end", 0)) + offset
+                    text = str(s.get("text", "")).strip()
+                    if not text or en_ <= st_:
+                        continue
+                    seg = {"start": round(st_, 2), "end": round(en_, 2), "text": text}
+                    seg["words"] = words_from_segment(seg)
+                    out.append(seg)
+                if out:
+                    print(f"[stt-chain] sukses via aidictation ({len(out)} segmen)")
+                    _mark("aidictation")
+                    return out
+                # tanpa timing → bagi merata per kalimat
+                full = str(aid.get("text", "")).strip()
+                if full:
+                    import re as _re2
+                    sents = [x.strip() for x in _re2.split(r"(?<=[.!?])\s+", full) if x.strip()]
+                    span = max(duration, len(sents) * 2.0)
+                    per = span / max(1, len(sents))
+                    out = []
+                    for i, s in enumerate(sents):
+                        seg = {"start": round(offset + i * per, 2),
+                               "end": round(offset + (i + 1) * per, 2), "text": s}
+                        seg["words"] = words_from_segment(seg)
+                        out.append(seg)
+                    print(f"[stt-chain] aidictation full-text → {len(out)} segmen merata")
+                    _mark("aidictation")
+                    return out
+    except Exception as exc:
+        print(f"[stt-chain] aidictation gagal: {exc}")
+
     # Path 2: multimodal chat model
     import base64
     b64 = base64.b64encode(wav_bytes).decode()

@@ -48,6 +48,11 @@ ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 ADMIN_TOKENS: dict[str, float] = {}  # token -> expiry
 
+# Task preview yang sedang jalan: clip_id -> asyncio.Task.
+# Preview dijalankan LEPAS dari request supaya user boleh menutup halaman
+# tanpa membatalkan proses (dan supaya request tidak menahan koneksi lama).
+_preview_tasks: dict[str, "asyncio.Task[Any]"] = {}
+
 app = FastAPI(title="CortexClip Backend", version="1.0.0")
 
 origins = os.environ.get("CORS_ORIGINS", "*").split(",")
@@ -335,35 +340,82 @@ async def api_render_clip(body: RenderClipIn, request: Request, authorization: s
 
 @app.post("/api/preview-clip")
 async def api_preview_clip(body: RenderClipIn, request: Request, authorization: str | None = Header(None)):
-    """Render preview klip resolusi rendah (360x640) dengan cepat — VPS yang nggarap.
+    """Preview klip resolusi rendah — jalan di BACKGROUND.
 
-    Browser memutar file preview kecil (~100-500KB) ini, bukan streaming seluruh
-    video sumber 43MB → editor preview muncul instan tanpa lag.
+    Tidak menahan koneksi: task dijalankan lepas dari request, jadi kalau user
+    menutup tab/keluar halaman prosesnya TETAP selesai dan hasilnya tersimpan
+    (clips.preview_url + preview_ready). Klien memantau lewat
+    GET /api/preview-clip/status/{clip_id}.
     """
     user = await get_user(request, authorization)
     from .render_clip import render_preview_clip
-    t0 = time.time()
-    try:
-        result = await render_preview_clip(
-            body.project_id, body.clip_id, token=authorization.split(" ", 1)[1],
-            caption_style=body.caption_style,
+    token = authorization.split(" ", 1)[1] if authorization and " " in authorization else ""
+
+    # sudah ada? balas langsung (cache hit, tanpa render)
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            f"{SUPABASE_URL}/rest/v1/clips?id=eq.{body.clip_id}"
+            "&select=preview_url,preview_ready",
+            headers={"apikey": SUPABASE_SERVICE_KEY,
+                     "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
         )
-    except Exception as exc:
+    rows = r.json() if r.status_code == 200 else []
+    if rows and rows[0].get("preview_ready") and rows[0].get("preview_url"):
+        return {"status": "ready", "url": rows[0]["preview_url"], "cached": True}
+
+    key = f"preview:{body.clip_id}"
+    if key in _preview_tasks and not _preview_tasks[key].done():
+        return {"status": "processing", "url": None}
+
+    async def run_preview():
+        t0 = time.time()
         try:
+            await render_preview_clip(
+                body.project_id, body.clip_id, token=token,
+                caption_style=body.caption_style,
+            )
             from .admin import log_usage
-            await log_usage(user["id"], "preview", model="ffmpeg-preview", provider="local",
-                            status="error", project_id=body.project_id,
-                            meta={"error": str(exc)[:200]})
-        except Exception:
-            pass
-        raise HTTPException(400, str(exc))
-    try:
-        from .admin import log_usage
-        await log_usage(user["id"], "preview", model="ffmpeg-preview", provider="local",
-                        latency_ms=int((time.time() - t0) * 1000), project_id=body.project_id)
-    except Exception:
-        pass
-    return result
+            await log_usage(user["id"], "preview", model="ffmpeg-preview",
+                            provider="local",
+                            latency_ms=int((time.time() - t0) * 1000),
+                            project_id=body.project_id)
+        except Exception as exc:
+            print(f"[preview] gagal: {exc}")
+            try:
+                from .admin import log_usage
+                await log_usage(user["id"], "preview", model="ffmpeg-preview",
+                                provider="local", status="error",
+                                project_id=body.project_id,
+                                meta={"error": str(exc)[:200]})
+            except Exception:
+                pass
+        finally:
+            _preview_tasks.pop(key, None)
+
+    _preview_tasks[key] = asyncio.create_task(run_preview())
+    return {"status": "processing", "url": None}
+
+
+@app.get("/api/preview-clip/status/{clip_id}")
+async def api_preview_status(clip_id: str, request: Request,
+                             authorization: str | None = Header(None)):
+    """Status preview: processing | ready | idle (+ url kalau sudah siap)."""
+    await get_user(request, authorization)
+    ensure_uuid(clip_id, "Klip")
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            f"{SUPABASE_URL}/rest/v1/clips?id=eq.{clip_id}"
+            "&select=preview_url,preview_ready",
+            headers={"apikey": SUPABASE_SERVICE_KEY,
+                     "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
+        )
+    rows = r.json() if r.status_code == 200 else []
+    row = rows[0] if rows else {}
+    if row.get("preview_ready") and row.get("preview_url"):
+        return {"status": "ready", "url": row["preview_url"]}
+    key = f"preview:{clip_id}"
+    running = key in _preview_tasks and not _preview_tasks[key].done()
+    return {"status": "processing" if running else "idle", "url": None}
 
 
 # ---------------------------------------------------------------------------
@@ -492,6 +544,30 @@ async def api_render_queue(request: Request, authorization: Optional[str] = Head
         "total_active": int(st.get("active_renders", 0)),
         "max_concurrent": int(st.get("max_concurrent_renders", 2)),
     }
+
+
+@app.get("/api/render-jobs/{job_id}")
+async def api_get_render_job(job_id: str, request: Request,
+                            authorization: str | None = Header(None)):
+    """Status satu job unduhan (dipakai halaman unduh & pemantau eksternal)."""
+    user = await get_user(request, authorization)
+    ensure_uuid(job_id, "Job")
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            f"{SUPABASE_URL}/rest/v1/render_jobs?id=eq.{job_id}"
+            f"&user_id=eq.{user['id']}"
+            "&select=id,status,rendered_url,error,clip_title,created_at,completed_at",
+            headers={"apikey": SUPABASE_SERVICE_KEY,
+                     "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
+        )
+    rows = r.json() if r.status_code == 200 else []
+    if not rows:
+        raise HTTPException(404, "Job tidak ditemukan")
+    row = rows[0]
+    # alias supaya klien lama/baru sama-sama jalan
+    row["url"] = row.get("rendered_url")
+    row["output_url"] = row.get("rendered_url")
+    return row
 
 
 @app.delete("/api/render-jobs/{job_id}")

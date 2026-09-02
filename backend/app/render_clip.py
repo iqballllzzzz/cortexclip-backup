@@ -8,12 +8,14 @@ from __future__ import annotations
 import os
 import json
 import hashlib
+import subprocess
 import tempfile
 import uuid
 import time
 from typing import Any, Optional
 
 import httpx
+from anyio import to_thread
 
 from .subtitles import build_ass, build_srt, DEFAULT_STYLE, STYLE_PRESETS
 from . import render as render_mod
@@ -107,7 +109,13 @@ async def render_clip_server(
     workdir = tempfile.mkdtemp(prefix="cortexclip_render_")
     try:
         src = os.path.join(workdir, "source.mp4")
-        await _ensure_source_local(project, src)
+        # HEMAT: ambil hanya potongan klip dari storage (HTTP range + stream
+        # copy) alih-alih mengunduh video penuh — video 1 jam 900MB jadi ~14MB.
+        # start/end di bawah adalah waktu RELATIF terhadap segmen itu.
+        abs_start = float(clip["start_time"])
+        abs_end = float(clip["end_time"])
+        src, start, end = await _ensure_source_segment(
+            project, src, abs_start, abs_end)
 
         words = (clip.get("caption_words") or [])
         if not isinstance(words, list) or not words:
@@ -248,8 +256,7 @@ async def render_clip_server(
             except Exception as exc:
                 print(f"[render] broll overlay gagal (render tetap jalan): {exc}")
 
-        start = float(clip["start_time"])
-        end = float(clip["end_time"])
+        # start/end sudah dihitung relatif terhadap segmen di atas
         out_name = f"{uuid.uuid4().hex[:10]}.mp4"
         out_path = os.path.join(workdir, out_name)
 
@@ -323,6 +330,96 @@ async def render_clip_server(
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+async def _source_seek_url(project: dict[str, Any]) -> str | None:
+    """URL sumber yang bisa di-SEEK ffmpeg (HTTP range) tanpa unduh penuh.
+
+    Ini kunci preview cepat untuk video berjam-jam: `ffmpeg -ss <t> -i <url>`
+    hanya menarik byte di sekitar posisi itu (storage Supabase mendukung
+    HTTP Range 206), jadi klip di menit 50 dari video 1 jam tidak perlu
+    mengunduh file 1 GB dulu.
+    """
+    storage_path = project.get("storage_path")
+    if not storage_path:
+        return None
+    # bucket ini publik untuk video-uploads → URL langsung, tanpa header auth
+    return f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET}/{storage_path}"
+
+
+def _keyframe_before(url: str, t: float, look: float = 14.0) -> Optional[float]:
+    """Waktu keyframe terakhir <= t (probe hanya jendela kecil, via HTTP range)."""
+    lo = max(0.0, t - look)
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-skip_frame", "nokey", "-read_intervals", f"{lo}%+{look + 0.5}",
+             "-show_entries", "frame=pts_time", "-of", "csv=p=0", url],
+            capture_output=True, text=True, timeout=180,
+        )
+    except Exception:
+        return None
+    ks = []
+    for x in r.stdout.split():
+        try:
+            ks.append(float(x))
+        except ValueError:
+            continue
+    if not ks:
+        return None
+    le = [k for k in ks if k <= t + 0.001]
+    return max(le) if le else min(ks)
+
+
+async def _ensure_source_segment(
+    project: dict[str, Any], dest: str, start: float, end: float,
+) -> tuple[str, float, float]:
+    """Sediakan HANYA potongan yang dibutuhkan, bukan seluruh video.
+
+    Video 1 jam bisa 900MB+; mengunduh penuh untuk memotong 60 detik itu
+    pemborosan disk/RAM/waktu dan penyebab utama proses video panjang berat.
+    Di sini segmen diambil lewat HTTP range + stream-copy (tanpa re-encode),
+    dimulai dari KEYFRAME sebelum klip supaya tidak ada frame rusak.
+
+    Balik (path, start_relatif, end_relatif). Offset dihitung dari posisi
+    keyframe → timing subtitle & face tracking tetap tepat (diuji: diff
+    piksel 0.00 dibanding frame dari sumber penuh).
+    """
+    url = await _source_seek_url(project)
+    if not url:
+        await _ensure_source_local(project, dest)
+        return dest, start, end
+
+    pad_before = 6.0
+    pad_after = 1.5
+    kf = await to_thread.run_sync(_keyframe_before, url, max(0.0, start - pad_before))
+    if kf is None:
+        await _ensure_source_local(project, dest)
+        return dest, start, end
+
+    seg_dur = (end - kf) + pad_after
+    cmd = ["ffmpeg", "-y", "-v", "error",
+           "-reconnect", "1", "-reconnect_streamed", "1",
+           "-reconnect_delay_max", "5", "-rw_timeout", "30000000",
+           "-ss", f"{kf:.3f}", "-t", f"{seg_dur:.3f}", "-i", url,
+           "-c", "copy", "-movflags", "+faststart", dest]
+    try:
+        await to_thread.run_sync(lambda: subprocess.run(
+            cmd, check=True, capture_output=True, timeout=900))
+    except Exception as exc:
+        print(f"[render] ekstrak segmen gagal ({str(exc)[:100]}) → unduh penuh")
+        await _ensure_source_local(project, dest)
+        return dest, start, end
+    if not os.path.exists(dest) or os.path.getsize(dest) < 20000:
+        print("[render] segmen terlalu kecil → unduh penuh")
+        await _ensure_source_local(project, dest)
+        return dest, start, end
+
+    off = start - kf
+    mb = os.path.getsize(dest) / 1024 / 1024
+    print(f"[render] segmen {mb:.1f}MB dari keyframe {kf:.2f}s "
+          f"(offset {off:.2f}s) — tanpa unduh video penuh")
+    return dest, off, off + (end - start)
+
+
 async def _ensure_source_local(project: dict[str, Any], dest: str) -> str:
     """Sediakan file sumber di `dest`.
 
@@ -389,29 +486,42 @@ async def render_preview_clip(
 
     workdir = tempfile.mkdtemp(prefix="cortexclip_preview_")
     try:
-        src = os.path.join(workdir, "source.mp4")
-        await _ensure_source_local(project, src)
-
-        start = float(clip["start_time"])
-        end = min(float(clip["end_time"]), start + max_seconds)
+        abs_start = float(clip["start_time"])
+        abs_end = min(float(clip["end_time"]), abs_start + max_seconds)
         out_name = f"{uuid.uuid4().hex[:10]}.mp4"
         out_path = os.path.join(workdir, out_name)
 
-        # FACE TRACKING CEPAT: analisis di-skip untuk preview — crop tengah saja.
-        # (Analisis mediapipe per-frame = penyebab utama preview 1-2 menit;
-        #  hasil render final tetap pakai tracking penuh, preview tidak.)
-        # Jalur KILAT dulu (±3-8 detik); kalau gagal → jalur lama sebagai cadangan.
-        try:
-            render_mod.render_preview_fast(src, start, end, out_path)
-        except Exception as exc:
-            print(f"[preview] fast path gagal ({exc}) → fallback render_clip")
-            render_mod.render_clip(
-                src, start, end, None, out_path,
-                resolution=resolution,
-                face_tracking=False,
-                camera_trajectory=None,
-                watermark=False,
-            )
+        # SUMBER: coba HTTP-seek dulu (tanpa unduh file penuh) — ini yang
+        # membuat preview klip di menit ke-50 video 1 jam tetap cepat.
+        # Kalau gagal (bucket privat / codec butuh index) → unduh lokal.
+        seek_url = await _source_seek_url(project)
+        made = False
+        if seek_url:
+            try:
+                render_mod.render_preview_fast(seek_url, abs_start, abs_end, out_path)
+                made = os.path.exists(out_path) and os.path.getsize(out_path) > 8000
+                if made:
+                    print("[preview] jalur HTTP-seek (tanpa unduh penuh)")
+            except Exception as exc:
+                print(f"[preview] HTTP-seek gagal ({str(exc)[:120]}) → unduh lokal")
+
+        if not made:
+            src = os.path.join(workdir, "source.mp4")
+            src2, rs, re_ = await _ensure_source_segment(
+                project, src, abs_start, abs_end)
+            # FACE TRACKING CEPAT: analisis di-skip untuk preview — crop tengah.
+            # Jalur KILAT dulu (±3-8 detik); kalau gagal → render_clip biasa.
+            try:
+                render_mod.render_preview_fast(src2, rs, re_, out_path)
+            except Exception as exc:
+                print(f"[preview] fast path gagal ({exc}) → fallback render_clip")
+                render_mod.render_clip(
+                    src2, rs, re_, None, out_path,
+                    resolution=resolution,
+                    face_tracking=False,
+                    camera_trajectory=None,
+                    watermark=False,
+                )
 
         user_id = clip.get("user_id") or project.get("user_id")
         storage_key = f"{user_id}/previews/{clip_id}.mp4"

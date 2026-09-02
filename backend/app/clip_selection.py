@@ -229,8 +229,8 @@ def _parse_json(raw: str) -> Any:
     return {key: objs}
 
 
-async def score_windows(windows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Pass 1: skor 0-100 potensi viral + koreksi heuristik kualitas isi."""
+async def _score_batch(windows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Skor satu batch window. Balik map id -> {score, reason}."""
     listing = "\n".join(
         f"{w['id']} [{w['start']:.0f}-{w['end']:.0f}s]: {w['text'][:600]}"
         for w in windows
@@ -248,29 +248,52 @@ async def score_windows(windows: list[dict[str, Any]]) -> list[dict[str, Any]]:
          {"role": "user", "content": prompt}],
         temperature=0.3, max_tokens=2048,
     )
-    try:
-        data = _parse_json(content)
-    except Exception:
-        print(f"[clip_selection] score_windows parse gagal, content: {content[:300]!r}")
-        # fallback: pakai heuristik kualitas saja (bukan skor seragam 50 —
-        # itu penyebab klip basa-basi ikut terpilih saat AI gagal)
-        out = []
-        for w in windows:
-            score, note = quality_adjust(w["text"], 55)
-            out.append(dict(w, score=score, reason=f"heuristik: {note or 'netral'}"))
-        out.sort(key=lambda w: w["score"], reverse=True)
-        return out
+    data = _parse_json(content)
     if isinstance(data, list):
         data = {"windows": data}
-    scores = {str(w.get("id")): w for w in data.get("windows", []) if isinstance(w, dict)}
+    return {str(w.get("id")): w for w in data.get("windows", [])
+            if isinstance(w, dict)}
+
+
+async def score_windows(windows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Pass 1: skor 0-100 potensi viral + koreksi heuristik kualitas isi.
+
+    Video BERJAM-JAM menghasilkan ratusan window (1 jam ≈ 72, 3 jam ≈ 216).
+    Semuanya dalam satu prompt = melebihi batas token dan gagal total, jadi
+    window dipecah jadi batch dan dinilai PARALEL (lebih cepat + tidak ada
+    satu titik kegagalan: batch yang gagal jatuh ke heuristik saja).
+    """
+    batch_size = int(os.environ.get("SCORE_BATCH", "24"))
+    batches = [windows[i:i + batch_size] for i in range(0, len(windows), batch_size)]
+    sem = asyncio.Semaphore(int(os.environ.get("SCORE_PARALLEL", "3")))
+
+    async def run(b: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        async with sem:
+            try:
+                return await _score_batch(b)
+            except Exception as exc:
+                print(f"[clip_selection] batch skor gagal ({len(b)} window): "
+                      f"{type(exc).__name__} {str(exc)[:120]}")
+                return {}
+
+    maps = await asyncio.gather(*[run(b) for b in batches])
+    scores: dict[str, dict[str, Any]] = {}
+    for m in maps:
+        scores.update(m)
+    if len(batches) > 1:
+        print(f"[clip_selection] {len(windows)} window → {len(batches)} batch, "
+              f"{len(scores)} dinilai AI")
+
     out = []
     for w in windows:
         sc = scores.get(w["id"], {})
         try:
-            score = max(0, min(100, int(sc.get("score", 50))))
+            score = max(0, min(100, int(sc.get("score", 55))))
         except (TypeError, ValueError):
-            score = 50
+            score = 55
         ai_reason = str(sc.get("reason", ""))[:160]
+        if not sc:
+            ai_reason = "heuristik (AI tidak menilai window ini)"
         score, note = quality_adjust(w["text"], score)
         reason = f"{ai_reason} | {note}" if note else ai_reason
         out.append(dict(w, score=score, reason=reason[:200]))
@@ -290,10 +313,15 @@ async def detail_pass(
     # give the model the transcript restricted to each window
     segments = transcript.get("segments", [])
     listing = []
+    # anggaran teks total ±40k karakter (aman untuk konteks model): makin
+    # banyak window, makin ringkas tiap window — supaya video berjam-jam
+    # tidak melewati batas token dan gagal total.
+    per_window = max(900, min(4000, int(40000 / max(1, len(shortlist)))))
     for w in shortlist:
         segs = [s for s in segments if s["end"] > w["start"] and s["start"] < w["end"]]
         text = " ".join(s["text"] for s in segs)
-        listing.append(f"WINDOW {w['id']} [{w['start']:.0f}-{w['end']:.0f}s] skor {w['score']}:\n{text[:4000]}")
+        listing.append(f"WINDOW {w['id']} [{w['start']:.0f}-{w['end']:.0f}s] "
+                       f"skor {w['score']}:\n{text[:per_window]}")
     duration = transcript.get("duration") or (segments[-1]["end"] if segments else 0)
     genre_note = (
         f"Genre video: **{genre}**. Judul, deskripsi, dan hashtag WAJIB terasa "
@@ -440,6 +468,14 @@ async def detect_clips(
     if len(good) < 4:
         good = scored[:4]
     shortlist = good[: max(4, math.ceil(len(good) * 0.6))]
+    # BATAS untuk video berjam-jam: detail_pass mengirim teks penuh tiap window,
+    # jadi shortlist ratusan window akan melewati batas token dan gagal total.
+    # Ambil kandidat terbaik saja — cukup jauh di atas target klip.
+    max_short = int(os.environ.get("SHORTLIST_MAX", "28"))
+    if len(shortlist) > max_short:
+        print(f"[clip_selection] shortlist {len(shortlist)} → dipotong {max_short} "
+              f"teratas (video panjang)")
+        shortlist = shortlist[:max_short]
     # detail_pass bisa gagal parse (provider garbage / rate-limit) — retry 3x
     clips: list[dict[str, Any]] = []
     for attempt in range(3):

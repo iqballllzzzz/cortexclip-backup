@@ -195,17 +195,20 @@ def analyze_speaker_track(src: str, start: float, end: float) -> dict[str, Any]:
     )
 
     MATCH_DIST = analysis_w * 0.16      # jarak maks dianggap orang yang sama
-    SWITCH_FRAMES = 1                   # 1 frame @5fps = 0.2s (langsung)
-    SWITCH_RATIO = 1.25                 # kandidat harus 25% lebih aktif
+    SWITCH_FRAMES = 3                   # 3 frame @5fps = 0.6s dominan berturut
+    SWITCH_RATIO = 1.8                  # kandidat harus jelas lebih aktif
     EMA = 0.55                          # (dipakai sbg cadangan; lihat EMA asimetris)
     MIN_MOTION = 2.0                    # ambang absolut "sedang bicara"
-    CUT_COOLDOWN = int(fps * 0.8)       # jeda minimal antar potong (0.8s)
+    QUIET_MOTION = 1.6                  # di bawah ini dianggap BERHENTI bicara
+    CUT_COOLDOWN = int(fps * 1.5)       # jeda minimal antar potong (1.5s)
 
     tracks: list[dict[str, Any]] = []
+    retired: list[dict[str, Any]] = []      # track hilang sesaat (wajah ketutup mic)
     active_idx: int | None = None
     active_uid: list[int | None] = [None]   # uid orang yang sedang disorot
     _next_uid = [1]
     last_cut = [-999]                       # frame potong terakhir (cooldown)
+    MIN_CUT_DIST = analysis_w * 0.10         # potong hanya kalau posisi beda nyata
     pending_idx: int | None = None
     pending_count = 0
     switches = 0
@@ -261,13 +264,35 @@ def analyze_speaker_track(src: str, start: float, end: float) -> dict[str, Any]:
                 tr["last"] = fi
                 seen.add(best_i)
             else:
-                tracks.append({"cx": cx, "cy": cy, "patch": patch,
-                               "motion": 0.0, "last": fi,
-                               "uid": _next_uid[0]})
-                _next_uid[0] += 1
+                # SEBELUM membuat identitas baru: cek track yang baru hilang
+                # (wajah ketutup mic/tangan lalu muncul lagi). Tanpa ini,
+                # orang yang sama dapat uid baru → dianggap ganti pembicara →
+                # kamera memotong padahal tidak ada pergantian.
+                reuse = None
+                for rt in retired:
+                    if fi - rt["last"] > fps * 4:
+                        continue
+                    if abs(rt["cx"] - cx) + abs(rt["cy"] - cy) * 0.5 <= MATCH_DIST * 1.6:
+                        reuse = rt
+                        break
+                if reuse is not None:
+                    retired.remove(reuse)
+                    reuse.update({"cx": cx, "cy": cy, "patch": patch,
+                                  "last": fi})
+                    tracks.append(reuse)
+                else:
+                    tracks.append({"cx": cx, "cy": cy, "patch": patch,
+                                   "motion": 0.0, "last": fi,
+                                   "uid": _next_uid[0]})
+                    _next_uid[0] += 1
                 seen.add(len(tracks) - 1)
 
-        # buang track yang lama hilang (>2s)
+        # buang track yang lama hilang (>2s) — simpan sebentar di `retired`
+        # supaya identitasnya bisa dipakai lagi kalau wajahnya muncul kembali
+        stale = [t for t in tracks if fi - t["last"] > fps * 2]
+        if stale:
+            retired.extend(stale)
+            retired = [t for t in retired if fi - t["last"] <= fps * 6][-8:]
         tracks = [t for t in tracks if fi - t["last"] <= fps * 2]
         live = [t for t in tracks if fi - t["last"] <= 1]
 
@@ -278,9 +303,17 @@ def analyze_speaker_track(src: str, start: float, end: float) -> dict[str, Any]:
             continue
         if len(live) == 1:
             active_idx = tracks.index(live[0])
+            prev_cx = targets[-1] if targets else live[0]["cx"]
             active_uid[0] = live[0]["uid"]
-            if prev_uid is not None and prev_uid != active_uid[0]:
+            # potong HANYA kalau benar-benar orang lain DAN posisinya beda
+            # nyata; kalau tidak, biarkan pan halus (mis. wajah sempat hilang).
+            # MIN_CUT_DIST digandakan di sini: 1 wajah terlihat = paling sering
+            # cuma deteksi kedip-kedip, bukan pergantian pembicara sungguhan.
+            if (prev_uid is not None and prev_uid != active_uid[0]
+                    and abs(live[0]["cx"] - prev_cx) >= MIN_CUT_DIST * 2.0
+                    and fi - last_cut[0] >= CUT_COOLDOWN):
                 cut_frames.add(fi)          # orang berganti → teleport
+                last_cut[0] = fi
                 switches += 1
             targets.append(live[0]["cx"])
             continue
@@ -292,15 +325,21 @@ def analyze_speaker_track(src: str, start: float, end: float) -> dict[str, Any]:
             cur = next((t for t in live if t["uid"] == active_uid[0]), None)
         if cur is None:
             active_idx = tracks.index(loud)
+            prev_cx = targets[-1] if targets else loud["cx"]
             active_uid[0] = loud["uid"]
-            if prev_uid is not None and prev_uid != active_uid[0]:
+            if (prev_uid is not None and prev_uid != active_uid[0]
+                    and abs(loud["cx"] - prev_cx) >= MIN_CUT_DIST
+                    and fi - last_cut[0] >= CUT_COOLDOWN):
                 cut_frames.add(fi)
                 last_cut[0] = fi
                 switches += 1
             pending_idx, pending_count = None, 0
         elif (loud is not cur
               and loud["motion"] >= MIN_MOTION
-              and loud["motion"] > cur["motion"] * SWITCH_RATIO):
+              and loud["motion"] > cur["motion"] * SWITCH_RATIO
+              # yang sedang disorot harus benar-benar BERHENTI bicara —
+              # tanpa syarat ini kamera pindah saat dua-duanya bicara
+              and cur["motion"] < QUIET_MOTION):
             li = tracks.index(loud)
             if pending_idx == li:
                 pending_count += 1
@@ -308,7 +347,8 @@ def analyze_speaker_track(src: str, start: float, end: float) -> dict[str, Any]:
                 pending_idx, pending_count = li, 1
             # cooldown: jangan potong bolak-balik lebih cepat dari 1.2s
             if (pending_count >= SWITCH_FRAMES
-                    and fi - last_cut[0] >= CUT_COOLDOWN):
+                    and fi - last_cut[0] >= CUT_COOLDOWN
+                    and abs(loud["cx"] - cur["cx"]) >= MIN_CUT_DIST):
                 active_idx = li
                 active_uid[0] = loud["uid"]
                 cut_frames.add(fi)          # PINDAH PEMBICARA → potong keras
@@ -675,12 +715,19 @@ def render_preview_fast(
         vf_parts.append(f"crop=w={src_w}:h={crop_h}:x=0:y=(ih-oh)/2")
     vf_parts.append(f"scale={w}:{h}")
 
-    cmd = [
-        "ffmpeg", "-y", "-v", "error",
+    pre: list[str] = ["ffmpeg", "-y", "-v", "error"]
+    # sumber HTTP (video besar di storage): jangan mati karena putus sesaat,
+    # dan seek pakai HTTP Range supaya tidak menarik seluruh file
+    if src.startswith("http"):
+        pre += ["-reconnect", "1", "-reconnect_streamed", "1",
+                "-reconnect_delay_max", "5", "-rw_timeout", "30000000"]
+
+    cmd = pre + [
         "-ss", f"{start:.3f}", "-t", f"{end - start:.3f}", "-i", src,
         "-vf", ",".join(vf_parts),
         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30",
-        "-threads", "4",
+        # VPS 4 core: sisakan CPU untuk web server (bukan 4 = web jadi blank)
+        "-threads", "2",
         "-pix_fmt", "yuv420p",
         # coba copy audio (instan); kalau codec tak kompatibel ffmpeg error → caller retry
         "-c:a", "aac", "-b:a", "96k",
