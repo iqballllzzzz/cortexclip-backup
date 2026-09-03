@@ -108,6 +108,47 @@ async def fetch_project_clip(project_id: str, clip_id: str, token: str) -> tuple
     return projects[0], clips[0]
 
 
+async def _watermark_aktif_untuk(user_id: str) -> bool:
+    """True kalau unduhan user ini HARUS diberi watermark.
+
+    Satu sumber kebenaran, dipakai render final maupun diuji langsung. Aturan:
+    watermark MATI kalau (a) premium masih aktif, (b) flag watermark_removed
+    dipasang (hasil menuntaskan iklan), atau (c) sudah 4 iklan hapus-watermark.
+    """
+    from datetime import datetime, timezone
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            pr = await c.get(
+                f"{SUPABASE_URL}/rest/v1/profiles?user_id=eq.{user_id}"
+                "&select=ads_watched,watermark_removed,premium_until",
+                headers={"apikey": SUPABASE_SERVICE_KEY_ENV,
+                         "Authorization": f"Bearer {SUPABASE_SERVICE_KEY_ENV}"},
+            )
+            rows = pr.json() if pr.status_code == 200 else []
+    except Exception as exc:
+        print(f"[render] cek watermark gagal ({exc}) → watermark tetap ON")
+        return True
+    if not rows:
+        return True
+    row = rows[0]
+    premium_aktif = False
+    pu = row.get("premium_until")
+    if pu:
+        try:
+            d = datetime.fromisoformat(str(pu).replace("Z", "+00:00"))
+            if not d.tzinfo:
+                d = d.replace(tzinfo=timezone.utc)
+            premium_aktif = d > datetime.now(timezone.utc)
+        except ValueError:
+            premium_aktif = False
+    if premium_aktif:
+        print("[render] user PREMIUM → tanpa watermark")
+        return False
+    if row.get("watermark_removed") or int(row.get("ads_watched") or 0) >= 4:
+        return False
+    return True
+
+
 async def render_clip_server(
     project_id: str,
     clip_id: str,
@@ -325,39 +366,10 @@ async def render_clip_server(
                 traceback.print_exc()
                 traj = None
 
-        # Watermark: OFF kalau (a) user PREMIUM aktif, atau (b) sudah menuntaskan
-        # 4 iklan hapus-watermark. Premium = tanpa watermark, itu inti paketnya.
-        watermark_on = True
-        try:
-            user_id = clip.get("user_id") or project.get("user_id")
-            async with httpx.AsyncClient(timeout=10) as c:
-                pr = await c.get(
-                    f"{SUPABASE_URL}/rest/v1/profiles?user_id=eq.{user_id}"
-                    "&select=ads_watched,watermark_removed,premium_until",
-                    headers={"apikey": SUPABASE_SERVICE_KEY_ENV,
-                             "Authorization": f"Bearer {SUPABASE_SERVICE_KEY_ENV}"},
-                )
-                rows = pr.json() if pr.status_code == 200 else []
-                if rows:
-                    row = rows[0]
-                    premium_aktif = False
-                    pu = row.get("premium_until")
-                    if pu:
-                        from datetime import datetime, timezone
-                        try:
-                            d = datetime.fromisoformat(str(pu).replace("Z", "+00:00"))
-                            if not d.tzinfo:
-                                d = d.replace(tzinfo=timezone.utc)
-                            premium_aktif = d > datetime.now(timezone.utc)
-                        except ValueError:
-                            premium_aktif = False
-                    if (premium_aktif or row.get("watermark_removed")
-                            or int(row.get("ads_watched") or 0) >= 4):
-                        watermark_on = False
-                    if premium_aktif:
-                        print("[render] user PREMIUM → tanpa watermark")
-        except Exception as exc:
-            print(f"[render] cek watermark gagal ({exc}) → watermark tetap ON")
+        # Watermark: satu sumber kebenaran di _watermark_aktif_untuk() supaya
+        # aturannya bisa diuji langsung dan tidak menyimpang dari yang dipakai UI.
+        user_id = clip.get("user_id") or project.get("user_id")
+        watermark_on = await _watermark_aktif_untuk(str(user_id))
 
         render_mod.render_clip(
             src, start, end, ass_path, out_path,

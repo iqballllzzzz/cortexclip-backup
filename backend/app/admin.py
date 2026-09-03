@@ -196,8 +196,15 @@ async def unban_user(admin_id: str, target_user: str) -> dict[str, Any]:
 async def set_plan(admin_id: str, target_user: str, plan_key: str) -> dict[str, Any]:
     """Admin kasih/cabut premium manual. plan_key: 'free' atau kunci PLANS."""
     if plan_key == "free":
+        # Menurunkan ke free WAJIB ikut mereset hak bebas-watermark.
+        # Sebelumnya hanya plan & premium_until yang dihapus, sementara
+        # profiles.watermark_removed tetap true dari masa premium. Akibatnya user
+        # yang sudah free tetap dapat unduhan tanpa watermark, DAN tombol
+        # "Hapus watermark" hilang dari editor (UI menyembunyikannya kalau
+        # watermark_removed true) sehingga tidak ada cara mengembalikannya.
         await sb("PATCH", f"profiles?user_id=eq.{target_user}",
-                 json_body={"plan": "free", "premium_until": None})
+                 json_body={"plan": "free", "premium_until": None,
+                            "watermark_removed": False, "ads_watched": 0})
         await _audit(admin_id, target_user, "set_plan", {"plan": "free"})
         return {"ok": True, "plan": "free"}
     if plan_key not in PLANS:

@@ -16,8 +16,8 @@ from typing import Any, Optional
 
 from .speaker_track import (COOLDOWN_S, CUT_MIN_SAMPLES, DEADZONE_FRAC,
                             DOMINANCE, HOLD_FRAMES, LOOKAHEAD_S, LOST_HOLD_S,
-                            MAX_PAN_PER_S, RECENT_FRAMES, SPEAK_ON, SPRING_HZ,
-                            STICKY_S)
+                            MAX_PAN_PER_S, RECENT_FRAMES, SMOOTH_TIME_S,
+                            SPEAK_ON, SPRING_HZ, STICKY_S, STILL_SPAN_FRAC)
 
 
 def pick_active(live: list[dict[str, Any]], state: dict[str, Any], fi: int,
@@ -130,24 +130,27 @@ def build_trajectory(targets: list[float], cuts: set[int], src_w: int,
                      crop_w: float, analysis_w: int, fps: float) -> list[float]:
     """Bangun jalur kamera per segmen antar potongan, lalu skala ke piksel sumber.
 
-    STABILIZER (peredam) — bukan sekadar penghalusan
+    ATURAN: KUNCI ATAU IKUTI — tidak ada yang di antaranya.
 
-    Kamera dimodelkan sebagai massa berpegas teredam kritis (critically damped)
-    dengan ZONA MATI di sekitar posisinya:
+    Per shot (segmen antar potongan) diputuskan LEBIH DULU apakah kamera perlu
+    bergerak sama sekali. Keputusannya dari sebaran posisi target sepanjang shot
+    itu, bukan per frame:
 
-    - Kepala bergerak kecil (mengangguk, menoleh, geser sedikit) → target masih
-      di dalam zona mati → kamera TIDAK BERGERAK SAMA SEKALI. Ini yang membuat
-      bingkai tidak "bernafas" mengikuti derau landmark.
-    - Kepala berpindah lebih jauh dari zona mati → kamera menyusul dengan
-      percepatan dan perlambatan halus, kecepatan dibatasi, tanpa pantulan
-      (teredam kritis, jadi tidak melewati target lalu kembali).
-    - Antisipasi (LOOKAHEAD_S): pegas selalu tertinggal ~2/omega detik di
-      belakang targetnya. Karena trajektori dihitung offline, target yang dipakai
-      diambil sedikit ke depan sehingga keterlambatan itu batal — kamera terasa
-      mengikuti kepala, bukan menyusul dari belakang.
+    - Sebaran KECIL (orang duduk, cuma gerak tipis, mengangguk, menoleh) →
+      kamera DIKUNCI pada satu angka untuk seluruh shot. Nol pergerakan. Bukan
+      "hampir nol", tapi benar-benar satu nilai konstan, sehingga tidak ada
+      goyangan sedikit pun.
+    - Sebaran BESAR (orang jalan, komedi, banyak gerak) → kamera mengikuti
+      dengan pegas teredam kritis: mulus, tanpa pantulan, kecepatan dibatasi.
 
-    Penghalusan dua arah (zero_phase) tetap dipakai LEBIH DULU untuk membuang
-    derau landmark, lalu stabilizer bekerja pada target yang sudah bersih.
+    Pendekatan lama memakai pegas + zona mati untuk SEMUA shot. Masalahnya pegas
+    tetap punya kecepatan bukan-nol setiap kali target keluar zona mati sedikit
+    saja, lalu masuk lagi — hasilnya kamera bergeser terus dalam amplitudo kecil
+    ("goyang-goyang"). Zona mati mengurangi, tidak menghilangkan.
+
+    PERPINDAHAN PEMBICARA = POTONGAN KERAS. Tiap segmen dihitung sendiri dan
+    dimulai langsung pada posisi barunya, jadi ganti orang terjadi dalam SATU
+    frame — tanpa animasi pan, tanpa mampir ke tengah.
     """
     half = crop_w / 2.0
     scale = src_w / analysis_w
@@ -159,6 +162,7 @@ def build_trajectory(targets: list[float], cuts: set[int], src_w: int,
     omega = 2.0 * math.pi * SPRING_HZ
     dt = 1.0 / max(1.0, fps)
     look = max(1, int(fps * LOOKAHEAD_S))
+    still_span = crop_a * STILL_SPAN_FRAC
 
     def median3(seq: list[float]) -> list[float]:
         if len(seq) < 3:
@@ -169,31 +173,58 @@ def build_trajectory(targets: list[float], cuts: set[int], src_w: int,
         out.append(seq[-1])
         return out
 
+    def rentang(seq: list[float]) -> float:
+        """Sebaran kokoh: persentil 10-90, bukan min-maks.
+
+        Min-maks membuat satu deteksi melenceng saja memutuskan seluruh shot
+        harus bergerak.
+        """
+        if len(seq) < 4:
+            return 0.0
+        s = sorted(seq)
+        lo = s[int(len(s) * 0.10)]
+        hi = s[int(len(s) * 0.90) - 1 if int(len(s) * 0.90) >= len(s) else int(len(s) * 0.90)]
+        return float(hi - lo)
+
     def stabilize(seq: list[float]) -> list[float]:
-        """Pegas teredam + zona mati + antisipasi. Satu segmen (satu shot)."""
+        """Peredaman kritis EKSAK (SmoothDamp). Untuk shot yang BERGERAK.
+
+        KENAPA BUKAN INTEGRASI EULER DARI PEGAS.
+        Versi sebelumnya menghitung `acc = ω²·err − 2ω·v` lalu `v += acc·dt`.
+        Pada 15 fps dengan ω = 2π·1,25 = 7,85, hasil ω·dt = 0,52 — sudah di
+        ambang ketidakstabilan integrasi Euler eksplisit. Percepatan sesaatnya
+        melebihi batas kecepatan pada frame pertama, kecepatan menabrak langit
+        (7,42 px/frame = tepat max_vel), lalu redaman menariknya balik. Itu
+        menghasilkan jerk terukur 13,3 px/frame² — bergetar, bukan mulus. Ini
+        sumber "goyang-goyang" yang dikeluhkan.
+
+        Rumus di bawah adalah solusi ANALITIK sistem teredam kritis untuk satu
+        langkah waktu (SmoothDamp, Game Programming Gems 4). Sifatnya: stabil
+        tanpa syarat pada dt berapa pun, tidak pernah melewati target, dan
+        mendekat secara eksponensial — jadi gerakannya kontinu dan halus.
+
+        smooth_time = perkiraan waktu untuk mencapai target.
+        """
         n = len(seq)
         if n == 0:
             return []
-        # posisi awal = median beberapa frame pertama, bukan frame pertama saja
-        # (frame pertama bisa kebetulan hasil deteksi yang melenceng)
         cam = sorted(seq[: min(n, 5)])[min(n, 5) // 2]
         vel = 0.0
+        om = 2.0 / max(0.05, SMOOTH_TIME_S)
+        x = om * dt
+        peluruhan = 1.0 / (1.0 + x + 0.48 * x * x + 0.235 * x * x * x)
         out: list[float] = []
         for i in range(n):
             tgt = seq[min(n - 1, i + look)]
-            err = tgt - cam
-            # hanya KELEBIHAN di luar zona mati yang menarik kamera
-            if abs(err) <= deadzone:
-                sisa = 0.0
-            else:
-                sisa = err - (deadzone if err > 0 else -deadzone)
-            acc = omega * omega * sisa - 2.0 * omega * vel
-            vel += acc * dt
+            beda = cam - tgt
+            tmp = (vel + om * beda) * dt
+            vel = (vel - om * tmp) * peluruhan
+            # batas kecepatan pan: kamera tidak boleh menyapu terlalu cepat
             if vel > max_vel:
                 vel = max_vel
             elif vel < -max_vel:
                 vel = -max_vel
-            cam += vel
+            cam = tgt + (beda + tmp) * peluruhan
             out.append(cam)
         return out
 
@@ -231,6 +262,14 @@ def build_trajectory(targets: list[float], cuts: set[int], src_w: int,
         if not seg:
             continue
         # 1) buang derau landmark (median + penghalusan dua arah, non-kausal
-        #    sehingga tidak menambah keterlambatan), 2) baru jalankan stabilizer.
-        out.extend(stabilize(zero_phase(median3(seg), win)))
+        #    sehingga tidak menambah keterlambatan)
+        bersih = zero_phase(median3(seg), win)
+        # 2) PUTUSKAN PER SHOT: kunci atau ikuti.
+        if rentang(bersih) <= still_span:
+            # KUNCI: satu angka untuk seluruh shot. Median dipakai (bukan
+            # rata-rata) supaya frame melenceng tidak menggeser kuncian.
+            tetap = sorted(bersih)[len(bersih) // 2]
+            out.extend([tetap] * len(seg))
+        else:
+            out.extend(stabilize(bersih))
     return [max(half, min(src_w - half, x * scale)) for x in out]

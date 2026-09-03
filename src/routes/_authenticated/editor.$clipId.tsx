@@ -568,8 +568,8 @@ function EditorPage() {
         </div>
 
         {watermarkRemoved ? (
-          <span className="hidden items-center gap-1.5 rounded-full border border-[var(--color-success)]/30 bg-[color-mix(in_oklab,var(--color-success)_10%,transparent)] px-3 py-1.5 text-[11px] font-semibold sm:inline-flex">
-            Watermark dihapus
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-success)]/30 bg-[color-mix(in_oklab,var(--color-success)_10%,transparent)] px-2.5 py-1.5 text-[11px] font-semibold sm:px-3">
+            <span className="max-w-[96px] truncate sm:max-w-none">Tanpa watermark</span>
           </span>
         ) : (
           <button
