@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from .speaker_track import (COOLDOWN_S, CUT_MIN_SAMPLES, DOMINANCE,
-                            HOLD_FRAMES, SPEAK_ON, STICKY_S)
+                            HOLD_FRAMES, LOST_HOLD_S, SPEAK_ON, STICKY_S)
 
 
 def pick_active(live: list[dict[str, Any]], state: dict[str, Any], fi: int,
@@ -28,15 +28,44 @@ def pick_active(live: list[dict[str, Any]], state: dict[str, Any], fi: int,
     if state["uid"] is not None:
         cur = next((t for t in live if t["uid"] == state["uid"]), None)
         if cur is None and all_tracks:
-            # Wajah yang disorot HILANG SEJENAK dari daftar kandidat (deteksi
-            # bolong, kepala menoleh, tertutup mikrofon). Jangan langsung
-            # berpindah orang: itu penyebab kamera "mati senyap" lalu terkunci
-            # pada orang yang salah selama beberapa detik. Selama identitasnya
-            # masih ada, kamera BERTAHAN di posisi terakhirnya.
-            cur = next((t for t in all_tracks
-                        if t["uid"] == state["uid"]), None)
-            if cur is not None:
-                return cur, False
+            # Wajah yang disorot HILANG dari daftar kandidat (deteksi bolong,
+            # kepala menoleh, tertutup mikrofon).
+            #
+            # Bertahan di posisi terakhirnya BOLEH, tapi hanya SEBENTAR. Dulu
+            # tidak ada batasnya sama sekali: selama identitas masih hidup
+            # (LOST_S = 3 detik) kamera terus menatap tempat orang itu TADI
+            # berada. Terukur pada podcast nyata: kamera macet di x=270 selama
+            # 2,4 detik sementara satu-satunya wajah yang terlihat ada di x=424
+            # — wajahnya 79% lebar crop di luar pusat, alias kamera menyorot
+            # ruang kosong. Itu persis keluhan user.
+            #
+            # Sekarang: kalau lewat LOST_HOLD_S dan ADA wajah lain yang terlihat,
+            # kamera berpindah ke wajah itu dengan potongan tegas.
+            stale = next((t for t in all_tracks
+                          if t["uid"] == state["uid"]), None)
+            if stale is not None:
+                diam = fi - stale["last"]
+                if diam <= fps * LOST_HOLD_S:
+                    return stale, False
+                # Sudah lama hilang. Pindah HANYA kalau tidak ada keraguan:
+                # tepat SATU wajah yang terlihat. Itu pasti pembicaranya —
+                # sudut kamera sumber berganti dan orang lain tidak ada di
+                # frame. Terukur pada podcast nyata: tanpa ini kamera menatap
+                # posisi lama 2,4 detik sementara satu-satunya wajah ada 79%
+                # lebar crop di sebelahnya.
+                #
+                # Kalau wajah yang terlihat LEBIH DARI SATU, memaksa pindah
+                # justru berbahaya: pilihannya jatuh ke wajah terbesar/skor
+                # tertinggi yang belum tentu pembicara, lalu kamera TERKUNCI di
+                # sana (uji 3 orang jatuh 100% → 33%). Untuk kasus itu tetap
+                # bertahan dan biarkan aturan dominasi bicara yang memutuskan.
+                if len(live) == 1:
+                    pick = live[0]
+                    state["uid"] = pick["uid"]
+                    state["hold"] = 0
+                    state["last_cut"] = fi
+                    return pick, True
+                return stale, False
 
     # belum ada / orangnya benar-benar hilang → ambil yang paling bicara; kalau
     # tidak ada yang bicara ambil wajah terbesar (paling depan)

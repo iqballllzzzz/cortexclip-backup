@@ -78,6 +78,7 @@ EMA_DOWN = 0.30           # turun lambat (jeda antar kata bukan berhenti)
 HOLD_FRAMES = 2           # kandidat harus dominan 2 frame (0.13s @15fps)
 COOLDOWN_S = 0.8          # jeda minimal antar potong kamera
 STICKY_S = 0.5            # setelah pindah, kandidat lain ditahan dulu
+LOST_HOLD_S = 0.15        # kamera bertahan di wajah yang hilang PALING LAMA ini
 LOST_S = 3.0              # track hilang lebih lama dari ini -> dipensiunkan
 RETIRE_S = 8.0            # identitas pensiun masih bisa dipakai ulang
 SCENE_CUT_DIFF = 22.0     # ambang potongan adegan (beda rata-rata piksel)

@@ -83,6 +83,23 @@ def analyze(src: str, start: float, end: float, *, probe_size, run_ffmpeg,
                            next_uid, freeze=scene_cut)
         max_faces = max(max_faces, len(live))
         commit_speak(tracks, fi)
+        if scene_cut:
+            # Video SUMBER berganti sudut kamera: wajah melompat ke tempat lain
+            # seketika. Kalau di frame ini terlihat TEPAT SATU wajah, tidak ada
+            # keraguan siapa yang harus disorot — lepaskan kuncian identitas
+            # supaya kamera langsung ke sana. Terukur pada podcast nyata: tanpa
+            # ini kamera menatap ruang kosong 0,4-0,6 detik setiap potongan
+            # (error 83-91% lebar crop, 5 kejadian dalam 30 detik).
+            #
+            # Kalau wajah yang terlihat lebih dari satu, JANGAN dilepas: pada
+            # panel 3 orang pemilihan ulang jatuh ke wajah yang bukan pembicara
+            # dan kamera terkunci di sana (uji sintetis 100% → 33%).
+            segar = [t for t in live if t["last"] == fi]
+            if len(segar) == 1:
+                state["uid"] = None
+                state["hold"] = 0
+                cuts.add(fi)
+                live = segar
         act, is_cut = pick_active(live, state, fi, SAMPLE_FPS,
                                   all_tracks=tracks)
         if act is None:
