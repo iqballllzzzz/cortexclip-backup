@@ -64,6 +64,15 @@ async def prerender_project(project_id: str) -> None:
                                  "&select=id,start_time,end_time,preview_url"
                                  "&order=start_time.asc")
         perlu = [c for c in (clips or []) if not c.get("preview_url")]
+        # preview_ready dinolkan lebih dulu untuk klip yang url-nya kosong: kalau
+        # tidak, render_preview_clip menganggapnya cache hit dan tidak mengerjakan
+        # apa pun (balik "OK" dalam 0 detik tanpa berkas).
+        for c in perlu:
+            try:
+                await _sb("PATCH", f"clips?id=eq.{c['id']}",
+                          json_body={"preview_ready": False})
+            except Exception as exc:
+                print(f"[prerender] reset flag {c['id'][:8]} gagal: {str(exc)[:80]}")
         print(f"[prerender] proyek {project_id[:8]}: {len(perlu)} klip "
               f"perlu preview (dari {len(clips or [])})")
         ok = 0

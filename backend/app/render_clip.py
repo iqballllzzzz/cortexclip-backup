@@ -559,7 +559,15 @@ async def render_preview_clip(
         json.dumps({"clip": clip_id, "v": 2}, sort_keys=True).encode()
     ).hexdigest()[:10]
 
-    if clip.get("preview_style_hash") == style_hash and clip.get("preview_ready"):
+    # CACHE HIT wajib memeriksa preview_url juga.
+    # Tanpa syarat itu, klip yang preview_url-nya dikosongkan (mis. saat dipaksa
+    # dibuat ulang) tapi preview_ready-nya masih true akan SELALU dianggap sudah
+    # jadi: fungsi ini balik seketika membawa url None, jadi tidak pernah
+    # dirender ulang dan editor tidak punya video. Terukur: 7 klip tersangkut
+    # dengan ready=True tapi url=KOSONG, dan tiap permintaan render balik "OK 0s".
+    if (clip.get("preview_style_hash") == style_hash
+            and clip.get("preview_ready")
+            and clip.get("preview_url")):
         # cache hit — preview video murni sudah ada (subtitle via live overlay)
         return {
             "file": f"{clip_id}.mp4",
