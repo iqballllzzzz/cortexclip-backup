@@ -20,6 +20,7 @@ Kenapa bukan cara lain (sudah diuji, gagal):
 """
 from __future__ import annotations
 
+import threading
 from typing import Any, Optional
 
 import numpy as np
@@ -32,6 +33,11 @@ from .speaker_track import (DISCOVER_EVERY, EMA_DOWN, EMA_UP, LOST_S,
 
 _mesh: Any = None
 _roi_mesh: Any = None
+# FaceMesh juga TIDAK aman-thread: satu objek memelihara state grafik kalkulator
+# MediaPipe, dan memanggil process() dari dua thread sekaligus membuat proses
+# mati SEGV. Preview dijalankan di kolam thread (to_thread.run_sync), jadi tiap
+# thread harus punya instansnya sendiri.
+_tls = threading.local()
 
 
 def _new_mesh(static: bool, max_faces: int):
@@ -43,23 +49,25 @@ def _new_mesh(static: bool, max_faces: int):
 
 
 def get_mesh():
-    """FaceMesh penemuan (frame penuh), dibuat sekali dan dipakai ulang."""
-    global _mesh
-    if _mesh is None:
-        _mesh = _new_mesh(False, MAX_FACES)
-    return _mesh
+    """FaceMesh penemuan (frame penuh), satu per thread."""
+    m = getattr(_tls, "mesh", None)
+    if m is None:
+        m = _new_mesh(False, MAX_FACES)
+        _tls.mesh = m
+    return m
 
 
 def _get_roi_mesh():
-    """FaceMesh untuk ROI: static_image_mode=True.
+    """FaceMesh untuk ROI: static_image_mode=True, satu per thread.
 
     Wajib static: satu instance dipakai bergantian untuk beberapa ROI berbeda
     dalam frame yang sama, jadi state pelacakan antar-frame justru menyesatkan.
     """
-    global _roi_mesh
-    if _roi_mesh is None:
-        _roi_mesh = _new_mesh(True, 1)
-    return _roi_mesh
+    m = getattr(_tls, "roi_mesh", None)
+    if m is None:
+        m = _new_mesh(True, 1)
+        _tls.roi_mesh = m
+    return m
 
 
 def discover_faces(mesh, frame: np.ndarray) -> list[dict[str, Any]]:

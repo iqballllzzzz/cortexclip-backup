@@ -482,6 +482,10 @@ async def run_media_pipeline(project_id: str, user_id: str, src_path: str, targe
             pass
         await jobs_mod.replace_clips(project_id, user_id, clips)
         await jobs_mod.update_project(project_id, status="completed")
+        # Preview semua klip dirender SEKARANG di belakang, supaya editor tidak
+        # perlu menunggu 40-60 detik saat dibuka (lihat prerender.py).
+        from .prerender import jadwalkan
+        jadwalkan(project_id)
     except Exception as exc:
         try:
             from .premium import sb

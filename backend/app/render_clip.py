@@ -39,6 +39,14 @@ def _service_headers() -> dict[str, str]:
 
 
 def _user_headers(token: str) -> dict[str, str]:
+    """Header untuk permintaan atas nama pengguna.
+
+    token kosong => pakai service key. Ini terjadi pada pemanggil INTERNAL
+    (pra-render setelah pipeline): tanpa ini httpx menolak dengan
+    "Illegal header value b'Bearer '" dan preview gagal disimpan.
+    """
+    if not token:
+        return _service_headers()
     return {
         "apikey": os.environ.get("SUPABASE_ANON_KEY", ""),
         "Authorization": f"Bearer {token}",
@@ -75,15 +83,21 @@ async def upload_to_storage(local_path: str, storage_path: str) -> str:
 
 
 async def fetch_project_clip(project_id: str, clip_id: str, token: str) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Load project + clip rows via PostgREST using the user's token."""
+    """Load project + clip rows via PostgREST using the user's token.
+
+    token kosong = pemanggil INTERNAL (pra-render setelah pipeline). Dalam mode
+    itu service key dipakai: tidak ada permintaan pengguna yang membawa token,
+    tapi kepemilikan sudah dipastikan oleh pipeline yang membuat klipnya.
+    """
+    headers = _user_headers(token)
     async with httpx.AsyncClient(timeout=30) as client:
         pr = await client.get(
             f"{SUPABASE_URL}/rest/v1/projects?id=eq.{project_id}&select=*",
-            headers=_user_headers(token),
+            headers=headers,
         )
         cr = await client.get(
             f"{SUPABASE_URL}/rest/v1/clips?id=eq.{clip_id}&select=*",
-            headers=_user_headers(token),
+            headers=headers,
         )
     if pr.status_code != 200 or cr.status_code != 200:
         raise RuntimeError("Gagal memuat project/clip")

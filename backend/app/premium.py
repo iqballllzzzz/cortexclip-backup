@@ -371,6 +371,9 @@ async def run_youtube_pipeline(project_id: str, user_id: str, url: str, target_c
             raise RuntimeError("AI tidak menemukan klip yang layak dari video ini.")
         await jobs_mod.replace_clips(project_id, user_id, clips)
         await jobs_mod.update_project(project_id, status="completed")
+        # pra-render preview semua klip (lihat prerender.py)
+        from .prerender import jadwalkan
+        jadwalkan(project_id)
     except Exception as exc:
         try:
             await jobs_mod.update_project(project_id, status="failed", error_message=str(exc)[:500])

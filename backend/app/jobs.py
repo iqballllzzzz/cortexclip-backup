@@ -132,6 +132,12 @@ async def run_pipeline(
 
             await replace_clips(project_id, user_id, clips)
             job["progress"] = 0.75
+            # pra-render preview semua klip di belakang (lihat prerender.py)
+            try:
+                from .prerender import jadwalkan
+                jadwalkan(project_id)
+            except Exception:
+                pass
 
             # render each clip to output dir
             rendered = []

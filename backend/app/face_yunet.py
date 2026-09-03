@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import math
 import os
+import threading
 from typing import Any, Optional
 
 import numpy as np
@@ -31,6 +32,12 @@ TOP_K = 5000
 
 _det: Any = None
 _det_size: tuple[int, int] = (0, 0)
+# Detektor disimpan PER THREAD. cv2.FaceDetectorYN bukan objek aman-thread:
+# setInputSize() mengubah state internal, dan preview dijalankan lewat
+# to_thread.run_sync (kolam thread anyio) sehingga dua permintaan bersamaan
+# memanggil detect() pada objek yang SAMA dari thread berbeda. Akibatnya proses
+# mati SEGV (terukur: 2x core-dump, nginx balas 502, persen beku di 4%).
+_tls = threading.local()
 
 
 def available() -> bool:
@@ -44,18 +51,19 @@ def available() -> bool:
 
 
 def _get(w: int, h: int):
-    """Detektor YuNet, dibuat sekali dan diubah ukurannya kalau perlu."""
-    global _det, _det_size
+    """Detektor YuNet milik THREAD ini, dibuat sekali lalu diubah ukurannya."""
     import cv2
-    if _det is None:
-        _det = cv2.FaceDetectorYN.create(
+    det = getattr(_tls, "det", None)
+    if det is None:
+        det = cv2.FaceDetectorYN.create(
             os.path.abspath(MODEL_PATH), "", (w, h),
             SCORE_THRESH, NMS_THRESH, TOP_K)
-        _det_size = (w, h)
-    elif _det_size != (w, h):
-        _det.setInputSize((w, h))
-        _det_size = (w, h)
-    return _det
+        _tls.det = det
+        _tls.size = (w, h)
+    elif getattr(_tls, "size", None) != (w, h):
+        det.setInputSize((w, h))
+        _tls.size = (w, h)
+    return det
 
 
 def detect(frame_rgb: np.ndarray, min_face_ratio: float = 0.03,
