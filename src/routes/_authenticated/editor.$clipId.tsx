@@ -126,10 +126,11 @@ function EditorPage() {
   const startNum = Number(clip?.start_time ?? 0);
   const duration = clip ? Math.max(0.1, Number(clip.end_time) - Number(clip.start_time)) : 0.1;
 
-  // Framing hanya diterapkan saat yang diputar adalah video SUMBER (16:9 penuh).
-  // Preview hasil render server SUDAH terpotong, menggesernya lagi = salah dua kali.
+  // Framing CSS hanya untuk video SUMBER (16:9 penuh) — dipakai saat preview
+  // hasil render BELUM ada. Kalau preview sudah ada, videonya sudah 9:16 dan
+  // sudah dibingkai server; menggesernya lagi = salah dua kali.
   useCameraFraming(videoRef, cameraTrack, {
-    enabled: (videoKindRef.current ?? (clip?.preview_url ? "preview" : null)) === "source",
+    enabled: !clip?.preview_url && videoKindRef.current === "source",
     clipStart: startNum,
   });
 
@@ -542,8 +543,19 @@ function EditorPage() {
     );
   }
 
-  const videoSrc = sourceUrl ?? clip.preview_url ?? null;
-  const effectiveKind = videoKindRef.current ?? (clip.preview_url ? "preview" : null);
+  // PREVIEW HASIL RENDER DIUTAMAKAN atas video sumber.
+  // Sebelumnya urutannya `sourceUrl ?? preview_url`, jadi editor selalu memutar
+  // video SUMBER 16:9 dan membingkainya lewat CSS object-position. Itu cuma bisa
+  // menggeser mendatar dan tidak pernah persis: pada klip yang diukur, berkas
+  // preview menempatkan wajah di 46% lebar sementara yang tampil di editor
+  // memperlihatkan kepala di ~90% lebar (nyaris keluar bingkai).
+  // Berkas preview sudah 9:16, sudah pakai face tracking + deroll yang sama
+  // dengan hasil unduhan, jadi memakainya sekaligus menjamin preview == unduhan.
+  // Video sumber hanya dipakai kalau preview belum ada (sedang dibuat).
+  const videoSrc = clip.preview_url ?? sourceUrl ?? null;
+  const effectiveKind = clip.preview_url
+    ? "preview"
+    : (videoKindRef.current ?? null);
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-background text-foreground">
