@@ -17,12 +17,17 @@ from .speaker_track import SAMPLE_FPS, SCENE_CUT_DIFF
 
 def analyze(src: str, start: float, end: float, *, probe_size, run_ffmpeg,
             aspect: float, analysis_width: int = 640,
-            max_seconds: float = 180.0, **_ignored) -> dict[str, Any]:
+            max_seconds: float = 180.0, on_progress=None,
+            **_ignored) -> dict[str, Any]:
     """Trajektori kamera yang selalu terpusat pada wajah pembicara.
 
     Balik {"trajectory", "faces", "switches", "cuts", "analysis_fps"}.
     probe_size & run_ffmpeg disuntikkan dari app.render supaya modul ini bisa
     diuji sendiri tanpa memuat seluruh pipeline render.
+
+    on_progress(pct): 0-100 kemajuan analisis. Tanpa ini UI tampak MACET —
+    terukur: 44 detik menampilkan angka yang sama untuk klip 61 detik, karena
+    seluruh analisis dilaporkan sebagai satu langkah.
     """
     empty = {"trajectory": [], "faces": 0, "switches": 0, "cuts": [],
              "analysis_fps": SAMPLE_FPS}
@@ -72,6 +77,11 @@ def analyze(src: str, start: float, end: float, *, probe_size, run_ffmpeg,
     prev_small = None
 
     for fi in range(n):
+        if on_progress is not None and (fi % 15 == 0 or fi == n - 1):
+            try:
+                on_progress(int(fi / max(1, n - 1) * 100))
+            except Exception:
+                pass
         # potongan adegan: seluruh gambar berganti → landmark melompat dan semua
         # wajah tampak bicara, jadi frame ini tidak dipakai untuk menilai bicara
         small = frames[fi][::16, ::16].mean(axis=2).astype(np.float32)

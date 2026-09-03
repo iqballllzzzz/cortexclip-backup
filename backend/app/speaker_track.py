@@ -83,6 +83,15 @@ LOST_S = 3.0              # track hilang lebih lama dari ini -> dipensiunkan
 RETIRE_S = 8.0            # identitas pensiun masih bisa dipakai ulang
 SCENE_CUT_DIFF = 22.0     # ambang potongan adegan (beda rata-rata piksel)
 
+# ---- STABILIZER kamera (pegas teredam kritis + zona mati) -------------------
+# Kamera bukan mengikuti wajah frame-per-frame, tapi digerakkan seperti massa
+# berpegas: kepala bergerak kecil diserap zona mati, perpindahan besar diikuti
+# dengan percepatan/perlambatan halus tanpa pantulan.
+DEADZONE_FRAC = 0.045     # gerak target < 4.5% lebar crop TIDAK menggerakkan kamera
+SPRING_HZ = 1.25          # kekakuan pegas (Hz); makin besar makin cepat menyusul
+MAX_PAN_PER_S = 0.55      # batas kecepatan kamera: 55% lebar crop per detik
+LOOKAHEAD_S = 0.30        # antisipasi, membatalkan keterlambatan bawaan pegas
+
 
 def face_from_landmarks(lm, w: int, h: int) -> dict[str, float]:
     """Posisi, ukuran, dan bukaan mulut satu wajah dari landmark FaceMesh."""

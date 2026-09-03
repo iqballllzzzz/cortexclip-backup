@@ -556,16 +556,52 @@ async def render_preview_clip(
         # SUMBER: coba HTTP-seek dulu (tanpa unduh file penuh) — ini yang
         # membuat preview klip di menit ke-50 video 1 jam tetap cepat.
         # Kalau gagal (bucket privat / codec butuh index) → unduh lokal.
+        #
+        # FACE TRACKING DI PREVIEW: preview WAJIB memakai framing yang sama
+        # dengan hasil unduhan, kalau tidak user melihat crop tengah di editor
+        # lalu hasilnya berbeda. Analisis dijalankan lebih dulu di sini dan
+        # trajektorinya dipakai oleh kedua jalur.
+        traj = None
+        cam_cuts: list[int] = []
+        cam_fps = 15.0
+
         seek_url = await _source_seek_url(project)
         made = False
         if seek_url:
             try:
-                render_mod.render_preview_fast(
+                lapor(4, "Menganalisis wajah")
+                # WAJIB di thread terpisah: analisis + ffmpeg adalah kerja CPU
+                # sinkron. Kalau dijalankan langsung di task asyncio, seluruh
+                # event loop TERBLOKIR — terukur: POST /api/preview-clip baru
+                # balik setelah 16 detik dan endpoint status tidak bisa dijawab,
+                # jadi UI tidak pernah melihat persen selain 100.
+                st = await to_thread.run_sync(
+                    lambda: render_mod.analyze_speaker_track(
+                        seek_url, abs_start, abs_end,
+                        # analisis = bagian terlama (44s untuk klip 61s), jadi
+                        # persennya harus terlihat bergerak: 4-58%
+                        on_progress=lambda p: lapor(
+                            4 + int(p * 0.54), "Menganalisis wajah")))
+                traj = st.get("trajectory") or None
+                cam_cuts = list(st.get("cuts") or [])
+                cam_fps = float(st.get("analysis_fps") or 15.0)
+                if not traj or len(traj) < 2:
+                    print("[preview] face tracking kosong → crop tengah")
+                    traj = None
+            except Exception as exc:
+                print(f"[preview] face tracking gagal ({str(exc)[:120]}) → crop tengah")
+                traj = None
+            try:
+                await to_thread.run_sync(lambda: render_mod.render_preview_fast(
                     seek_url, abs_start, abs_end, out_path,
-                    on_progress=lambda p: lapor(int(p * 0.9), "Memproses video"))
+                    camera_trajectory=traj, camera_cuts=cam_cuts,
+                    camera_fps=cam_fps,
+                    on_progress=lambda p: lapor(60 + int(p * 0.30),
+                                                "Memproses video")))
                 made = os.path.exists(out_path) and os.path.getsize(out_path) > 8000
                 if made:
-                    print("[preview] jalur HTTP-seek (tanpa unduh penuh)")
+                    print("[preview] jalur HTTP-seek (tanpa unduh penuh)"
+                          f" face_tracking={bool(traj)}")
             except Exception as exc:
                 print(f"[preview] HTTP-seek gagal ({str(exc)[:120]}) → unduh lokal")
 
@@ -574,23 +610,42 @@ async def render_preview_clip(
             src = os.path.join(workdir, "source.mp4")
             src2, rs, re_ = await _ensure_source_segment(
                 project, src, abs_start, abs_end)
-            # FACE TRACKING CEPAT: analisis di-skip untuk preview — crop tengah.
-            # Jalur KILAT dulu (±3-8 detik); kalau gagal → render_clip biasa.
+            # trajektori harus dihitung ulang: potongan lokal punya basis waktu
+            # sendiri (rs/re_), jadi indeks frame trajektori sebelumnya salah
             try:
-                render_mod.render_preview_fast(
+                lapor(8, "Menganalisis wajah")
+                st = await to_thread.run_sync(
+                    lambda: render_mod.analyze_speaker_track(
+                        src2, rs, re_,
+                        on_progress=lambda p: lapor(
+                            8 + int(p * 0.50), "Menganalisis wajah")))
+                traj = st.get("trajectory") or None
+                cam_cuts = list(st.get("cuts") or [])
+                cam_fps = float(st.get("analysis_fps") or 15.0)
+                if not traj or len(traj) < 2:
+                    traj = None
+            except Exception as exc:
+                print(f"[preview] face tracking gagal ({exc}) → crop tengah")
+                traj = None
+            try:
+                await to_thread.run_sync(lambda: render_mod.render_preview_fast(
                     src2, rs, re_, out_path,
-                    on_progress=lambda p: lapor(10 + int(p * 0.8),
-                                                "Memproses video"))
+                    camera_trajectory=traj, camera_cuts=cam_cuts,
+                    camera_fps=cam_fps,
+                    on_progress=lambda p: lapor(15 + int(p * 0.75),
+                                                "Memproses video")))
             except Exception as exc:
                 print(f"[preview] fast path gagal ({exc}) → fallback render_clip")
                 lapor(15, "Memproses video (mode aman)")
-                render_mod.render_clip(
+                await to_thread.run_sync(lambda: render_mod.render_clip(
                     src2, rs, re_, None, out_path,
                     resolution=resolution,
-                    face_tracking=False,
-                    camera_trajectory=None,
+                    face_tracking=bool(traj),
+                    camera_trajectory=traj,
+                    camera_cuts=cam_cuts,
+                    camera_fps=cam_fps,
                     watermark=False,
-                )
+                ))
 
         lapor(92, "Mengunggah preview")
         user_id = clip.get("user_id") or project.get("user_id")

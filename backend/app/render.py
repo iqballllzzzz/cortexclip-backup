@@ -196,7 +196,8 @@ def smooth_camera(
     return new
 
 
-def analyze_speaker_track(src: str, start: float, end: float) -> dict[str, Any]:
+def analyze_speaker_track(src: str, start: float, end: float,
+                          on_progress=None) -> dict[str, Any]:
     """Trajektori kamera yang SELALU terpusat pada wajah orang yang bicara.
 
     Implementasi ada di app/speaker_*.py (dipisah supaya tiap bagian bisa
@@ -212,11 +213,15 @@ def analyze_speaker_track(src: str, start: float, end: float) -> dict[str, Any]:
       - setiap pergantian orang menjadi POTONGAN dan penghalusan dilakukan per
         segmen, sehingga kamera tidak pernah berhenti di ruang kosong antara
         dua wajah;
-      - kalau tidak ada yang bicara, kamera bertahan pada orang terakhir.
+      - kalau tidak ada yang bicara, kamera bertahan pada orang terakhir;
+      - STABILIZER: kamera adalah massa berpegas teredam kritis dengan zona mati,
+        jadi kepala yang bergerak kecil tidak menggoyang bingkai sementara
+        perpindahan besar tetap diikuti halus (lihat speaker_pick.build_trajectory).
     """
     from .speaker_analyze import analyze
     return analyze(src, start, end, probe_size=probe_size,
-                   run_ffmpeg=run_ffmpeg, aspect=ASPECT)
+                   run_ffmpeg=run_ffmpeg, aspect=ASPECT,
+                   on_progress=on_progress)
 
 
 def analyze_face_track(src: str, start: float, end: float) -> list[float]:
@@ -554,12 +559,19 @@ def render_preview_fast(
     width: int = 270,
     height: int = 480,
     on_progress=None,
+    camera_trajectory: Optional[list[float]] = None,
+    camera_cuts: Optional[list[int]] = None,
+    camera_fps: float = 15.0,
 ) -> str:
-    """Preview KILAT: potong + crop tengah 9:16 + transkode ultrafast.
+    """Preview KILAT: potong + reframe 9:16 + transkode ultrafast.
 
-    Tanpa face tracking, tanpa watermark, tanpa subtitle (browser yang
-    menampilkan subtitle live overlay). 270x480 CRF30 audio copy → klip
-    60 detik selesai ±3-6 detik di CPU 4 core.
+    Tanpa watermark, tanpa subtitle (browser yang menampilkan subtitle live
+    overlay). 270x480 CRF30 → klip 60 detik selesai ±3-6 detik di CPU 4 core.
+
+    camera_trajectory: kalau diberikan, dipakai crop dinamis mengikuti wajah
+    pembicara — SAMA seperti hasil unduhan. Tanpa ini preview memakai crop
+    tengah dan framing preview berbeda dari hasil akhir (dulu memang begitu,
+    dan user melihatnya sebagai "face tracking tidak jalan di preview").
 
     on_progress(pct): dipanggil dengan kemajuan NYATA dari ffmpeg (0-100) supaya
     UI bisa menampilkan persen, bukan layar hitam tanpa keterangan.
@@ -568,13 +580,21 @@ def render_preview_fast(
     src_w, src_h = probe_size(src)
     aspect = w / h
     vf_parts: list[str] = []
-    if src_w / src_h > aspect:
+    cmdfile: Optional[str] = None
+    if camera_trajectory and len(camera_trajectory) > 1:
+        cmdfile = build_sendcmd_file(camera_trajectory, src_w, src_h,
+                                    analysis_fps=camera_fps, cuts=camera_cuts)
+        crop_w = min(int(src_h * ASPECT), src_w)
+        vf_parts.append(f"sendcmd=f={cmdfile}")
+        vf_parts.append(f"crop=w={crop_w}:h={src_h}:x=0:y=0")
+    elif src_w / src_h > aspect:
         crop_w = int(src_h * aspect)
         vf_parts.append(f"crop=w={crop_w}:h={src_h}:x=(iw-ow)/2:y=0")
     else:
         crop_h = int(src_w / aspect)
         vf_parts.append(f"crop=w={src_w}:h={crop_h}:x=0:y=(ih-oh)/2")
-    vf_parts.append(f"scale={w}:{h}")
+    vf_parts.append(f"scale={w}:{h}:force_original_aspect_ratio=increase")
+    vf_parts.append(f"crop={w}:{h}")
 
     pre: list[str] = ["ffmpeg", "-y", "-v", "error"]
     # sumber HTTP (video besar di storage): jangan mati karena putus sesaat,

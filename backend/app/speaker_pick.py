@@ -11,10 +11,12 @@ Aturan pemilihan (inilah yang mencegah kamera menyorot ruang kosong):
 """
 from __future__ import annotations
 
+import math
 from typing import Any, Optional
 
-from .speaker_track import (COOLDOWN_S, CUT_MIN_SAMPLES, DOMINANCE,
-                            HOLD_FRAMES, LOST_HOLD_S, SPEAK_ON, STICKY_S)
+from .speaker_track import (COOLDOWN_S, CUT_MIN_SAMPLES, DEADZONE_FRAC,
+                            DOMINANCE, HOLD_FRAMES, LOOKAHEAD_S, LOST_HOLD_S,
+                            MAX_PAN_PER_S, SPEAK_ON, SPRING_HZ, STICKY_S)
 
 
 def pick_active(live: list[dict[str, Any]], state: dict[str, Any], fi: int,
@@ -128,9 +130,37 @@ def pick_active(live: list[dict[str, Any]], state: dict[str, Any], fi: int,
 
 def build_trajectory(targets: list[float], cuts: set[int], src_w: int,
                      crop_w: float, analysis_w: int, fps: float) -> list[float]:
-    """Haluskan target per segmen antar potongan, lalu skala ke piksel sumber."""
+    """Bangun jalur kamera per segmen antar potongan, lalu skala ke piksel sumber.
+
+    STABILIZER (peredam) — bukan sekadar penghalusan
+
+    Kamera dimodelkan sebagai massa berpegas teredam kritis (critically damped)
+    dengan ZONA MATI di sekitar posisinya:
+
+    - Kepala bergerak kecil (mengangguk, menoleh, geser sedikit) → target masih
+      di dalam zona mati → kamera TIDAK BERGERAK SAMA SEKALI. Ini yang membuat
+      bingkai tidak "bernafas" mengikuti derau landmark.
+    - Kepala berpindah lebih jauh dari zona mati → kamera menyusul dengan
+      percepatan dan perlambatan halus, kecepatan dibatasi, tanpa pantulan
+      (teredam kritis, jadi tidak melewati target lalu kembali).
+    - Antisipasi (LOOKAHEAD_S): pegas selalu tertinggal ~2/omega detik di
+      belakang targetnya. Karena trajektori dihitung offline, target yang dipakai
+      diambil sedikit ke depan sehingga keterlambatan itu batal — kamera terasa
+      mengikuti kepala, bukan menyusul dari belakang.
+
+    Penghalusan dua arah (zero_phase) tetap dipakai LEBIH DULU untuk membuang
+    derau landmark, lalu stabilizer bekerja pada target yang sudah bersih.
+    """
     half = crop_w / 2.0
     scale = src_w / analysis_w
+    # zona mati & batas kecepatan dinyatakan relatif LEBAR CROP (dalam satuan
+    # piksel analisis) supaya perilakunya sama di resolusi apa pun
+    crop_a = crop_w / scale
+    deadzone = crop_a * DEADZONE_FRAC
+    max_vel = crop_a * MAX_PAN_PER_S / max(1.0, fps)   # px per frame
+    omega = 2.0 * math.pi * SPRING_HZ
+    dt = 1.0 / max(1.0, fps)
+    look = max(1, int(fps * LOOKAHEAD_S))
 
     def median3(seq: list[float]) -> list[float]:
         if len(seq) < 3:
@@ -139,6 +169,34 @@ def build_trajectory(targets: list[float], cuts: set[int], src_w: int,
         for i in range(1, len(seq) - 1):
             out.append(sorted(seq[i - 1:i + 2])[1])
         out.append(seq[-1])
+        return out
+
+    def stabilize(seq: list[float]) -> list[float]:
+        """Pegas teredam + zona mati + antisipasi. Satu segmen (satu shot)."""
+        n = len(seq)
+        if n == 0:
+            return []
+        # posisi awal = median beberapa frame pertama, bukan frame pertama saja
+        # (frame pertama bisa kebetulan hasil deteksi yang melenceng)
+        cam = sorted(seq[: min(n, 5)])[min(n, 5) // 2]
+        vel = 0.0
+        out: list[float] = []
+        for i in range(n):
+            tgt = seq[min(n - 1, i + look)]
+            err = tgt - cam
+            # hanya KELEBIHAN di luar zona mati yang menarik kamera
+            if abs(err) <= deadzone:
+                sisa = 0.0
+            else:
+                sisa = err - (deadzone if err > 0 else -deadzone)
+            acc = omega * omega * sisa - 2.0 * omega * vel
+            vel += acc * dt
+            if vel > max_vel:
+                vel = max_vel
+            elif vel < -max_vel:
+                vel = -max_vel
+            cam += vel
+            out.append(cam)
         return out
 
     def zero_phase(seq: list[float], k: int) -> list[float]:
@@ -174,5 +232,7 @@ def build_trajectory(targets: list[float], cuts: set[int], src_w: int,
         seg = targets[b0:b1]
         if not seg:
             continue
-        out.extend(zero_phase(median3(seg), win))
+        # 1) buang derau landmark (median + penghalusan dua arah, non-kausal
+        #    sehingga tidak menambah keterlambatan), 2) baru jalankan stabilizer.
+        out.extend(stabilize(zero_phase(median3(seg), win)))
     return [max(half, min(src_w - half, x * scale)) for x in out]
