@@ -96,6 +96,12 @@ def pick_active(live: list[dict[str, Any]], state: dict[str, Any], fi: int,
         # terdeteksi ulang langsung "menang" dan kamera pindah ke orang yang diam.
         and len(cand["ap"]) >= CUT_MIN_SAMPLES
     )
+    # CATATAN: pernah dicoba "jalur kedua" berbasis skor jangka panjang (2.4 s)
+    # supaya kandidat yang mendominasi lama tetap bisa memicu perpindahan meski
+    # perbandingan sesaat belum memenuhi DOMINANCE. Diukur pada uji 3 orang:
+    # akurasi TIDAK berubah (19/24) tapi jumlah perpindahan kamera naik 4 -> 6
+    # dan kamera sempat pindah ke orang yang SALAH (C, bukan B). Dibuang: lebih
+    # banyak teleport tanpa tambahan ketepatan.
     # Catatan: TIDAK ada syarat "yang disorot harus sudah diam" (cur < SPEAK_OFF).
     # Syarat itu terbukti menunda perpindahan 2-4 detik: skor orang yang baru
     # berhenti bicara turun perlahan (EMA_DOWN), jadi selama itu kandidat yang

@@ -29,9 +29,13 @@ QUICK_WIDTH = 480         # lebar analisis (kecil = cepat)
 
 def quick_track(src: str, start: float, end: float, *, probe_size, run_ffmpeg,
                 aspect: float = 9 / 16) -> Optional[dict[str, Any]]:
-    """Satu offset crop terbaik dari beberapa frame contoh. None kalau gagal."""
-    from .speaker_detect import get_mesh
-    from .speaker_track import MIN_FACE_RATIO, face_from_landmarks
+    """Satu offset crop terbaik dari beberapa frame contoh. None kalau gagal.
+
+    Memakai detektor YuNet yang sama dengan jalur penuh: recall-nya 100% vs 85%
+    FaceMesh pada podcast uji, dan tanpa itu offset kilat bisa menunjuk wajah yang
+    salah pada frame-frame yang FaceMesh lewatkan.
+    """
+    from . import face_yunet
 
     try:
         w, h = probe_size(src)
@@ -72,19 +76,11 @@ def quick_track(src: str, start: float, end: float, *, probe_size, run_ffmpeg,
         frames = frames[idx]
         n = len(frames)
 
-    mesh = get_mesh()
     scale = w / aw
     # kumpulkan posisi wajah (piksel sumber) + luasnya
     titik: list[tuple[float, float]] = []
     for fi in range(n):
-        try:
-            res = mesh.process(np.ascontiguousarray(frames[fi]))
-        except Exception:
-            continue
-        for lm in (res.multi_face_landmarks or []):
-            d = face_from_landmarks(lm.landmark, aw, ah)
-            if d["fw"] / aw < MIN_FACE_RATIO:
-                continue
+        for d in face_yunet.detect(frames[fi], min_face_ratio=0.03):
             titik.append((d["cx"] * scale, d["area"]))
 
     if not titik:
@@ -93,26 +89,25 @@ def quick_track(src: str, start: float, end: float, *, probe_size, run_ffmpeg,
                 "crop_w": crop_w, "faces": 0, "quick": True}
 
     xs = np.array([t[0] for t in titik])
-    # KELOMPOKKAN wajah yang berdekatan (orang yang sama sepanjang klip).
-    # Ambang setengah lebar crop: dua orang yang lebih dekat dari itu tetap muat
-    # dalam satu jendela, jadi tidak perlu dipisah.
-    order = np.argsort(xs)
-    xs_sorted = xs[order]
-    lim = crop_w * 0.5
-    groups: list[list[float]] = [[float(xs_sorted[0])]]
-    for v in xs_sorted[1:]:
-        if v - groups[-1][-1] <= lim:
-            groups[-1].append(float(v))
-        else:
-            groups.append([float(v)])
-
-    # kelompok terbanyak = orang yang paling sering terlihat
-    best = max(groups, key=len)
-    static_x = float(np.median(best))
+    # PILIH JENDELA TERPADAT, bukan pengelompokan berantai.
+    # Pengelompokan berantai (v - terakhir <= lim) menyambungkan wajah 775 dan
+    # 1295 lewat deteksi-deteksi di antaranya saat sudut kamera sumber berganti,
+    # lalu mediannya jatuh di 948 — persis tengah frame, yaitu ruang kosong yang
+    # dikeluhkan user. Di sini setiap deteksi dicoba sebagai pusat jendela dan
+    # yang mencakup deteksi TERBANYAK yang menang; mediannya diambil hanya dari
+    # deteksi di dalam jendela itu.
+    lim = crop_w * 0.35
+    terbaik: tuple[int, float] = (-1, float(np.median(xs)))
+    for c in xs:
+        dalam = xs[np.abs(xs - c) <= lim]
+        if len(dalam) > terbaik[0]:
+            terbaik = (len(dalam), float(np.median(dalam)))
+    n_grup = int(np.ceil(len(np.unique(np.round(xs / max(1.0, lim)))) ))
+    static_x = terbaik[1]
     # geser supaya jendela tetap di dalam frame
     half = crop_w / 2.0
     static_x = max(half, min(w - half, static_x))
-    print(f"[quick-track] {len(titik)} wajah, {len(groups)} kelompok "
-          f"(terbanyak {len(best)}) → x={static_x:.0f} dari {w}")
+    print(f"[quick-track] {len(titik)} wajah, jendela terpadat {terbaik[0]} "
+          f"deteksi → x={static_x:.0f} dari {w}")
     return {"static_x": static_x, "src_w": w, "src_h": h, "crop_w": crop_w,
-            "faces": len(groups), "quick": True}
+            "faces": n_grup, "quick": True}

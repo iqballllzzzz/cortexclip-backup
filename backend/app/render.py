@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import json
+import math
 import shutil
 import subprocess
 import tempfile
@@ -218,10 +219,30 @@ def analyze_speaker_track(src: str, start: float, end: float,
         jadi kepala yang bergerak kecil tidak menggoyang bingkai sementara
         perpindahan besar tetap diikuti halus (lihat speaker_pick.build_trajectory).
     """
-    from .speaker_analyze import analyze
-    return analyze(src, start, end, probe_size=probe_size,
-                   run_ffmpeg=run_ffmpeg, aspect=ASPECT,
-                   on_progress=on_progress)
+    from .speaker_analyze import analyze as analyze_mesh
+    # Mesin utama: YuNet + ByteTrack + Kalman (lihat face_pipeline.py). Recall
+    # terukur 100% vs 85% FaceMesh pada podcast uji, dan memberi landmark mata
+    # untuk meluruskan kemiringan. FaceMesh tetap jadi cadangan kalau bobot ONNX
+    # hilang — face tracking tidak boleh mati hanya karena satu berkas model.
+    try:
+        from . import face_yunet
+        if face_yunet.available():
+            from .face_pipeline import analyze as analyze_yunet
+            out = analyze_yunet(src, start, end, probe_size=probe_size,
+                                run_ffmpeg=run_ffmpeg, aspect=ASPECT,
+                                on_progress=on_progress)
+            if out.get("trajectory"):
+                return out
+            print("[face-track] YuNet tidak menghasilkan jalur → coba FaceMesh")
+        else:
+            print("[face-track] bobot YuNet tidak ada → FaceMesh")
+    except Exception as exc:
+        import traceback
+        print(f"[face-track] pipeline YuNet gagal: {exc.__class__.__name__}: {exc}")
+        traceback.print_exc()
+    return analyze_mesh(src, start, end, probe_size=probe_size,
+                        run_ffmpeg=run_ffmpeg, aspect=ASPECT,
+                        on_progress=on_progress)
 
 
 def analyze_face_track(src: str, start: float, end: float) -> list[float]:
@@ -295,7 +316,8 @@ def _analyze_face_track_single(src: str, start: float, end: float) -> list[float
 
 def build_sendcmd_file(trajectory: list[float], src_w: int, src_h: int,
                        out_fps: float = 30.0, analysis_fps: float = 5.0,
-                       cuts: Optional[list[int]] = None) -> str:
+                       cuts: Optional[list[int]] = None,
+                       rolls: Optional[list[float]] = None) -> str:
     """File sendcmd untuk crop dinamis mengikuti trajektori.
 
     Trajektori dihitung pada `analysis_fps` (5 fps). Kalau perintah crop hanya
@@ -305,6 +327,10 @@ def build_sendcmd_file(trajectory: list[float], src_w: int, src_h: int,
 
     cuts = indeks frame analisis tempat pembicara BERGANTI. Di titik itu
     interpolasi TIDAK dilakukan (posisi melompat seketika = teleport).
+
+    rolls = sudut kemiringan wajah (derajat) per frame analisis. Kalau diberikan,
+    perintah `rotate` ikut ditulis supaya kepala yang miring diluruskan (langkah
+    affine). Sudutnya negatif dari roll wajah: memutar balik.
     """
     crop_w = min(int(src_h * ASPECT), src_w)
     cut_set = set(cuts or [])
@@ -312,14 +338,38 @@ def build_sendcmd_file(trajectory: list[float], src_w: int, src_h: int,
     step = max(1.0, out_fps) / max(1.0, analysis_fps)   # frame keluar per titik
     lines: list[str] = []
     last_written: Optional[int] = None
+    last_roll: Optional[float] = None
 
-    def emit(t: float, cx: float, force: bool = False) -> None:
-        nonlocal last_written
+    def emit(t: float, cx: float, force: bool = False,
+             roll: Optional[float] = None) -> None:
+        nonlocal last_written, last_roll
         x = max(0, min(max_x, int(round(cx - crop_w / 2))))
-        if not force and last_written is not None and x == last_written:
-            return                      # hemat: jangan tulis nilai yang sama
-        lines.append(f"{t:.3f} crop x {x};")
-        last_written = x
+        tulis_x = force or last_written is None or x != last_written
+        # rotate ditulis hanya kalau berubah >= 0.15 derajat: menulis tiap frame
+        # membuat berkas sendcmd membengkak tanpa efek yang terlihat
+        tulis_r = (roll is not None
+                   and (last_roll is None or abs(roll - last_roll) >= 0.15))
+        if not tulis_x and not tulis_r:
+            return
+        bagian: list[str] = []
+        if tulis_x:
+            bagian.append(f"crop x {x}")
+            last_written = x
+        if tulis_r and roll is not None:
+            # rotate memakai RADIAN; balik arah untuk meluruskan
+            bagian.append(f"rotate a {-math.radians(roll):.5f}")
+            last_roll = roll
+        # PENTING: beberapa perintah pada SATU waktu dipisah KOMA, bukan
+        # titik-koma. Titik-koma memisahkan interval, jadi
+        # "crop x 875; rotate a 0.1;" dibaca ffmpeg sebagai interval baru yang
+        # dimulai pada waktu bernama "rotate" → "Invalid start time
+        # specification 'rotate' in interval #1".
+        lines.append(f"{t:.3f} " + ", ".join(bagian) + ";")
+
+    def roll_at(i: int) -> Optional[float]:
+        if not rolls:
+            return None
+        return rolls[min(i, len(rolls) - 1)]
 
     n = len(trajectory)
     for i in range(n):
@@ -330,17 +380,21 @@ def build_sendcmd_file(trajectory: list[float], src_w: int, src_h: int,
             # DARI titik sebelumnya (itu yang membuat potongan tajam). Gerakan
             # SETELAH potongan tetap diinterpolasi, kalau tidak kamera menahan
             # posisi ~2 frame tiap kali berganti pembicara.
-            emit(t_i, cx_i, force=True)
+            emit(t_i, cx_i, force=True, roll=roll_at(i))
         else:
-            emit(t_i, cx_i)
+            emit(t_i, cx_i, roll=roll_at(i))
         if i + 1 < n and (i + 1) not in cut_set:
             cx_next = trajectory[i + 1]
+            r_i = roll_at(i)
+            r_next = roll_at(i + 1)
             # sisipkan titik antara supaya pergerakan mulus
             sub = int(step)
             for k in range(1, sub):
                 f = k / step
+                r_mid = (None if r_i is None or r_next is None
+                         else r_i + (r_next - r_i) * f)
                 emit(t_i + (k / max(1.0, out_fps)),
-                     cx_i + (cx_next - cx_i) * f)
+                     cx_i + (cx_next - cx_i) * f, roll=r_mid)
     fd, path = tempfile.mkstemp(suffix=".cmd", prefix="cam_")
     with os.fdopen(fd, "w") as f:
         f.write("\n".join(lines) + "\n")
@@ -362,6 +416,7 @@ def render_clip(
     camera_trajectory: Optional[list[float]] = None,
     camera_cuts: Optional[list[int]] = None,
     camera_fps: float = 15.0,
+    camera_rolls: Optional[list[float]] = None,
     watermark: bool = True,
     icon_ass_path: Optional[str] = None,
     icon_png_overlays: Optional[list[dict[str, Any]]] = None,
@@ -393,10 +448,17 @@ def render_clip(
 
     if face_tracking and camera_trajectory and len(camera_trajectory) > 1:
         cmdfile = build_sendcmd_file(camera_trajectory, src_w, src_h,
-                                     analysis_fps=camera_fps, cuts=camera_cuts)
+                                     analysis_fps=camera_fps, cuts=camera_cuts,
+                                     rolls=camera_rolls)
         crop_w = min(int(src_h * aspect), src_w)
         # dynamic crop with sendcmd-driven x
         vf_parts.append(f"sendcmd=f={cmdfile}")
+        # AFFINE DEROLL: rotate diletakkan SEBELUM crop supaya yang diputar
+        # adalah frame penuh — memutar setelah crop akan memasukkan sudut hitam
+        # ke dalam bingkai. Rotasi memakai piksel dari luar jendela crop, jadi
+        # tidak ada tepi kosong selama sudutnya kecil (dibatasi 12 derajat).
+        if camera_rolls:
+            vf_parts.append("rotate=a=0:c=none:ow=iw:oh=ih:bilinear=1")
         vf_parts.append(f"crop=w={crop_w}:h={src_h}:x=0:y=0")
     else:
         # center crop to target aspect
