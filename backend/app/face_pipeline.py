@@ -17,6 +17,7 @@ YuNet mengukur 100% recall vs 85% FaceMesh pada podcast uji, dengan 9.7 ms/frame
 """
 from __future__ import annotations
 
+import subprocess
 from typing import Any, Optional
 
 import numpy as np
@@ -52,24 +53,84 @@ def analyze(src: str, start: float, end: float, *, probe_size, run_ffmpeg,
 
     ah = max(180, int(analysis_width * h / w / 2) * 2)
     aw = int(ah * w / h / 2) * 2
-    try:
-        raw = run_ffmpeg(["ffmpeg", "-v", "error",
-                          "-ss", f"{start:.3f}", "-t", f"{dur:.3f}", "-i", src,
-                          "-vf", f"scale={aw}:{ah}",
-                          "-r", str(SAMPLE_FPS), "-f", "rawvideo",
-                          "-pix_fmt", "rgb24", "-"], timeout=900).stdout
-    except Exception as exc:
-        print(f"[face-track] decode frame gagal: {str(exc)[:140]}")
-        return empty
-
     fb = aw * ah * 3
-    n = len(raw) // fb
-    if n < 8:
-        print(f"[face-track] frame terlalu sedikit ({n}) → crop tengah")
-        return empty
-    frames = np.frombuffer(raw[: n * fb], dtype=np.uint8).reshape(n, ah, aw, 3)
+    n = max(1, int(dur * SAMPLE_FPS))
 
-    audio = audio_envelope(src, start, dur, SAMPLE_FPS, run_ffmpeg)
+    # DECODE MENGALIR (streaming), bukan sekaligus ke memori.
+    # Sebelumnya seluruh klip didekode dulu lalu ditumpuk jadi satu array:
+    # klip 77 detik = 1155 frame x 640x360x3 = 761 MB untuk array + 761 MB untuk
+    # bytes mentah, RSS puncak terukur 2426 MB. Dua akibatnya:
+    #   (1) 24 detik pertama dari 54 detik total TIDAK melaporkan kemajuan sama
+    #       sekali — inilah "Menganalisis wajah 4%" yang tampak macet;
+    #   (2) beberapa pengguna bersamaan akan menghabiskan RAM 8 GB VPS ini.
+    # Sekarang frame dibaca satu per satu dari pipe: memori tetap ~1 MB dan
+    # persen bergerak sejak frame pertama.
+    # Analisis audio dijalankan PARALEL dengan decode video. Keduanya menarik
+    # data dari URL yang sama lewat jaringan, dan berurutan keduanya memakan
+    # 7,5s + 6,3s = 13,8 detik hening sebelum persen pertama muncul — inilah
+    # "Menganalisis wajah 4%" yang tampak macet. Paralel: tinggal ~7,5 detik.
+    import threading
+    hasil_audio: dict[str, Any] = {}
+
+    def _ambil_audio() -> None:
+        try:
+            hasil_audio["v"] = audio_envelope(src, start, dur, SAMPLE_FPS,
+                                              run_ffmpeg)
+        except Exception as exc:
+            print(f"[face-track] audio gagal: {str(exc)[:100]}")
+            hasil_audio["v"] = None
+
+    th_audio = threading.Thread(target=_ambil_audio, daemon=True)
+    th_audio.start()
+
+    proc = subprocess.Popen(
+        ["nice", "-n", "10", "ffmpeg", "-v", "error",
+         "-ss", f"{start:.3f}", "-t", f"{dur:.3f}", "-i", src,
+         "-vf", f"scale={aw}:{ah}", "-r", str(SAMPLE_FPS),
+         "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    def frame_berikut() -> Optional[np.ndarray]:
+        assert proc.stdout is not None
+        buf = proc.stdout.read(fb)
+        if not buf or len(buf) < fb:
+            return None
+        return np.frombuffer(buf, dtype=np.uint8).reshape(ah, aw, 3)
+
+    # Laporkan 0% SEKARANG: kalau tidak, UI diam sampai frame pertama tiba
+    # (6 detik) dan pengguna melihat persen beku.
+    if on_progress is not None:
+        try:
+            on_progress(0)
+        except Exception:
+            pass
+
+    # Audio TIDAK ditunggu di sini. Menunggunya membuat jeda 12 detik sebelum
+    # laporan kedua karena audio dan video berbagi bandwidth ke URL yang sama.
+    # Gerbang audio hanya menekan skor saat senyap, jadi aman kalau baru aktif
+    # setelah beberapa frame pertama: nilainya dijemput di dalam loop begitu
+    # thread-nya selesai.
+    audio = None
+
+    # DENYUT SELAMA MENUNGGU FRAME PERTAMA.
+    # Frame pertama butuh 6-12 detik (ffmpeg harus seek ke menit ke-20 lewat HTTP
+    # range). Tanpa denyut ini, angka persen membeku selama itu dan pengguna
+    # melihatnya sebagai proses yang macet — keluhan aslinya "4% mulu".
+    # Denyut hanya bergerak 0->4% supaya tidak pernah mendahului kemajuan nyata.
+    frame_pertama = threading.Event()
+
+    def _denyut() -> None:
+        i = 0
+        while not frame_pertama.wait(1.2):
+            i += 1
+            if on_progress is None:
+                continue
+            try:
+                on_progress(min(4, i))
+            except Exception:
+                pass
+
+    threading.Thread(target=_denyut, daemon=True).start()
 
     tracker = ByteTracker()
     state: dict[str, Any] = {"uid": None, "hold": 0, "hold_uid": None,
@@ -82,20 +143,29 @@ def analyze(src: str, start: float, end: float, *, probe_size, run_ffmpeg,
     prev_small = None
     roll_s = 0.0
 
-    for fi in range(n):
-        if on_progress is not None and (fi % 15 == 0 or fi == n - 1):
+    fi = -1
+    while True:
+        frame = frame_berikut()
+        if frame is None:
+            break
+        fi += 1
+        frame_pertama.set()          # matikan denyut: kemajuan nyata sudah jalan
+        # jemput hasil audio begitu thread-nya selesai (tidak memblokir)
+        if audio is None and "v" in hasil_audio:
+            audio = hasil_audio["v"]
+        if on_progress is not None and (fi % 15 == 0):
             try:
-                on_progress(int(fi / max(1, n - 1) * 100))
+                on_progress(min(99, int(fi / max(1, n - 1) * 100)))
             except Exception:
                 pass
 
-        small = frames[fi][::16, ::16].mean(axis=2).astype(np.float32)
+        small = frame[::16, ::16].mean(axis=2).astype(np.float32)
         scene_cut = (prev_small is not None
                      and float(np.abs(small - prev_small).mean()) > SCENE_CUT_DIFF)
         prev_small = small
 
         try:
-            dets = face_yunet.detect(frames[fi], min_face_ratio=0.03)
+            dets = face_yunet.detect(frame, min_face_ratio=0.03)
         except Exception as exc:
             print(f"[face-track] deteksi frame {fi} gagal: {exc}")
             dets = []
@@ -104,7 +174,7 @@ def analyze(src: str, start: float, end: float, *, probe_size, run_ffmpeg,
 
         for t in live:
             if not scene_cut:
-                push_sample(t, fi, t["det"], frame_rgb=frames[fi])
+                push_sample(t, fi, t["det"], frame_rgb=frame)
         commit_speak(tracker.all_tracks(), fi, audio)
 
         if scene_cut:
@@ -154,6 +224,23 @@ def analyze(src: str, start: float, end: float, *, probe_size, run_ffmpeg,
             r = MAX_ROLL_FIX if r > 0 else -MAX_ROLL_FIX
         roll_s = roll_s * (1 - ROLL_EMA) + r * ROLL_EMA
         rolls.append(roll_s)
+
+    # tutup pipe & tunggu ffmpeg supaya tidak ada proses menggantung
+    frame_pertama.set()
+    try:
+        if proc.stdout is not None:
+            proc.stdout.close()
+        proc.wait(timeout=10)
+    except Exception:
+        proc.kill()
+    if fi < 7:
+        print(f"[face-track] frame terlalu sedikit ({fi + 1}) → crop tengah")
+        return empty
+    if on_progress is not None:
+        try:
+            on_progress(100)
+        except Exception:
+            pass
 
     crop_w = min(int(h * aspect), w)
     traj = build_trajectory(targets, cuts, w, crop_w, aw, SAMPLE_FPS)

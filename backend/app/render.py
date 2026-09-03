@@ -624,6 +624,7 @@ def render_preview_fast(
     camera_trajectory: Optional[list[float]] = None,
     camera_cuts: Optional[list[int]] = None,
     camera_fps: float = 15.0,
+    camera_rolls: Optional[list[float]] = None,
 ) -> str:
     """Preview KILAT: potong + reframe 9:16 + transkode ultrafast.
 
@@ -645,9 +646,14 @@ def render_preview_fast(
     cmdfile: Optional[str] = None
     if camera_trajectory and len(camera_trajectory) > 1:
         cmdfile = build_sendcmd_file(camera_trajectory, src_w, src_h,
-                                    analysis_fps=camera_fps, cuts=camera_cuts)
+                                    analysis_fps=camera_fps, cuts=camera_cuts,
+                                    rolls=camera_rolls)
         crop_w = min(int(src_h * ASPECT), src_w)
         vf_parts.append(f"sendcmd=f={cmdfile}")
+        # deroll juga di preview: kalau hanya hasil unduhan yang diluruskan,
+        # framing preview dan hasil akhir berbeda (user menilainya "masih miring")
+        if camera_rolls:
+            vf_parts.append("rotate=a=0:c=none:ow=iw:oh=ih:bilinear=1")
         vf_parts.append(f"crop=w={crop_w}:h={src_h}:x=0:y=0")
     elif src_w / src_h > aspect:
         crop_w = int(src_h * aspect)

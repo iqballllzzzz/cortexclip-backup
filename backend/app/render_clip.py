@@ -573,33 +573,40 @@ async def render_preview_clip(
         made = False
         if seek_url:
             try:
-                lapor(4, "Menganalisis wajah")
+                lapor(4, "Mengambil video")
                 # WAJIB di thread terpisah: analisis + ffmpeg adalah kerja CPU
                 # sinkron. Kalau dijalankan langsung di task asyncio, seluruh
                 # event loop TERBLOKIR — terukur: POST /api/preview-clip baru
                 # balik setelah 16 detik dan endpoint status tidak bisa dijawab,
-                # jadi UI tidak pernah melihat persen selain 100.
+                # jadi persen tidak pernah terlihat.
                 st = await to_thread.run_sync(
                     lambda: render_mod.analyze_speaker_track(
                         seek_url, abs_start, abs_end,
                         # analisis = bagian terlama (44s untuk klip 61s), jadi
-                        # persennya harus terlihat bergerak: 4-58%
+                        # persennya harus terlihat bergerak: 4-58%.
+                        # Tahapnya dibedakan: selama p==0 video masih DIUNDUH
+                        # dari storage (frame pertama butuh 6-12 detik untuk
+                        # klip di menit ke-20), dan menyebutnya "Menganalisis
+                        # wajah" membuat pengguna melihat 4% yang seolah macet.
                         on_progress=lambda p: lapor(
-                            4 + int(p * 0.54), "Menganalisis wajah")))
+                            4 + int(p * 0.54),
+                            "Mengambil video" if p <= 0 else "Menganalisis wajah")))
                 traj = st.get("trajectory") or None
                 cam_cuts = list(st.get("cuts") or [])
                 cam_fps = float(st.get("analysis_fps") or 15.0)
+                cam_rolls = list(st.get("roll") or [])
                 if not traj or len(traj) < 2:
                     print("[preview] face tracking kosong → crop tengah")
                     traj = None
             except Exception as exc:
                 print(f"[preview] face tracking gagal ({str(exc)[:120]}) → crop tengah")
                 traj = None
+                cam_rolls = []
             try:
                 await to_thread.run_sync(lambda: render_mod.render_preview_fast(
                     seek_url, abs_start, abs_end, out_path,
                     camera_trajectory=traj, camera_cuts=cam_cuts,
-                    camera_fps=cam_fps,
+                    camera_fps=cam_fps, camera_rolls=cam_rolls or None,
                     on_progress=lambda p: lapor(60 + int(p * 0.30),
                                                 "Memproses video")))
                 made = os.path.exists(out_path) and os.path.getsize(out_path) > 8000
