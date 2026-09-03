@@ -23,6 +23,7 @@ import { ColoredIcon } from "@/components/colored-icon";
 import { BrollPip } from "@/components/broll-pip";
 import { PreviewLoading } from "@/components/preview-loading";
 import { AdFullscreen } from "@/components/ad-fullscreen";
+import { useCameraFraming, useCameraTrack } from "@/lib/camera-framing";
 import { LiveCaptionOverlay, type LiveCaptionStyle, type LiveWord } from "@/components/live-caption-overlay";
 import { startRenderJob, getAccessToken } from "@/lib/backend-api";
 import { Button } from "@/components/ui/button";
@@ -115,10 +116,22 @@ function EditorPage() {
   const [prevPct, setPrevPct] = useState(0);
   const [prevStage, setPrevStage] = useState<string>("");
 
+  // JALUR KAMERA face tracking. Dipakai untuk membingkai video SUMBER langsung
+  // di browser (object-position), jadi preview tidak lagi memotong bagian TENGAH
+  // frame — yang pada podcast dua orang justru ruang kosong di antara mereka.
+  const cameraTrack = useCameraTrack(clipId, getAccessToken);
+
   const clipRef = useRef<Clip | null>(null);
   clipRef.current = clip;
   const startNum = Number(clip?.start_time ?? 0);
   const duration = clip ? Math.max(0.1, Number(clip.end_time) - Number(clip.start_time)) : 0.1;
+
+  // Framing hanya diterapkan saat yang diputar adalah video SUMBER (16:9 penuh).
+  // Preview hasil render server SUDAH terpotong, menggesernya lagi = salah dua kali.
+  useCameraFraming(videoRef, cameraTrack, {
+    enabled: (videoKindRef.current ?? (clip?.preview_url ? "preview" : null)) === "source",
+    clipStart: startNum,
+  });
 
   /* --- memori editor per-klip --- */
   const memKey = `cc_editor_mem_${clipId}`;

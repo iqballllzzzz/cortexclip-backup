@@ -200,6 +200,13 @@ def track_frame(frame: np.ndarray, mesh, tracks: list[dict[str, Any]],
                 # wajah ini sudah punya identitas; kalau ROI-nya gagal tadi,
                 # pakai hasil penemuan ini supaya riwayat tidak bolong
                 t = tracks[ti]
+                # DIKONFIRMASI oleh deteksi frame penuh. Penting: ROI kadang
+                # "menemukan" wajah di tekstur latar (mikrofon, rak) dan track
+                # palsu itu ikut terhitung hidup, sehingga aturan "kalau hanya
+                # satu wajah terlihat, pindah ke sana" tidak pernah aktif dan
+                # kamera menatap ruang kosong. Terukur pada podcast nyata: 3
+                # detik dengan error 83-88% lebar crop.
+                t["seen_full"] = fi
                 if t["last"] != fi:
                     t.update({"cx": d["cx"], "cy": d["cy"], "fw": d["fw"],
                               "fh": d["fh"], "area": d["area"], "last": fi})
@@ -222,11 +229,12 @@ def track_frame(frame: np.ndarray, mesh, tracks: list[dict[str, Any]],
             if reuse is not None:
                 retired.remove(reuse)
                 reuse.update(base)
+                reuse["seen_full"] = fi
                 reuse["ap"].append((fi, d["aperture"]))
                 tracks.append(reuse)
                 matched.append(reuse)
             else:
-                nt = {"uid": next_uid[0], "speak": 0.0,
+                nt = {"uid": next_uid[0], "speak": 0.0, "seen_full": fi,
                       "ap": [(fi, d["aperture"])], **base}
                 tracks.append(nt)
                 matched.append(nt)

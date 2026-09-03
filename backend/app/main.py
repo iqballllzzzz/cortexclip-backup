@@ -396,6 +396,30 @@ async def api_preview_clip(body: RenderClipIn, request: Request, authorization: 
     return {"status": "processing", "url": None}
 
 
+@app.get("/api/camera-track/{clip_id}")
+async def api_camera_track(clip_id: str, request: Request,
+                           authorization: str | None = Header(None)):
+    """Jalur kamera face tracking untuk klip ini.
+
+    Dipakai editor supaya bingkai video SUMBER langsung benar tanpa menunggu
+    render server: browser menggeser crop-nya sendiri lewat CSS transform.
+    Balik {static_x, src_w, src_h, crop_w} (mode kilat) atau ditambah
+    {fps, x[], cuts[]} kalau analisis penuh sudah tersedia.
+    """
+    await get_user(request, authorization)
+    ensure_uuid(clip_id, "Klip")
+    from . import render as render_mod
+    from .camera_track_api import get_or_build
+    from .render_clip import _source_seek_url
+    try:
+        return await get_or_build(
+            clip_id, supabase_url=SUPABASE_URL, service_key=SUPABASE_SERVICE_KEY,
+            source_url_for=_source_seek_url, render_mod=render_mod)
+    except Exception as exc:
+        print(f"[camera-track] gagal: {exc}")
+        raise HTTPException(400, str(exc)[:200])
+
+
 @app.get("/api/preview-clip/status/{clip_id}")
 async def api_preview_status(clip_id: str, request: Request,
                              authorization: str | None = Header(None)):
