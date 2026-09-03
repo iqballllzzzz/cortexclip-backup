@@ -1,12 +1,17 @@
 /**
- * Panel "Premium GRATIS dengan menonton iklan".
+ * Panel "Premium GRATIS dengan menonton iklan" — satu klik langsung tayang.
  *
- * Aturan (ditegakkan di server, lihat backend/app/ad_premium.py):
+ * Alur: pencet paket → popup iklan full-screen muncul SEKETIKA → setelah iklan
+ * selesai, otomatis lanjut ke iklan berikutnya sampai target terpenuhi → premium
+ * langsung aktif tanpa tombol tambahan. User bisa berhenti kapan saja (tombol X);
+ * progres paket bulanan tersimpan dan bisa dilanjut nanti.
+ *
+ * Aturan ditegakkan di server (backend/app/ad_premium.py):
  *   1 hari  = 8 iklan    — sekali jalan, tidak bisa dicicil
  *   7 hari  = 45 iklan   — sekali jalan, tidak bisa dicicil
  *   30 hari = 340 iklan  — BOLEH dicicil, progres tersimpan
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Gift, Loader2, PlayCircle } from "lucide-react";
 import { toast } from "sonner";
 
@@ -49,12 +54,17 @@ export function AdPremiumPanel({ onUpgraded }: { onUpgraded?: () => void }) {
   const [busy, setBusy] = useState(false);
   const [showAd, setShowAd] = useState(false);
   const [plan, setPlan] = useState<string | null>(null);
+  // kredit yang dipakai untuk label "Iklan n/N" di popup — dipegang di ref
+  // supaya popup berikutnya memakai angka terbaru tanpa menunggu render
+  const kreditRef = useRef(0);
 
   const muat = useCallback(async () => {
     try {
-      setSt(await apiAds("/api/ads/premium"));
+      const d = (await apiAds("/api/ads/premium")) as AdStatus;
+      setSt(d);
+      return d;
     } catch {
-      /* tidak login / offline */
+      return null;
     }
   }, []);
 
@@ -62,12 +72,40 @@ export function AdPremiumPanel({ onUpgraded }: { onUpgraded?: () => void }) {
     void muat();
   }, [muat]);
 
-  const aktif = st?.plans.find((p) => p.key === (plan ?? st?.target));
-  const kredit = st?.target === (plan ?? st?.target) ? (st?.credits ?? 0) : 0;
-  const butuh = aktif?.ads ?? 0;
-  const siap = butuh > 0 && kredit >= butuh;
+  const paket = st?.plans.find((p) => p.key === plan) ?? null;
+  const kredit = st && st.target === plan ? st.credits : 0;
 
-  async function tontonSelesai() {
+  /** Pencet paket → langsung tayangkan iklan (atau tukar kalau kredit cukup). */
+  async function mulai(p: AdPlan) {
+    const sudah = st?.target === p.key ? (st?.credits ?? 0) : 0;
+    setPlan(p.key);
+    kreditRef.current = sudah;
+    if (sudah >= p.ads) {
+      await tukar(p.key);
+      return;
+    }
+    setShowAd(true);
+  }
+
+  async function tukar(key: string) {
+    setBusy(true);
+    try {
+      const d = await apiAds("/api/ads/premium/redeem", {
+        method: "POST",
+        body: JSON.stringify({ plan: key }),
+      });
+      toast.success(`Premium ${d.label} aktif! Watermark hilang 🎉`);
+      onUpgraded?.();
+      await muat();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Gagal menukar");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Satu iklan selesai → catat, lalu lanjut otomatis sampai target terpenuhi. */
+  async function selesaiSatuIklan() {
     setShowAd(false);
     if (!plan) return;
     setBusy(true);
@@ -76,32 +114,21 @@ export function AdPremiumPanel({ onUpgraded }: { onUpgraded?: () => void }) {
         method: "POST",
         body: JSON.stringify({ plan }),
       });
+      await muat();
       if (d.ok === false) {
         toast.error(`Tunggu ${d.tunggu_detik ?? 8}s sebelum iklan berikutnya`);
-      } else {
-        toast.success(`Iklan ${d.credits}/${d.needed} tercatat`);
+        return;
       }
-      await muat();
+      kreditRef.current = d.credits;
+      if (d.ready) {
+        await tukar(plan);           // target terpenuhi → premium aktif
+        return;
+      }
+      toast.success(`Iklan ${d.credits}/${d.needed} — lanjut…`);
+      // jeda kecil supaya tidak menabrak batas anti-spam server
+      setTimeout(() => setShowAd(true), 900);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Gagal mencatat iklan");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function tukar() {
-    if (!plan) return;
-    setBusy(true);
-    try {
-      const d = await apiAds("/api/ads/premium/redeem", {
-        method: "POST",
-        body: JSON.stringify({ plan }),
-      });
-      toast.success(`Premium ${d.label} aktif! Watermark hilang 🎉`);
-      onUpgraded?.();
-      await muat();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gagal menukar");
     } finally {
       setBusy(false);
     }
@@ -116,75 +143,61 @@ export function AdPremiumPanel({ onUpgraded }: { onUpgraded?: () => void }) {
         Premium bisa didapatkan secara GRATIS melalui menonton iklan!
       </p>
       <p className="mt-1 text-xs text-muted-foreground">
-        Pilih paket, tonton iklannya, premium langsung aktif — tanpa bayar.
-        Premium juga menghilangkan watermark.
+        Pencet salah satu paket di bawah — iklannya langsung tayang. Setelah
+        target terpenuhi, premium aktif otomatis dan watermark hilang.
       </p>
 
       <div className="mt-3 space-y-2">
         {st.plans.map((p) => {
-          const dipilih = (plan ?? st.target) === p.key;
           const progres = st.target === p.key ? st.credits : 0;
+          const jalan = busy && plan === p.key;
           return (
             <button
               key={p.key}
               type="button"
-              onClick={() => setPlan(p.key)}
-              className={`flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left transition-colors ${
-                dipilih ? "border-accent bg-accent/10" : "border-border hover:border-accent/60"
-              }`}
+              disabled={busy}
+              onClick={() => void mulai(p)}
+              className="flex w-full items-center justify-between gap-3 rounded-xl border border-border px-3 py-2.5 text-left transition-colors hover:border-accent hover:bg-accent/10 disabled:opacity-60"
             >
-              <span>
+              <span className="min-w-0">
                 <span className="block text-sm font-semibold">
-                  {p.label} premium
+                  {p.label} premium — gratis
                 </span>
                 <span className="text-[11px] text-muted-foreground">
                   {p.ads} iklan
                   {p.installment ? " · bisa dicicil" : " · harus sekali jalan"}
                 </span>
               </span>
-              <span className="text-xs font-bold tabular-nums text-accent">
-                {progres}/{p.ads}
+              <span className="flex shrink-0 items-center gap-2">
+                {progres > 0 ? (
+                  <span className="text-xs font-bold tabular-nums text-accent">
+                    {progres}/{p.ads}
+                  </span>
+                ) : null}
+                {jalan ? (
+                  <Loader2 className="size-4 animate-spin text-accent" />
+                ) : (
+                  <PlayCircle className="size-4 text-accent" />
+                )}
               </span>
             </button>
           );
         })}
       </div>
 
-      {aktif ? (
-        <div className="mt-3">
-          <div className="h-1.5 overflow-hidden rounded-full bg-border">
-            <div
-              className="h-full rounded-full bg-accent transition-[width]"
-              style={{ width: `${Math.min(100, (kredit / butuh) * 100)}%` }}
-            />
-          </div>
-          <p className="mt-1.5 text-[11px] text-muted-foreground">
-            {siap
-              ? "Kredit cukup — tukar sekarang!"
-              : `Sisa ${butuh - kredit} iklan lagi${aktif.installment ? " (boleh dilanjut nanti)" : " tanpa jeda lama"}`}
-          </p>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => (siap ? void tukar() : setShowAd(true))}
-            className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-bold text-accent-foreground disabled:opacity-60"
-          >
-            {busy ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <PlayCircle className="size-4" />
-            )}
-            {siap ? "Tukar jadi premium" : "Tonton iklan"}
-          </button>
-        </div>
+      {st.target && st.credits > 0 ? (
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          Progres tersimpan: {st.credits} iklan untuk paket{" "}
+          {st.plans.find((p) => p.key === st.target)?.label ?? st.target}.
+        </p>
       ) : null}
 
-      {showAd && plan ? (
+      {showAd && paket ? (
         <AdFullscreen
           client={st.adsense_client}
-          index={kredit + 1}
-          total={butuh}
-          onDone={() => void tontonSelesai()}
+          index={Math.min(paket.ads, kreditRef.current + 1)}
+          total={paket.ads}
+          onDone={() => void selesaiSatuIklan()}
           onCancel={() => setShowAd(false)}
         />
       ) : null}
