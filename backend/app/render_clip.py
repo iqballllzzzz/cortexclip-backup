@@ -341,6 +341,7 @@ async def render_clip_server(
         cam_cuts: list[int] = []
         cam_fps = 15.0
         cam_rolls: list[float] = []
+        lay_frames: list[dict[str, Any]] = []
         if face_tracking:
             try:
                 st = render_mod.analyze_speaker_track(src, start, end)
@@ -348,6 +349,7 @@ async def render_clip_server(
                 cam_cuts = list(st.get("cuts") or [])
                 cam_fps = float(st.get("analysis_fps") or 15.0)
                 cam_rolls = list(st.get("roll") or [])
+                lay_frames = list(st.get("layout_frames") or [])
                 print(f"[render] speaker track: mesin={st.get('engine', 'mesh')} "
                       f"wajah={st.get('faces')} "
                       f"pindah={st.get('switches')} cuts={len(cam_cuts)} "
@@ -371,6 +373,19 @@ async def render_clip_server(
         user_id = clip.get("user_id") or project.get("user_id")
         watermark_on = await _watermark_aktif_untuk(str(user_id))
 
+        # AUTO LAYOUT (opsional, sesuai pilihan pengguna di editor)
+        lay_seg: list[dict[str, Any]] = []
+        try:
+            from . import layout_plan
+            lay_seg = layout_plan.segmen_untuk(
+                {"layout_frames": lay_frames, "analysis_fps": cam_fps},
+                clip.get("layout_prefs"))
+            if lay_seg:
+                print(f"[render] auto layout: {layout_plan.ringkas_teks(lay_seg)}")
+        except Exception as exc:
+            print(f"[render] auto layout gagal ({str(exc)[:150]}) → fill")
+            lay_seg = []
+
         render_mod.render_clip(
             src, start, end, ass_path, out_path,
             resolution=resolution,
@@ -378,6 +393,7 @@ async def render_clip_server(
             camera_trajectory=traj,
             camera_cuts=cam_cuts,
             camera_fps=cam_fps,
+            layout_segments=lay_seg or None,
             camera_rolls=cam_rolls or None,
             watermark=watermark_on,
             icon_ass_path=icon_ass_path,
@@ -532,6 +548,23 @@ async def _ensure_source_local(project: dict[str, Any], dest: str) -> str:
     return dest
 
 
+def _lay_seg_dari(st: dict[str, Any], clip: dict[str, Any]) -> list[dict[str, Any]]:
+    """Rencana auto layout dari hasil analisis + pilihan pengguna. Aman gagal.
+
+    Dipakai preview MAUPUN unduhan lewat satu jalur supaya keduanya tidak pernah
+    menghasilkan layout berbeda.
+    """
+    try:
+        from . import layout_plan
+        seg = layout_plan.segmen_untuk(st, clip.get("layout_prefs"))
+        if seg:
+            print(f"[layout] {layout_plan.ringkas_teks(seg)}")
+        return seg
+    except Exception as exc:
+        print(f"[layout] gagal merencanakan ({str(exc)[:150]}) → fill")
+        return []
+
+
 async def render_preview_clip(
     project_id: str,
     clip_id: str,
@@ -602,6 +635,8 @@ async def render_preview_clip(
         traj = None
         cam_cuts: list[int] = []
         cam_fps = 15.0
+        cam_rolls: list[float] = []
+        lay_seg: list[dict[str, Any]] = []
 
         seek_url = await _source_seek_url(project)
         made = False
@@ -629,6 +664,7 @@ async def render_preview_clip(
                 cam_cuts = list(st.get("cuts") or [])
                 cam_fps = float(st.get("analysis_fps") or 15.0)
                 cam_rolls = list(st.get("roll") or [])
+                lay_seg = _lay_seg_dari(st, clip)
                 if not traj or len(traj) < 2:
                     print("[preview] face tracking kosong → crop tengah")
                     traj = None
@@ -641,6 +677,7 @@ async def render_preview_clip(
                     seek_url, abs_start, abs_end, out_path,
                     camera_trajectory=traj, camera_cuts=cam_cuts,
                     camera_fps=cam_fps, camera_rolls=cam_rolls or None,
+                    layout_segments=lay_seg or None,
                     on_progress=lambda p: lapor(60 + int(p * 0.30),
                                                 "Memproses video")))
                 made = os.path.exists(out_path) and os.path.getsize(out_path) > 8000
@@ -667,6 +704,8 @@ async def render_preview_clip(
                 traj = st.get("trajectory") or None
                 cam_cuts = list(st.get("cuts") or [])
                 cam_fps = float(st.get("analysis_fps") or 15.0)
+                cam_rolls = list(st.get("roll") or [])
+                lay_seg = _lay_seg_dari(st, clip)
                 if not traj or len(traj) < 2:
                     traj = None
             except Exception as exc:
@@ -676,7 +715,8 @@ async def render_preview_clip(
                 await to_thread.run_sync(lambda: render_mod.render_preview_fast(
                     src2, rs, re_, out_path,
                     camera_trajectory=traj, camera_cuts=cam_cuts,
-                    camera_fps=cam_fps,
+                    camera_fps=cam_fps, camera_rolls=cam_rolls or None,
+                    layout_segments=lay_seg or None,
                     on_progress=lambda p: lapor(15 + int(p * 0.75),
                                                 "Memproses video")))
             except Exception as exc:

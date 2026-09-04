@@ -94,6 +94,14 @@ SCENE_CUT_DIFF = 22.0     # ambang potongan adegan (beda rata-rata piksel)
 # "goyang-goyang" pada podcast orang duduk.
 STILL_SPAN_FRAC = 0.16    # sebaran target < 16% lebar crop → kamera DIKUNCI
 SMOOTH_TIME_S = 0.55      # perkiraan waktu kamera mencapai target (SmoothDamp)
+# KAPAN kamera BOLEH bergerak di dalam satu shot. User: "geleng-geleng, goyang-
+# goyang, nunjukin — itu JANGAN di-stabilizer; kalau jalan-jalan, loncat-loncat,
+# baru diarahkan." Jadi kamera diam PERSIS sampai target benar-benar pindah
+# tempat: jauh (BIG_MOVE_FRAC) DAN bertahan lama (DWELL_S). Setelah sampai
+# (SETTLE_FRAC) kamera mengunci lagi.
+BIG_MOVE_FRAC = 0.20      # target harus menjauh > 20% lebar crop
+DWELL_S = 0.60            # dan bertahan 0.6 detik (geleng biasanya < 0.4 s)
+SETTLE_FRAC = 0.05        # selisih <= 5% lebar crop → kunci ulang
 # Pemutus seri sinkron audio (dipakai HANYA saat dua skor mulut berdekatan)
 AV_TIE_RATIO = 0.70       # kandidat >= 70% skor yang disorot = dianggap "dekat"
 AV_TIE_MARGIN = 0.20      # dan sinkron audionya harus lebih baik >= 0.20

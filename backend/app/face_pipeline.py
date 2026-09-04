@@ -39,7 +39,8 @@ def analyze(src: str, start: float, end: float, *, probe_size, run_ffmpeg,
             **_ignored) -> dict[str, Any]:
     """Jalur kamera + kemiringan. Balik dict siap dipakai render."""
     empty = {"trajectory": [], "faces": 0, "switches": 0, "cuts": [],
-             "analysis_fps": SAMPLE_FPS, "roll": [], "engine": "yunet"}
+             "analysis_fps": SAMPLE_FPS, "roll": [], "engine": "yunet",
+             "layout_frames": []}
     try:
         w, h = probe_size(src)
     except Exception as exc:
@@ -137,6 +138,7 @@ def analyze(src: str, start: float, end: float, *, probe_size, run_ffmpeg,
                              "last_cut": -10 ** 6}
     targets: list[float] = []
     rolls: list[float] = []
+    layout_frames: list[dict[str, Any]] = []
     cuts: set[int] = set()
     max_faces = 0
     switches = 0
@@ -190,6 +192,7 @@ def analyze(src: str, start: float, end: float, *, probe_size, run_ffmpeg,
         if act is None:
             targets.append(targets[-1] if targets else aw / 2)
             rolls.append(roll_s)
+            layout_frames.append({"faces": []})
             continue
 
         # ANTI RUANG KOSONG (jaring pengaman terakhir).
@@ -217,6 +220,38 @@ def analyze(src: str, start: float, end: float, *, probe_size, run_ffmpeg,
             cuts.add(fi)
             switches += 1
         targets.append(act["cx"])
+
+        # REKAM SEMUA WAJAH per frame untuk perencana AUTO LAYOUT.
+        # Auto layout perlu tahu berapa orang yang tampak BERSAMA dan siapa yang
+        # aktif — keputusan itu tidak bisa diambil dari `targets` (satu angka per
+        # frame). Disimpan sebagai fraksi (0..1) supaya tidak bergantung resolusi
+        # analisis, dan hanya wajah yang benar-benar terdeteksi frame ini.
+        faces_frame: list[dict[str, float]] = []
+        for t in live:
+            if t.get("last") != fi:
+                continue
+            d = t.get("det") or {}
+            faces_frame.append({
+                "cx": round(float(t["cx"]) / max(1, aw), 4),
+                "cy": round(float(t.get("cy") or ah / 2) / max(1, ah), 4),
+                # kunci lebar wajah di YuNet adalah "fw" (bukan "w"). Salah nama
+                # kunci membuat w_frac = 0 untuk SEMUA wajah, sehingga syarat
+                # MIN_FACE_FRAC menolak seluruhnya dan auto layout tidak pernah
+                # menemukan rentang multi-wajah (terukur: 0 rentang dari 163
+                # frame yang jelas memuat dua orang).
+                "w_frac": round(float(d.get("fw") or d.get("w") or 0)
+                                / max(1, aw), 4),
+                # SKOR MENTAH, bukan boolean. Ambang "aktif" untuk auto layout
+                # BEDA dari ambang "sedang bicara" untuk memilih kamera: layout
+                # split juga pantas muncul saat orang kedua tertawa atau bilang
+                # "oh" — mulutnya bergerak tapi skornya di bawah SPEAK_ON.
+                # Terukur pada podcast nyata: dengan ambang SPEAK_ON, frame yang
+                # punya >=2 orang aktif = 0% dari 452 frame, jadi split tidak
+                # pernah bisa muncul sama sekali. Ambangnya diputuskan di
+                # auto_layout, bukan di sini.
+                "speak": round(float(t.get("speak") or 0.0), 5),
+            })
+        layout_frames.append({"faces": faces_frame})
 
         # AFFINE DEROLL: sudut dari garis mata, dihaluskan dan dibatasi.
         r = float(act.get("roll") or 0.0)
@@ -246,4 +281,5 @@ def analyze(src: str, start: float, end: float, *, probe_size, run_ffmpeg,
     traj = build_trajectory(targets, cuts, w, crop_w, aw, SAMPLE_FPS)
     return {"trajectory": traj, "faces": max_faces, "switches": switches,
             "cuts": sorted(cuts), "analysis_fps": SAMPLE_FPS,
-            "roll": [round(v, 3) for v in rolls], "engine": "yunet"}
+            "roll": [round(v, 3) for v in rolls], "engine": "yunet",
+            "layout_frames": layout_frames}

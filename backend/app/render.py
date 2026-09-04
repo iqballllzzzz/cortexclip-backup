@@ -421,6 +421,7 @@ def render_clip(
     icon_ass_path: Optional[str] = None,
     icon_png_overlays: Optional[list[dict[str, Any]]] = None,
     broll_video_overlays: Optional[list[dict[str, Any]]] = None,
+    layout_segments: Optional[list[dict[str, Any]]] = None,
 ) -> str:
     """Cut + reframe + burn subtitles (+ ikon overlay) -> vertical MP4.
 
@@ -428,6 +429,9 @@ def render_clip(
     watermark: bakar watermark CortexClipAI (default ON — dihapus hanya
     setelah user menonton 4 iklan, via flag dari render_clip.py).
     icon_ass_path: ASS overlay ikon/b-roll (layer terpisah dari subtitle).
+    layout_segments: rencana AUTO LAYOUT dari auto_layout.rencana_layout().
+        Segmen `fill` tidak menghasilkan filter apa pun (lapisan dasar sudah
+        fill); segmen lain ditumpuk sebagai komposit dengan `enable=between(t..)`.
     """
     w, h = map(int, resolution.split("x"))
     aspect = w / h
@@ -473,6 +477,11 @@ def render_clip(
     vf_parts.append(f"scale={w}:{h}:force_original_aspect_ratio=increase")
     vf_parts.append(f"crop={w}:{h}")
 
+    # BATAS: sampai sini vf_parts adalah GEOMETRI (reframe 9:16). Filter setelah
+    # ini (subtitle, ikon) harus dipasang SETELAH komposit auto layout, kalau
+    # tidak panel layout akan menutupi subtitle yang sudah dibakar.
+    n_geom = len(vf_parts)
+
     from .subtitles import fonts_dir as subtitle_fonts_dir
     fonts_dir = subtitle_fonts_dir()
 
@@ -484,6 +493,9 @@ def render_clip(
         vf_parts.append(ass_filter(ass_path))
     if icon_ass_path:
         vf_parts.append(ass_filter(icon_ass_path))
+    # filter yang harus jalan SETELAH komposit auto layout (subtitle & ikon ASS)
+    vf_overlay_after = vf_parts[n_geom:]
+    del vf_parts[n_geom:]
 
     # --- ikon & b-roll: overlay PNG per placement (Twemoji pre-render) ---
     # ASS emoji tidak andal (libass+CBDT/COLRv1 blank di beberapa build);
@@ -506,6 +518,26 @@ def render_clip(
     cur = "vbase"
     input_idx = 1
     clip_dur = max(0.2, float(end) - float(start))
+
+    # --- AUTO LAYOUT: komposit split/three/four/gameplay/screenshare/fit ---
+    # Ditempel di ATAS lapisan `vbase` (yang sudah reframe 9:16 face tracking),
+    # lalu subtitle & ikon dipasang SETELAHNYA supaya tidak tertutup panel.
+    if layout_segments:
+        try:
+            from .layout_render import build_layout_filter
+            lay_parts, lay_out = build_layout_filter(
+                layout_segments, src_w, src_h, w, h,
+                base_label=cur, in_label="0:v")
+            if lay_parts:
+                fc_parts.extend(lay_parts)
+                cur = lay_out
+        except Exception as exc:
+            print(f"[layout] gagal membangun filter ({str(exc)[:150]}) → fill saja")
+
+    # subtitle & ikon ASS: SETELAH komposit layout
+    if vf_overlay_after:
+        fc_parts.append(f"[{cur}]{','.join(vf_overlay_after)}[vass]")
+        cur = "vass"
 
     # --- B-ROLL VIDEO: PiP di atas video utama (mirror preview <video> PiP) ---
     # Muncul di jendela membulat area atas; audio b-roll dibuang (hanya visual).
@@ -591,11 +623,16 @@ def render_clip(
         fc_parts.append(f"[{cur}][wm]overlay={x}:{y}:format=auto[vout]")
         cmd += ["-filter_complex", ";".join(fc_parts), "-map", "[vout]", "-map", "0:a?"]
     else:
-        if png_overlays or (broll_video_overlays or []):
+        # Jalur -vf hanya sah kalau TIDAK ada cabang filter_complex sama sekali.
+        # Auto layout & subtitle-setelah-layout membuat rantai bercabang, jadi
+        # keduanya juga harus lewat filter_complex — kalau tidak, komposit layout
+        # dibuang diam-diam dan yang keluar hanya lapisan fill.
+        if png_overlays or (broll_video_overlays or []) or cur != "vbase":
             fc_parts.append(f"[{cur}]null[vout]")
             cmd += ["-filter_complex", ";".join(fc_parts), "-map", "[vout]", "-map", "0:a?"]
         else:
-            cmd += ["-vf", ",".join(vf_parts)] if vf_parts else ["-vf", "null"]
+            semua = vf_parts + vf_overlay_after
+            cmd += ["-vf", ",".join(semua)] if semua else ["-vf", "null"]
 
     cmd += [
         # threads 2 (VPS 4 core): sisakan core untuk web server — dengan
@@ -618,18 +655,29 @@ def render_preview_fast(
     start: float,
     end: float,
     out_path: str,
-    width: int = 270,
-    height: int = 480,
+    width: int = 720,
+    height: int = 1280,
     on_progress=None,
     camera_trajectory: Optional[list[float]] = None,
     camera_cuts: Optional[list[int]] = None,
     camera_fps: float = 15.0,
     camera_rolls: Optional[list[float]] = None,
+    layout_segments: Optional[list[dict[str, Any]]] = None,
 ) -> str:
-    """Preview KILAT: potong + reframe 9:16 + transkode ultrafast.
+    """Preview: potong + reframe 9:16 + transkode.
 
     Tanpa watermark, tanpa subtitle (browser yang menampilkan subtitle live
-    overlay). 270x480 CRF30 → klip 60 detik selesai ±3-6 detik di CPU 4 core.
+    overlay).
+
+    RESOLUSI 720x1280, SAMA DENGAN UNDUHAN. Sebelumnya 270x480 CRF30 dengan
+    alasan kecepatan — itu salah dan user melihatnya sebagai dua keluhan
+    sekaligus: (1) "kualitasnya burik" karena 270 px diregangkan ke layar HP
+    ~1080 px, dan (2) "pindahnya patah-patah kayak 1 fps" karena pada bitrate
+    serendah itu x264 ultrafast membuang detail gerakan sehingga pergeseran
+    kamera terlihat melompat. Keduanya artefak encode, bukan trajektori.
+
+    CRF 20 + preset veryfast (unduhan: CRF 18 preset medium) — selisih kualitas
+    tidak terlihat di layar HP, tapi encode-nya jauh lebih cepat.
 
     camera_trajectory: kalau diberikan, dipakai crop dinamis mengikuti wajah
     pembicara — SAMA seperti hasil unduhan. Tanpa ini preview memakai crop
@@ -664,6 +712,21 @@ def render_preview_fast(
     vf_parts.append(f"scale={w}:{h}:force_original_aspect_ratio=increase")
     vf_parts.append(f"crop={w}:{h}")
 
+    # AUTO LAYOUT juga di preview — kalau tidak, preview dan unduhan berbeda
+    # (janji "preview = hasil unduhan"). Rantai bercabang, jadi harus lewat
+    # filter_complex, bukan -vf.
+    lay_parts: list[str] = []
+    lay_out = "vbase"
+    if layout_segments:
+        try:
+            from .layout_render import build_layout_filter
+            lay_parts, lay_out = build_layout_filter(
+                layout_segments, src_w, src_h, w, h,
+                base_label="vbase", in_label="0:v")
+        except Exception as exc:
+            print(f"[layout] preview: gagal ({str(exc)[:150]}) → fill saja")
+            lay_parts, lay_out = [], "vbase"
+
     pre: list[str] = ["ffmpeg", "-y", "-v", "error"]
     # sumber HTTP (video besar di storage): jangan mati karena putus sesaat,
     # dan seek pakai HTTP Range supaya tidak menarik seluruh file
@@ -673,8 +736,20 @@ def render_preview_fast(
 
     cmd = pre + [
         "-ss", f"{start:.3f}", "-t", f"{end - start:.3f}", "-i", src,
-        "-vf", ",".join(vf_parts),
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30",
+    ]
+    if lay_parts:
+        fc = ";".join([f"[0:v]{','.join(vf_parts)}[vbase]"] + lay_parts
+                      + [f"[{lay_out}]null[vout]"])
+        cmd += ["-filter_complex", fc, "-map", "[vout]", "-map", "0:a?"]
+    else:
+        cmd += ["-vf", ",".join(vf_parts)]
+    cmd += [
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        # laju frame keluaran DIPAKSA 30 fps. Tanpa ini ffmpeg memakai laju
+        # sumber; kalau sumbernya VFR atau berlaju rendah, perintah sendcmd yang
+        # sudah diinterpolasi ke 30 fps tidak punya frame untuk ditempeli →
+        # gerakan kamera terlihat melompat ("patah-patah kayak 1 fps").
+        "-r", "30",
         # VPS 4 core: sisakan CPU untuk web server (bukan 4 = web jadi blank)
         "-threads", "2",
         "-pix_fmt", "yuv420p",

@@ -14,12 +14,12 @@ from __future__ import annotations
 import math
 from typing import Any, Optional
 
-from .speaker_track import (AV_TIE_MARGIN, AV_TIE_RATIO, COOLDOWN_S,
-                            CUT_MIN_SAMPLES, DEADZONE_FRAC, DOMINANCE,
-                            HOLD_FRAMES, LOOKAHEAD_S, LOST_HOLD_S,
-                            MAX_PAN_PER_S, RECENT_FRAMES, SMOOTH_TIME_S,
-                            SPEAK_OFF, SPEAK_ON, SPRING_HZ, STICKY_S,
-                            STILL_SPAN_FRAC)
+from .speaker_track import (AV_TIE_MARGIN, AV_TIE_RATIO, BIG_MOVE_FRAC,
+                            COOLDOWN_S, CUT_MIN_SAMPLES, DEADZONE_FRAC,
+                            DOMINANCE, DWELL_S, HOLD_FRAMES, LOOKAHEAD_S,
+                            LOST_HOLD_S, MAX_PAN_PER_S, RECENT_FRAMES,
+                            SETTLE_FRAC, SMOOTH_TIME_S, SPEAK_OFF, SPEAK_ON,
+                            SPRING_HZ, STICKY_S, STILL_SPAN_FRAC)
 
 
 def pick_active(live: list[dict[str, Any]], state: dict[str, Any], fi: int,
@@ -180,7 +180,13 @@ def build_trajectory(targets: list[float], cuts: set[int], src_w: int,
     # piksel analisis) supaya perilakunya sama di resolusi apa pun
     crop_a = crop_w / scale
     deadzone = crop_a * DEADZONE_FRAC
-    max_vel = crop_a * MAX_PAN_PER_S / max(1.0, fps)   # px per frame
+    # BATAS KECEPATAN dalam px per DETIK, bukan per frame.
+    # SmoothDamp menyimpan kecepatan per detik (rumusnya mengalikan vel dengan
+    # dt). Versi sebelumnya membaginya lagi dengan fps, jadi kamera dijepit pada
+    # 7.4 px/detik alih-alih 111 px/detik — 15x lebih lambat dari yang dimaksud.
+    # Akibatnya kamera tidak pernah menyusul subjek yang berjalan: terukur masih
+    # 12 px dari target setelah 6 detik, dan gerakannya terasa berat/tertinggal.
+    max_vel = crop_a * MAX_PAN_PER_S
     omega = 2.0 * math.pi * SPRING_HZ
     dt = 1.0 / max(1.0, fps)
     look = max(1, int(fps * LOOKAHEAD_S))
@@ -209,45 +215,74 @@ def build_trajectory(targets: list[float], cuts: set[int], src_w: int,
         return float(hi - lo)
 
     def stabilize(seq: list[float]) -> list[float]:
-        """Peredaman kritis EKSAK (SmoothDamp). Untuk shot yang BERGERAK.
+        """KUNCI → GESER → KUNCI ulang. Untuk shot yang subjeknya berpindah.
 
-        KENAPA BUKAN INTEGRASI EULER DARI PEGAS.
-        Versi sebelumnya menghitung `acc = ω²·err − 2ω·v` lalu `v += acc·dt`.
-        Pada 15 fps dengan ω = 2π·1,25 = 7,85, hasil ω·dt = 0,52 — sudah di
-        ambang ketidakstabilan integrasi Euler eksplisit. Percepatan sesaatnya
-        melebihi batas kecepatan pada frame pertama, kecepatan menabrak langit
-        (7,42 px/frame = tepat max_vel), lalu redaman menariknya balik. Itu
-        menghasilkan jerk terukur 13,3 px/frame² — bergetar, bukan mulus. Ini
-        sumber "goyang-goyang" yang dikeluhkan.
+        KENAPA BUKAN MENGIKUTI TERUS-MENERUS.
+        Versi sebelumnya menjalankan SmoothDamp pada SETIAP frame shot yang
+        dinilai "bergerak". Hasilnya kamera tidak pernah benar-benar berhenti:
+        selama orangnya sedikit bergoyang, kamera ikut bergoyang pelan. Itu yang
+        user sebut "stabilizer over banget goyangnya" — dan memang bukan cara
+        kerja stabilizer/tripod. Editor manusia memegang bingkai DIAM, lalu
+        mengarahkan ulang hanya kalau subjeknya benar-benar pindah tempat.
 
-        Rumus di bawah adalah solusi ANALITIK sistem teredam kritis untuk satu
-        langkah waktu (SmoothDamp, Game Programming Gems 4). Sifatnya: stabil
-        tanpa syarat pada dt berapa pun, tidak pernah melewati target, dan
-        mendekat secara eksponensial — jadi gerakannya kontinu dan halus.
-
-        smooth_time = perkiraan waktu untuk mencapai target.
+        Jadi di sini kamera punya dua keadaan:
+          DIAM   — posisi dipegang PERSIS (0 px/frame). Keluar dari keadaan ini
+                   hanya kalau target menjauh lebih dari BIG_MOVE_FRAC lebar crop
+                   dan bertahan minimal DWELL_S detik (jadi geleng-geleng,
+                   menunjuk, atau mencondongkan badan sesaat TIDAK menggerakkan
+                   kamera).
+          GESER  — SmoothDamp menuju target sampai selisihnya di bawah
+                   SETTLE_FRAC, lalu kamera KUNCI lagi di situ.
         """
         n = len(seq)
         if n == 0:
             return []
-        cam = sorted(seq[: min(n, 5)])[min(n, 5) // 2]
-        vel = 0.0
+        big = BIG_MOVE_FRAC * crop_a        # ambang "orangnya pindah tempat"
+        settle = SETTLE_FRAC * crop_a       # sudah cukup dekat → kunci lagi
+        dwell = max(2, int(fps * DWELL_S))  # harus bertahan sekian frame
         om = 2.0 / max(0.05, SMOOTH_TIME_S)
         x = om * dt
         peluruhan = 1.0 / (1.0 + x + 0.48 * x * x + 0.235 * x * x * x)
+
+        cam = sorted(seq[: min(n, 5)])[min(n, 5) // 2]
+        vel = 0.0
+        geser = False
+        lama = 0                            # berapa frame target sudah jauh
         out: list[float] = []
         for i in range(n):
             tgt = seq[min(n - 1, i + look)]
+            beda_abs = abs(tgt - cam)
+            if not geser:
+                # DIAM: hitung berapa lama target sudah di luar ambang besar
+                lama = lama + 1 if beda_abs > big else 0
+                if lama >= dwell:
+                    geser = True
+                    lama = 0
+                    vel = 0.0
+                else:
+                    out.append(cam)         # PERSIS diam, bukan "hampir diam"
+                    continue
+            # GESER: peredaman kritis analitik menuju target
             beda = cam - tgt
             tmp = (vel + om * beda) * dt
             vel = (vel - om * tmp) * peluruhan
-            # batas kecepatan pan: kamera tidak boleh menyapu terlalu cepat
             if vel > max_vel:
                 vel = max_vel
             elif vel < -max_vel:
                 vel = -max_vel
             cam = tgt + (beda + tmp) * peluruhan
             out.append(cam)
+            # KUNCI ULANG hanya kalau kamera sudah dekat DAN targetnya sendiri
+            # sudah tenang. Tanpa syarat kedua, kamera mengunci di tengah-tengah
+            # orang yang sedang berjalan lalu terpaksa membuka lagi beberapa
+            # frame kemudian — gerakan berhenti-jalan yang justru terlihat
+            # tersendat. Selama subjek masih berpindah, kamera mengikuti terus.
+            j = min(n - 1, i + look)
+            k0 = max(0, j - max(2, int(fps * 0.2)))
+            laju = abs(seq[j] - seq[k0]) / max(1, j - k0)
+            if abs(tgt - cam) <= settle and laju <= settle * 0.12:
+                geser = False               # sudah sampai → kunci di posisi ini
+                vel = 0.0
         return out
 
     def zero_phase(seq: list[float], k: int) -> list[float]:

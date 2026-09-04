@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowLeft,
   BadgeX,
+  ChevronDown,
   Clock,
   Download,
   Hash,
@@ -56,6 +57,17 @@ const TOOLS: { id: ToolId; label: string; Icon: typeof Hash }[] = [
   { id: "broll", label: "Ikon", Icon: Sticker },
 ];
 
+/** Tata letak AUTO LAYOUT. Nama id HARUS sama dengan backend (auto_layout.py). */
+const LAYOUT_OPTIONS: { id: string; label: string; desc: string }[] = [
+  { id: "fill", label: "Fill", desc: "1 orang, isi penuh" },
+  { id: "fit", label: "Fit", desc: "utuh + bilah hitam" },
+  { id: "split", label: "Split", desc: "2 orang atas-bawah" },
+  { id: "three", label: "Three", desc: "3 orang" },
+  { id: "four", label: "Four", desc: "4 orang" },
+  { id: "gameplay", label: "Gameplay", desc: "orang 30% / aksi 70%" },
+  { id: "screenshare", label: "Screenshare", desc: "layar + orang" },
+];
+
 interface Placement {
   time_start: number;
   time_end: number;
@@ -85,8 +97,14 @@ function EditorPage() {
   // player
   const videoRef = useRef<HTMLVideoElement>(null);
   const fitRef = useRef<HTMLDivElement>(null);
-  // "source" = video penuh (currentTime absolut) · "preview" = video terpotong (relatif)
-  const videoKindRef = useRef<"source" | "preview" | null>(null);
+  // BASIS WAKTU. "source" = video penuh (currentTime absolut, perlu dikurangi
+  // start_time) · "preview" = berkas klip terpotong (currentTime sudah relatif).
+  //
+  // Ini DITURUNKAN dari sumber yang sedang diputar, bukan ref yang ditulis dari
+  // callback async. Versi ref punya lomba: createSignedUrl().then() menulis
+  // "source" setelah video preview sudah terpasang, sehingga rAF menghitung
+  // currentTime - start_time = 0 - 1923 = negatif → dijepit ke 0 → progress bar
+  // BEKU di 0:00, subtitle karaoke mati, ikon/b-roll tidak pernah muncul.
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [fit, setFit] = useState({ w: 216, h: 384 });
@@ -101,6 +119,16 @@ function EditorPage() {
   const [brollSearching, setBrollSearching] = useState(false);
   const [emojiEnabled, setEmojiEnabled] = useState(false);
   const [livePlacements, setLivePlacements] = useState<Placement[]>([]);
+  const [iconListOpen, setIconListOpen] = useState(false);
+
+  // AUTO LAYOUT (fill/fit/split/three/four/screenshare/gameplay)
+  const [layoutEnabled, setLayoutEnabled] = useState(false);
+  const [layoutPicks, setLayoutPicks] = useState<string[]>([]);
+  const [layoutSaving, setLayoutSaving] = useState(false);
+  const [layoutPlan, setLayoutPlan] = useState<
+    { start: number; end: number; layout: string }[] | null
+  >(null);
+  const [layoutListOpen, setLayoutListOpen] = useState(false);
 
   // watermark ads
   const [adsWatched, setAdsWatched] = useState(0);
@@ -130,7 +158,7 @@ function EditorPage() {
   // hasil render BELUM ada. Kalau preview sudah ada, videonya sudah 9:16 dan
   // sudah dibingkai server; menggesernya lagi = salah dua kali.
   useCameraFraming(videoRef, cameraTrack, {
-    enabled: !clip?.preview_url && videoKindRef.current === "source",
+    enabled: !clip?.preview_url && !!sourceUrl,
     clipStart: startNum,
   });
 
@@ -193,18 +221,7 @@ function EditorPage() {
               .from("video-uploads")
               .createSignedUrl(proj.storage_path, 60 * 60)
               .then(({ data: s }) => {
-                if (!cancelled && s?.signedUrl) {
-                  // JANGAN paksa "source" kalau preview sudah ada.
-                  // videoKindRef menentukan BASIS WAKTU: "source" = waktu absolut
-                  // video penuh, "preview" = waktu relatif klip. Dulu baris ini
-                  // selalu menulis "source", padahal yang diputar berkas preview,
-                  // sehingga rAF loop menghitung waktu = currentTime - start_time
-                  // = 0 - 1923 → negatif → di-clamp ke 0. Akibatnya progress bar
-                  // BEKU di 0, subtitle karaoke tidak jalan, dan ikon/b-roll tidak
-                  // pernah muncul karena semuanya dipicu oleh waktu itu.
-                  if (!c.preview_url) videoKindRef.current = "source";
-                  setSourceUrl(s.signedUrl);
-                }
+                if (!cancelled && s?.signedUrl) setSourceUrl(s.signedUrl);
               });
           }
         }
@@ -233,6 +250,66 @@ function EditorPage() {
     })();
   }, []);
 
+  /* --- AUTO LAYOUT: muat pilihan tersimpan + rencana segmen --- */
+  useEffect(() => {
+    const prefs = (clip as unknown as { layout_prefs?: { enabled?: boolean; layouts?: string[] } } | null)
+      ?.layout_prefs;
+    if (!prefs) return;
+    setLayoutEnabled(!!prefs.enabled);
+    setLayoutPicks(Array.isArray(prefs.layouts) ? prefs.layouts : []);
+  }, [clip?.id]);
+
+  const muatRencanaLayout = useCallback(async () => {
+    if (!clip) return;
+    try {
+      const token = await getAccessToken();
+      const res = await fetch(`/api/layout-plan/${clip.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const d = await res.json();
+      if (Array.isArray(d.segments)) setLayoutPlan(d.segments);
+    } catch {
+      /* rencana hanya informasi; kegagalan tidak boleh mengganggu editor */
+    }
+  }, [clip?.id]);
+
+  /** Simpan pilihan auto layout. Mengubahnya membatalkan preview lama, jadi
+   *  preview dirender ulang dengan layout baru (preview = hasil unduhan). */
+  const simpanLayout = useCallback(
+    async (enabled: boolean, picks: string[]) => {
+      if (!clip) return;
+      setLayoutSaving(true);
+      try {
+        const token = await getAccessToken();
+        const res = await fetch(`/api/layout-prefs/${clip.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ enabled, layouts: picks }),
+        });
+        if (!res.ok) {
+          toast.error("Gagal menyimpan auto layout");
+          return;
+        }
+        const d = await res.json();
+        if (d.preview_direset) {
+          // preview lama sudah tidak sah → kosongkan di state dan minta ulang
+          setClip((c) => (c ? { ...c, preview_url: null, preview_ready: false } : c));
+          setPrevPct(0);
+          setPrevStage("Menyiapkan");
+          toast.success(enabled ? "Auto layout aktif — preview dibuat ulang" : "Auto layout mati");
+        }
+        if (enabled) void muatRencanaLayout();
+        else setLayoutPlan(null);
+      } catch {
+        toast.error("Gagal menyimpan auto layout");
+      } finally {
+        setLayoutSaving(false);
+      }
+    },
+    [clip?.id, muatRencanaLayout],
+  );
+
   /* --- pemanasan preview server di belakang + polling status --- */
   const warmServerPreview = useCallback(async () => {
     if (!clip || clip.preview_ready) return;
@@ -247,7 +324,6 @@ function EditorPage() {
       const d = await res.json();
       if (d.url) {
         setClip((c) => (c ? { ...c, preview_url: d.url, preview_ready: true } : c));
-        if (!videoKindRef.current) videoKindRef.current = "preview";
         return;
       }
       // Masih diproses di server. Preview instan (sumber + overlay CSS) sudah
@@ -269,7 +345,6 @@ function EditorPage() {
         if (sd.status === "ready" && sd.url) {
           setPrevPct(100);
           setClip((c) => (c && c.id === clipId ? { ...c, preview_url: sd.url, preview_ready: true } : c));
-          if (!videoKindRef.current) videoKindRef.current = "preview";
           return;
         }
         if (sd.status === "idle") {
@@ -313,19 +388,17 @@ function EditorPage() {
     return () => ro.disconnect();
   }, [loading]);
 
-  /* --- WAKU VIDEO: rAF loop (anti-stuck) — sumber penuh → relatif klip ---
-     Basis waktu diambil dari `effectiveKind`, BUKAN videoKindRef saja: kalau
-     preview_url ada, yang diputar berkas preview (waktu relatif) meskipun
-     signed URL sumber sempat dibuat. Salah basis = waktu negatif = progress bar
-     beku di 0 dan subtitle/ikon/b-roll tidak pernah muncul. */
+  /* --- WAKTU VIDEO: rAF loop (anti-stuck) — sumber penuh → relatif klip ---
+     Basis waktu DITURUNKAN dari `clip.preview_url`, bukan dari ref yang ditulis
+     callback async. Salah basis = waktu negatif = progress bar beku di 0:00 dan
+     subtitle/ikon/b-roll tidak pernah muncul. */
   useEffect(() => {
     let raf = 0;
     const tick = () => {
       const v = videoRef.current;
       const c = clipRef.current;
       if (v && c && !v.paused && v.readyState >= 2) {
-        const pakaiSumber = !c.preview_url && videoKindRef.current === "source";
-        const raw = pakaiSumber ? v.currentTime - Number(c.start_time) : v.currentTime;
+        const raw = c.preview_url ? v.currentTime : v.currentTime - Number(c.start_time);
         if (raw >= duration) {
           // akhir klip → pause + kunci waktu di durasi
           v.pause();
@@ -347,7 +420,7 @@ function EditorPage() {
     const v = videoRef.current;
     const c = clipRef.current;
     if (!v || !c) return;
-    if (!c.preview_url && videoKindRef.current === "source") {
+    if (!c.preview_url) {
       try {
         v.currentTime = Number(c.start_time);
       } catch {
@@ -362,7 +435,7 @@ function EditorPage() {
     if (!v) return;
     const check = () => {
       const c = clipRef.current;
-      if (!v.paused && c && videoKindRef.current === "source") {
+      if (!v.paused && c && !c.preview_url) {
         const rel = v.currentTime - Number(c.start_time);
         if (rel >= duration - 0.05) {
           v.pause();
@@ -415,10 +488,24 @@ function EditorPage() {
     if (!v) return;
     const clamped = Math.max(0, Math.min(duration - 0.05, t));
     // basis waktu sama dengan rAF loop: preview_url ada = waktu relatif klip
-    if (!clip?.preview_url && videoKindRef.current === "source")
-      v.currentTime = Number(clip?.start_time ?? 0) + clamped;
-    else v.currentTime = clamped;
+    v.currentTime = clip?.preview_url
+      ? clamped
+      : Number(clip?.start_time ?? 0) + clamped;
     setTime(clamped);
+  }
+
+  /** Maju/mundur relatif — dipakai tap kiri/kanan preview & tombol panah. */
+  function nudge(delta: number) {
+    setTime((t) => {
+      const target = Math.max(0, Math.min(duration - 0.05, t + delta));
+      const v = videoRef.current;
+      if (v) {
+        v.currentTime = clipRef.current?.preview_url
+          ? target
+          : Number(clipRef.current?.start_time ?? 0) + target;
+      }
+      return target;
+    });
   }
 
   function buildCaptionStyle() {
@@ -567,9 +654,6 @@ function EditorPage() {
   // dengan hasil unduhan, jadi memakainya sekaligus menjamin preview == unduhan.
   // Video sumber hanya dipakai kalau preview belum ada (sedang dibuat).
   const videoSrc = clip.preview_url ?? sourceUrl ?? null;
-  const effectiveKind = clip.preview_url
-    ? "preview"
-    : (videoKindRef.current ?? null);
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-background text-foreground">
@@ -632,6 +716,30 @@ function EditorPage() {
                 Menyiapkan video…
               </div>
             )}
+
+            {/* ZONA TAP KIRI/KANAN: mundur/maju 5 detik.
+                Tap tengah tetap play/pause. Lebar 28% tiap sisi supaya tombol
+                play di tengah tidak ketutup. Ditaruh SEBELUM overlay subtitle
+                agar tidak menutupi teks, tapi di ATAS <video> supaya klik
+                kena zona ini, bukan onClick video. */}
+            {videoSrc ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => nudge(-5)}
+                  onDoubleClick={() => nudge(-5)}
+                  className="absolute left-0 top-0 z-10 h-full w-[28%] cursor-w-resize bg-transparent active:bg-white/5"
+                  aria-label="Mundur 5 detik"
+                />
+                <button
+                  type="button"
+                  onClick={() => nudge(5)}
+                  onDoubleClick={() => nudge(5)}
+                  className="absolute right-0 top-0 z-10 h-full w-[28%] cursor-e-resize bg-transparent active:bg-white/5"
+                  aria-label="Maju 5 detik"
+                />
+              </>
+            ) : null}
 
             {/* Indikator "memuat preview" + persen NYATA dari ffmpeg.
                 Layar penuh kalau belum ada video sama sekali; pita kecil kalau
@@ -722,7 +830,7 @@ function EditorPage() {
             <button
               type="button"
               onClick={togglePlay}
-              className="absolute left-1/2 top-1/2 flex size-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 backdrop-blur transition-opacity hover:bg-black/60"
+              className="absolute left-1/2 top-1/2 z-20 flex size-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 backdrop-blur transition-opacity hover:bg-black/60"
               aria-label={playing ? "Jeda" : "Putar"}
             >
               {playing ? <Pause className="size-6 text-white" /> : <Play className="size-6 translate-x-0.5 text-white" />}
@@ -814,16 +922,31 @@ function EditorPage() {
                   ) : null}
                   {brollEnabled && !brollSearching && livePlacements.length > 0 ? (
                     <>
-                      <ul className="mt-2.5 space-y-1">
-                        {livePlacements.map((p, i) => (
-                          <li key={i} className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px]">
-                            <span className="min-w-0 truncate capitalize">{p.category}</span>
-                            <button type="button" onClick={() => seek(Math.max(0, p.time_start - 1))} className="shrink-0 font-mono text-accent">
-                              {clock(p.time_start)}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
+                      {/* Daftar ikon bisa DITUTUP: pada klip panjang daftarnya
+                          belasan baris dan menenggelamkan tombol di bawahnya. */}
+                      <button
+                        type="button"
+                        onClick={() => setIconListOpen((v) => !v)}
+                        aria-expanded={iconListOpen}
+                        className="mt-2.5 flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px] font-medium transition-colors hover:text-foreground"
+                      >
+                        <span>Momen ikon ({livePlacements.length})</span>
+                        <ChevronDown
+                          className={`size-3.5 shrink-0 transition-transform ${iconListOpen ? "rotate-180" : ""}`}
+                        />
+                      </button>
+                      {iconListOpen ? (
+                        <ul className="mt-1.5 space-y-1">
+                          {livePlacements.map((p, i) => (
+                            <li key={i} className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px]">
+                              <span className="min-w-0 truncate capitalize">{p.category}</span>
+                              <button type="button" onClick={() => seek(Math.max(0, p.time_start - 1))} className="shrink-0 font-mono text-accent">
+                                {clock(p.time_start)}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => void refreshPlacements()}
@@ -840,6 +963,126 @@ function EditorPage() {
                       enabled={emojiEnabled}
                       onChange={setEmojiEnabled}
                     />
+                  </div>
+
+                  {/* ================= AUTO LAYOUT ================= */}
+                  <div className="mt-3 border-t border-border pt-3">
+                    <ToggleRow
+                      label="Auto layout"
+                      desc="Dua orang jadi atas-bawah di momen yang tepat, gameplay 30/70."
+                      enabled={layoutEnabled}
+                      onChange={(v) => {
+                        setLayoutEnabled(v);
+                        void simpanLayout(v, layoutPicks);
+                      }}
+                    />
+
+                    {layoutEnabled ? (
+                      <>
+                        <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
+                          Pilih tata letak yang boleh dipakai. Kalau semua dipilih (atau tidak ada
+                          yang dipilih), sistem memilih sendiri sesuai isi video.
+                        </p>
+                        <div className="mt-2 grid grid-cols-2 gap-1.5">
+                          {LAYOUT_OPTIONS.map((o) => {
+                            const aktif = layoutPicks.includes(o.id);
+                            return (
+                              <button
+                                key={o.id}
+                                type="button"
+                                disabled={layoutSaving}
+                                aria-pressed={aktif}
+                                onClick={() => {
+                                  const next = aktif
+                                    ? layoutPicks.filter((x) => x !== o.id)
+                                    : [...layoutPicks, o.id];
+                                  setLayoutPicks(next);
+                                  void simpanLayout(layoutEnabled, next);
+                                }}
+                                className={`rounded-lg border px-2 py-1.5 text-left text-[11px] font-medium transition-colors disabled:opacity-50 ${
+                                  aktif
+                                    ? "border-accent bg-accent/10 text-accent"
+                                    : "border-border bg-background text-muted-foreground hover:text-foreground"
+                                }`}
+                              >
+                                <span className="block">{o.label}</span>
+                                <span className="block text-[9px] font-normal opacity-70">{o.desc}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        <div className="mt-2 flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            disabled={layoutSaving}
+                            onClick={() => {
+                              const semua = LAYOUT_OPTIONS.map((o) => o.id);
+                              setLayoutPicks(semua);
+                              void simpanLayout(true, semua);
+                            }}
+                            className="flex-1 rounded-lg border border-border bg-background px-2 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                          >
+                            Pilih semua (cerdas)
+                          </button>
+                          <button
+                            type="button"
+                            disabled={layoutSaving}
+                            onClick={() => {
+                              setLayoutPicks([]);
+                              void simpanLayout(true, []);
+                            }}
+                            className="flex-1 rounded-lg border border-border bg-background px-2 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                          >
+                            Kosongkan
+                          </button>
+                        </div>
+
+                        {layoutPlan && layoutPlan.length > 0 ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => setLayoutListOpen((v) => !v)}
+                              aria-expanded={layoutListOpen}
+                              className="mt-2 flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px] font-medium transition-colors hover:text-foreground"
+                            >
+                              <span>Rencana layout ({layoutPlan.length})</span>
+                              <ChevronDown
+                                className={`size-3.5 shrink-0 transition-transform ${layoutListOpen ? "rotate-180" : ""}`}
+                              />
+                            </button>
+                            {layoutListOpen ? (
+                              <ul className="mt-1.5 space-y-1">
+                                {layoutPlan.map((s, i) => (
+                                  <li
+                                    key={i}
+                                    className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px]"
+                                  >
+                                    <span className="min-w-0 truncate capitalize">{s.layout}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => seek(Math.max(0, s.start))}
+                                      className="shrink-0 font-mono text-accent"
+                                    >
+                                      {clock(s.start)}
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : null}
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={layoutSaving}
+                            onClick={() => void muatRencanaLayout()}
+                            className="mt-2 w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                          >
+                            Lihat rencana layout
+                          </button>
+                        )}
+                      </>
+                    ) : null}
                   </div>
                 </ToolPane>
               )}

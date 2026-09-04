@@ -420,6 +420,42 @@ async def api_camera_track(clip_id: str, request: Request,
         raise HTTPException(400, str(exc)[:200])
 
 
+@app.put("/api/layout-prefs/{clip_id}")
+async def api_layout_prefs(clip_id: str, body: dict, request: Request,
+                           authorization: str | None = Header(None)):
+    """Simpan pilihan AUTO LAYOUT pengguna untuk klip ini.
+
+    Body: {"enabled": bool, "layouts": ["fill","split","three",...],
+           "has_screenshare": bool, "has_gameplay": bool}
+    Mengubah pilihan ikut MEMBATALKAN preview lama (layout dibakar ke berkas
+    preview supaya preview == unduhan).
+    """
+    user = await get_user(request, authorization)
+    ensure_uuid(clip_id, "Klip")
+    from .layout_api import simpan_prefs
+    try:
+        return await simpan_prefs(clip_id, str(user["id"]), body or {})
+    except Exception as exc:
+        raise HTTPException(400, str(exc)[:200])
+
+
+@app.get("/api/layout-plan/{clip_id}")
+async def api_layout_plan(clip_id: str, request: Request,
+                          authorization: str | None = Header(None)):
+    """Rencana segmen AUTO LAYOUT untuk klip ini (tanpa merender)."""
+    user = await get_user(request, authorization)
+    ensure_uuid(clip_id, "Klip")
+    from . import render as render_mod
+    from .layout_api import rencana
+    from .render_clip import _source_seek_url
+    try:
+        return await rencana(clip_id, str(user["id"]), render_mod=render_mod,
+                             source_url_for=_source_seek_url)
+    except Exception as exc:
+        print(f"[layout-plan] gagal: {exc}")
+        raise HTTPException(400, str(exc)[:200])
+
+
 @app.get("/api/preview-clip/status/{clip_id}")
 async def api_preview_status(clip_id: str, request: Request,
                              authorization: str | None = Header(None)):
