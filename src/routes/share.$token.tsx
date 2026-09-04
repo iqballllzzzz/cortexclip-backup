@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { shareInfo, acceptShare } from "@/lib/project-api";
 import { Button } from "@/components/ui/button";
+import { PageLoading } from "@/components/page-loading";
 
 const title = "Proyek Dibagikan — CortexClip";
 
@@ -83,9 +84,7 @@ function SharePage() {
             <p className="mt-2 text-sm text-muted-foreground">Mengalihkan ke dashboard…</p>
           </>
         ) : !info ? (
-          <p className="mt-6 flex items-center justify-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" /> Memuat…
-          </p>
+          <PageLoading label="Memuat undangan" />
         ) : info.expired ? (
           <>
             <span className="mx-auto mt-5 flex size-12 items-center justify-center rounded-full bg-red-500/15 text-red-500">

@@ -18,6 +18,7 @@ import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
 import { AppNav } from "@/components/app-nav";
+import { PageLoading } from "@/components/page-loading";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { buildAss, buildSrt, download } from "@/lib/srt";
@@ -264,9 +265,7 @@ function ProjectPage() {
     return (
       <div className="min-h-screen bg-background">
         <AppNav displayName="?" isAdmin={account?.is_admin} />
-        <div className="mx-auto max-w-[1180px] px-4 py-16 sm:px-6">
-          <div className="h-40 animate-pulse rounded-2xl border border-border bg-card" />
-        </div>
+        <PageLoading label="Memuat proyek" />
       </div>
     );
   }

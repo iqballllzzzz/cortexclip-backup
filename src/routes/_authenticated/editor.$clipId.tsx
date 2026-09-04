@@ -23,6 +23,7 @@ import { getPreset, SubtitleStylePicker, DEFAULT_SUBTITLE_PRESET } from "@/compo
 import { ColoredIcon } from "@/components/colored-icon";
 import { BrollPip } from "@/components/broll-pip";
 import { PreviewLoading } from "@/components/preview-loading";
+import { PageLoading } from "@/components/page-loading";
 import { AdFullscreen } from "@/components/ad-fullscreen";
 import { useCameraFraming, useCameraTrack } from "@/lib/camera-framing";
 import { LiveCaptionOverlay, type LiveCaptionStyle, type LiveWord } from "@/components/live-caption-overlay";
@@ -637,11 +638,7 @@ function EditorPage() {
   /* ------------------------------------------------------------- render */
 
   if (loading || !clip) {
-    return (
-      <div className="grid min-h-screen place-items-center bg-background">
-        <Loader2 className="size-6 animate-spin text-accent" />
-      </div>
-    );
+    return <PageLoading fullscreen label="Memuat editor" />;
   }
 
   // PREVIEW HASIL RENDER DIUTAMAKAN atas video sumber.
@@ -916,29 +913,39 @@ function EditorPage() {
                     onChange={(v) => void toggleBroll(v)}
                   />
                   {brollSearching ? (
-                    <div className="mt-2.5 flex items-center gap-2 rounded-lg border border-accent/30 bg-accent/5 p-2.5 text-[11px] text-accent">
-                      <Loader2 className="size-3.5 animate-spin" /> Mencari momen ikon…
+                    <div className="mt-1.5 flex items-center gap-2 rounded-md border border-accent/30 bg-accent/5 px-2 py-1 text-[10px] text-accent">
+                      <Loader2 className="size-3 animate-spin" /> Mencari momen ikon…
                     </div>
                   ) : null}
                   {brollEnabled && !brollSearching && livePlacements.length > 0 ? (
                     <>
                       {/* Daftar ikon bisa DITUTUP: pada klip panjang daftarnya
                           belasan baris dan menenggelamkan tombol di bawahnya. */}
-                      <button
-                        type="button"
-                        onClick={() => setIconListOpen((v) => !v)}
-                        aria-expanded={iconListOpen}
-                        className="mt-2.5 flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px] font-medium transition-colors hover:text-foreground"
-                      >
-                        <span>Momen ikon ({livePlacements.length})</span>
-                        <ChevronDown
-                          className={`size-3.5 shrink-0 transition-transform ${iconListOpen ? "rotate-180" : ""}`}
-                        />
-                      </button>
+                      <div className="mt-1.5 flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setIconListOpen((v) => !v)}
+                          aria-expanded={iconListOpen}
+                          className="flex flex-1 items-center justify-between gap-2 rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium transition-colors hover:text-foreground"
+                        >
+                          <span>Momen ikon ({livePlacements.length})</span>
+                          <ChevronDown
+                            className={`size-3 shrink-0 transition-transform ${iconListOpen ? "rotate-180" : ""}`}
+                          />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void refreshPlacements()}
+                          title="Cari ikon & b-roll lain"
+                          className="rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                          Cari lain
+                        </button>
+                      </div>
                       {iconListOpen ? (
-                        <ul className="mt-1.5 space-y-1">
+                        <ul className="mt-1 space-y-0.5">
                           {livePlacements.map((p, i) => (
-                            <li key={i} className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px]">
+                            <li key={i} className="flex items-center justify-between gap-2 rounded-md border border-border bg-background px-2 py-1 text-[10px]">
                               <span className="min-w-0 truncate capitalize">{p.category}</span>
                               <button type="button" onClick={() => seek(Math.max(0, p.time_start - 1))} className="shrink-0 font-mono text-accent">
                                 {clock(p.time_start)}
@@ -947,16 +954,9 @@ function EditorPage() {
                           ))}
                         </ul>
                       ) : null}
-                      <button
-                        type="button"
-                        onClick={() => void refreshPlacements()}
-                        className="mt-2 w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-                      >
-                        Cari ikon &amp; b-roll lain
-                      </button>
                     </>
                   ) : null}
-                  <div className="mt-2.5">
+                  <div className="mt-1.5">
                     <ToggleRow
                       label="Emoji pada subtitle"
                       desc="Emoji di beberapa kata kunci."
@@ -966,10 +966,10 @@ function EditorPage() {
                   </div>
 
                   {/* ================= AUTO LAYOUT ================= */}
-                  <div className="mt-3 border-t border-border pt-3">
+                  <div className="mt-1.5">
                     <ToggleRow
                       label="Auto layout"
-                      desc="Dua orang jadi atas-bawah di momen yang tepat, gameplay 30/70."
+                      desc="Dua orang atas-bawah di momen tepat."
                       enabled={layoutEnabled}
                       onChange={(v) => {
                         setLayoutEnabled(v);
@@ -979,11 +979,10 @@ function EditorPage() {
 
                     {layoutEnabled ? (
                       <>
-                        <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
-                          Pilih tata letak yang boleh dipakai. Kalau semua dipilih (atau tidak ada
-                          yang dipilih), sistem memilih sendiri sesuai isi video.
+                        <p className="mt-1.5 text-[10px] leading-tight text-muted-foreground">
+                          Semua dipilih (atau kosong) = sistem memilih sendiri.
                         </p>
-                        <div className="mt-2 grid grid-cols-2 gap-1.5">
+                        <div className="mt-2 grid grid-cols-3 gap-1">
                           {LAYOUT_OPTIONS.map((o) => {
                             const aktif = layoutPicks.includes(o.id);
                             return (
@@ -992,6 +991,7 @@ function EditorPage() {
                                 type="button"
                                 disabled={layoutSaving}
                                 aria-pressed={aktif}
+                                title={o.desc}
                                 onClick={() => {
                                   const next = aktif
                                     ? layoutPicks.filter((x) => x !== o.id)
@@ -999,20 +999,19 @@ function EditorPage() {
                                   setLayoutPicks(next);
                                   void simpanLayout(layoutEnabled, next);
                                 }}
-                                className={`rounded-lg border px-2 py-1.5 text-left text-[11px] font-medium transition-colors disabled:opacity-50 ${
+                                className={`truncate rounded-md border px-1.5 py-1 text-center text-[10px] font-medium transition-colors disabled:opacity-50 ${
                                   aktif
                                     ? "border-accent bg-accent/10 text-accent"
                                     : "border-border bg-background text-muted-foreground hover:text-foreground"
                                 }`}
                               >
-                                <span className="block">{o.label}</span>
-                                <span className="block text-[9px] font-normal opacity-70">{o.desc}</span>
+                                {o.label}
                               </button>
                             );
                           })}
                         </div>
 
-                        <div className="mt-2 flex items-center gap-1.5">
+                        <div className="mt-1.5 flex items-center gap-1">
                           <button
                             type="button"
                             disabled={layoutSaving}
@@ -1021,7 +1020,7 @@ function EditorPage() {
                               setLayoutPicks(semua);
                               void simpanLayout(true, semua);
                             }}
-                            className="flex-1 rounded-lg border border-border bg-background px-2 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                            className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
                           >
                             Pilih semua (cerdas)
                           </button>
@@ -1032,7 +1031,7 @@ function EditorPage() {
                               setLayoutPicks([]);
                               void simpanLayout(true, []);
                             }}
-                            className="flex-1 rounded-lg border border-border bg-background px-2 py-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                            className="rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
                           >
                             Kosongkan
                           </button>
@@ -1044,19 +1043,19 @@ function EditorPage() {
                               type="button"
                               onClick={() => setLayoutListOpen((v) => !v)}
                               aria-expanded={layoutListOpen}
-                              className="mt-2 flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px] font-medium transition-colors hover:text-foreground"
+                              className="mt-1.5 flex w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium transition-colors hover:text-foreground"
                             >
                               <span>Rencana layout ({layoutPlan.length})</span>
                               <ChevronDown
-                                className={`size-3.5 shrink-0 transition-transform ${layoutListOpen ? "rotate-180" : ""}`}
+                                className={`size-3 shrink-0 transition-transform ${layoutListOpen ? "rotate-180" : ""}`}
                               />
                             </button>
                             {layoutListOpen ? (
-                              <ul className="mt-1.5 space-y-1">
+                              <ul className="mt-1 space-y-0.5">
                                 {layoutPlan.map((s, i) => (
                                   <li
                                     key={i}
-                                    className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px]"
+                                    className="flex items-center justify-between gap-2 rounded-md border border-border bg-background px-2 py-1 text-[10px]"
                                   >
                                     <span className="min-w-0 truncate capitalize">{s.layout}</span>
                                     <button
@@ -1076,7 +1075,7 @@ function EditorPage() {
                             type="button"
                             disabled={layoutSaving}
                             onClick={() => void muatRencanaLayout()}
-                            className="mt-2 w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                            className="mt-1.5 w-full rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
                           >
                             Lihat rencana layout
                           </button>
@@ -1188,20 +1187,20 @@ function ToggleRow({ label, desc, enabled, onChange }: {
   onChange: (v: boolean) => void;
 }) {
   return (
-    <div className="flex items-start justify-between gap-2.5 rounded-lg border border-border bg-background p-2.5">
+    <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-2.5 py-2">
       <div className="min-w-0">
-        <p className="text-[13px] font-medium leading-tight">{label}</p>
-        <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">{desc}</p>
+        <p className="text-[12px] font-medium leading-tight">{label}</p>
+        <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">{desc}</p>
       </div>
       <button
         type="button"
         role="switch"
         aria-checked={enabled}
         onClick={() => onChange(!enabled)}
-        className={`relative h-5.5 w-10 shrink-0 rounded-full transition-colors ${enabled ? "bg-accent" : "bg-border"}`}
-        style={{ height: 22 }}
+        className={`relative w-9 shrink-0 rounded-full transition-colors ${enabled ? "bg-accent" : "bg-border"}`}
+        style={{ height: 20 }}
       >
-        <span className={`absolute top-0.5 size-4 rounded-full bg-white shadow transition-all ${enabled ? "left-[21px]" : "left-0.5"}`} />
+        <span className={`absolute top-0.5 size-4 rounded-full bg-white shadow transition-all ${enabled ? "left-[19px]" : "left-0.5"}`} />
       </button>
     </div>
   );

@@ -22,6 +22,7 @@ import {
 
 import { PremiumDialog } from "@/components/premium-dialog";
 import { AppNav } from "@/components/app-nav";
+import { PageLoading } from "@/components/page-loading";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -546,11 +547,7 @@ function Dashboard() {
           </div>
 
           {loading ? (
-            <div className="mt-6 space-y-px overflow-hidden rounded-2xl bg-border">
-              {[0, 1, 2].map((i) => (
-                <div key={i} className="h-[74px] animate-pulse bg-card" />
-              ))}
-            </div>
+            <PageLoading label="Memuat proyek" />
           ) : projects.length === 0 ? (
             <div className="mt-6 rounded-2xl border border-dashed border-border px-6 py-16 text-center">
               <Sparkles className="mx-auto size-8 text-muted-foreground/50" />

@@ -1,8 +1,8 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
-import { Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAccountStatus } from "@/hooks/use-account-status";
 import { BannedScreen } from "@/components/banned-screen";
+import { PageLoading } from "@/components/page-loading";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -23,11 +23,7 @@ function AuthenticatedLayout() {
   const { status, loading, error } = useAccountStatus();
 
   if (loading && !status) {
-    return (
-      <div className="grid min-h-screen place-items-center bg-background">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <PageLoading fullscreen label="Menyiapkan akun" />;
   }
 
   // Backend tidak terjangkau → jangan kunci user; biarkan aplikasi jalan.

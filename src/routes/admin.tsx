@@ -22,6 +22,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useAccountStatus } from "@/hooks/use-account-status";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { PageLoading } from "@/components/page-loading";
 import { fetchAdminStats, fetchAdminUsers, type AdminStats, type AdminUser } from "@/lib/admin-api";
 import { Button } from "@/components/ui/button";
 import { UserDrawer } from "@/components/admin/user-drawer";
@@ -100,11 +101,7 @@ function AdminPage() {
   }, [users, tab]);
 
   if (statusLoading) {
-    return (
-      <div className="grid min-h-screen place-items-center bg-background">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
-      </div>
-    );
+    return <PageLoading fullscreen label="Memeriksa akses admin" />;
   }
 
   /* --- gerbang: bukan admin --- */
@@ -213,9 +210,7 @@ function AdminPage() {
         ) : null}
 
         {loading && !stats ? (
-          <div className="mt-10 grid place-items-center py-24">
-            <Loader2 className="size-5 animate-spin text-muted-foreground" />
-          </div>
+          <PageLoading label="Memuat data pengguna" />
         ) : null}
 
         {stats ? (

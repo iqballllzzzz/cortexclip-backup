@@ -48,6 +48,13 @@ MIN_FACE_FRAC = 0.035     # wajah < 3.5% lebar frame = terlalu kecil untuk panel
 # frame punya >=2 orang aktif; dengan 0.0025, split muncul di bagian yang memang
 # dua orang saling menyahut.
 ACTIVE_SPEAK = 0.0025
+# Celah deteksi yang masih dianggap tersambung. Deteksi wajah selalu bolong
+# satu-dua frame (kepala menoleh, tangan menutupi, skor turun sesaat). Terukur
+# pada klip nyata 939 frame: 28 frame (3%) punya >=2 wajah tapi tersebar sebagai
+# pecahan pendek, sehingga aturan "berurutan tanpa putus >= MIN_SEG_S" menolak
+# SEMUANYA — rencananya `fill` saja dan auto layout tampak mati total meski
+# pengguna mencentang semua layout. 0.5s pada 15 fps = 7 frame.
+GAP_CLOSE_S = 0.5
 # CATATAN: pernah ada aturan tambahan SWITCH_HOLD_S ("layout tidak boleh berganti
 # lebih cepat dari 2.5 detik") yang menggabungkan segmen ke tetangga sebelumnya
 # kalau tetangga itu lebih pendek dari ambang. Itu DIBUANG karena efeknya
@@ -59,22 +66,56 @@ ACTIVE_SPEAK = 0.0025
 
 def _rentang_layak(frames: list[dict[str, Any]], n_wajah: int,
                    fps: float) -> list[tuple[int, int]]:
-    """Rentang frame di mana MINIMAL n_wajah tampak bersama dan cukup besar."""
+    """Rentang frame di mana MINIMAL n_wajah tampak bersama dan cukup besar.
+
+    LUBANG DITUTUP DULU (morphological closing). Deteksi wajah selalu bolong
+    satu-dua frame: kepala menoleh, tangan menutupi, atau skor turun sesaat di
+    bawah ambang. Versi pertama menuntut rentang BERURUTAN TANPA PUTUS minimal
+    MIN_SEG_S, jadi satu frame gagal memutus seluruh rentang.
+
+    Terukur pada klip nyata 939 frame: 28 frame (3%) punya >=2 wajah, tapi
+    tersebar sebagai pecahan pendek sehingga TIDAK ADA satu pun rentang yang
+    lolos — rencananya `fill` saja dan auto layout tampak "tidak bekerja sama
+    sekali" meskipun pengguna mencentang semua layout.
+
+    Sekarang celah sampai GAP_CLOSE_S detik dianggap tersambung, lalu rentang
+    hasilnya dinilai: harus cukup panjang DAN cukup padat (>= TOGETHER_FRAC
+    frame di dalamnya benar-benar memuat n_wajah).
+    """
     ok = [
         sum(1 for f in fr.get("faces", []) if f.get("w_frac", 0) >= MIN_FACE_FRAC)
         >= n_wajah
         for fr in frames
     ]
-    out: list[tuple[int, int]] = []
+    # tutup celah pendek
+    gap = max(1, int(fps * GAP_CLOSE_S))
+    tutup = list(ok)
     i = 0
     while i < len(ok):
-        if not ok[i]:
+        if ok[i]:
             i += 1
             continue
         j = i
-        while j + 1 < len(ok) and ok[j + 1]:
+        while j < len(ok) and not ok[j]:
             j += 1
-        if (j - i + 1) >= fps * MIN_SEG_S:
+        # celah [i, j) diapit deteksi di kedua sisi dan cukup pendek → sambung
+        if i > 0 and j < len(ok) and (j - i) <= gap:
+            for k in range(i, j):
+                tutup[k] = True
+        i = j
+
+    out: list[tuple[int, int]] = []
+    i = 0
+    while i < len(tutup):
+        if not tutup[i]:
+            i += 1
+            continue
+        j = i
+        while j + 1 < len(tutup) and tutup[j + 1]:
+            j += 1
+        panjang = j - i + 1
+        padat = sum(1 for k in range(i, j + 1) if ok[k]) / max(1, panjang)
+        if panjang >= fps * MIN_SEG_S and padat >= TOGETHER_FRAC:
             out.append((i, j))
         i = j + 1
     return out

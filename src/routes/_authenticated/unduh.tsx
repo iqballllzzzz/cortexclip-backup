@@ -19,6 +19,7 @@ import { clipFileName } from "@/lib/clip-file";
 import { deleteRenderJob } from "@/lib/project-api";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
+import { PageLoading } from "@/components/page-loading";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
@@ -202,9 +203,7 @@ function DownloadsPage() {
 
         {/* Daftar */}
         {loading ? (
-          <div className="mt-12 flex items-center justify-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" /> Memuat riwayat…
-          </div>
+          <PageLoading label="Memuat riwayat" />
         ) : jobs.length === 0 ? (
           <div className="mt-12 flex flex-col items-center rounded-3xl border border-dashed border-border py-16 text-center">
             <Download className="size-10 text-muted-foreground/40" />
