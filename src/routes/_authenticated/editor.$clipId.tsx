@@ -280,6 +280,11 @@ function EditorPage() {
   const simpanLayout = useCallback(
     async (enabled: boolean, picks: string[]) => {
       if (!clip) return;
+      // TIDAK memblokir tombol. Sebelumnya seluruh panel di-disable sampai PUT
+      // selesai, dan karena mengubah pilihan memicu render preview ulang,
+      // tombolnya terasa "gak bisa dipencet" — user menyangka aplikasi lemot.
+      // Sekarang state lokal berubah SEKETIKA (optimistis) dan penyimpanan
+      // jalan di belakang; yang tampil hanya penanda kecil "menyimpan".
       setLayoutSaving(true);
       try {
         const token = await getAccessToken();
@@ -979,8 +984,15 @@ function EditorPage() {
 
                     {layoutEnabled ? (
                       <>
-                        <p className="mt-1.5 text-[10px] leading-tight text-muted-foreground">
-                          Semua dipilih (atau kosong) = sistem memilih sendiri.
+                        <p className="mt-1.5 flex items-center gap-1.5 text-[10px] leading-tight text-muted-foreground">
+                          {layoutSaving ? (
+                            <>
+                              <Loader2 className="size-3 shrink-0 animate-spin text-accent" />
+                              Menyimpan &amp; menyiapkan preview…
+                            </>
+                          ) : (
+                            "Semua dipilih (atau kosong) = sistem memilih sendiri."
+                          )}
                         </p>
                         <div className="mt-2 grid grid-cols-3 gap-1">
                           {LAYOUT_OPTIONS.map((o) => {
@@ -989,7 +1001,6 @@ function EditorPage() {
                               <button
                                 key={o.id}
                                 type="button"
-                                disabled={layoutSaving}
                                 aria-pressed={aktif}
                                 title={o.desc}
                                 onClick={() => {
@@ -1014,7 +1025,6 @@ function EditorPage() {
                         <div className="mt-1.5 flex items-center gap-1">
                           <button
                             type="button"
-                            disabled={layoutSaving}
                             onClick={() => {
                               const semua = LAYOUT_OPTIONS.map((o) => o.id);
                               setLayoutPicks(semua);
@@ -1026,7 +1036,6 @@ function EditorPage() {
                           </button>
                           <button
                             type="button"
-                            disabled={layoutSaving}
                             onClick={() => {
                               setLayoutPicks([]);
                               void simpanLayout(true, []);

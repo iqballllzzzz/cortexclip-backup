@@ -55,6 +55,14 @@ ACTIVE_SPEAK = 0.0025
 # SEMUANYA — rencananya `fill` saja dan auto layout tampak mati total meski
 # pengguna mencentang semua layout. 0.5s pada 15 fps = 7 frame.
 GAP_CLOSE_S = 0.5
+# PERCAKAPAN BERGILIRAN (lihat _percakapan). Dalam obrolan normal orang
+# bergiliran bicara, bukan menyahut bersamaan — jadi menuntut tumpang-suara
+# (BOTH_TALK_FRAC) sebagai SATU-SATUNYA syarat menolak percakapan yang jelas.
+# Syarat alternatif: minimal n orang berbeda masing-masing aktif >= 12% durasi.
+GILIRAN_MIN_FRAC = 0.12
+# Lebar keranjang posisi horizontal untuk membedakan "orang" tanpa ID track.
+# 0.18 lebar frame: dua wajah dalam kolom yang sama dianggap orang yang sama.
+CX_BUCKET = 0.18
 # CATATAN: pernah ada aturan tambahan SWITCH_HOLD_S ("layout tidak boleh berganti
 # lebih cepat dari 2.5 detik") yang menggabungkan segmen ke tetangga sebelumnya
 # kalau tetangga itu lebih pendek dari ambang. Itu DIBUANG karena efeknya
@@ -133,7 +141,7 @@ def _aktif(f: dict[str, Any]) -> bool:
 
 
 def _fraksi_bicara_bersama(frames: list[dict[str, Any]], a: int, b: int) -> float:
-    """Fraksi frame di rentang [a,b] yang punya >=2 orang aktif sekaligus."""
+    """Fraksi frame di rentang [a,b] yang punya >=2 orang aktif SEKALIGUS."""
     if b < a:
         return 0.0
     n = 0
@@ -141,6 +149,49 @@ def _fraksi_bicara_bersama(frames: list[dict[str, Any]], a: int, b: int) -> floa
         if sum(1 for f in fr.get("faces", []) if _aktif(f)) >= 2:
             n += 1
     return n / float(b - a + 1)
+
+
+def _percakapan(frames: list[dict[str, Any]], a: int, b: int,
+                n_wajah: int = 2) -> bool:
+    """Apakah rentang ini PERCAKAPAN — beberapa orang bergiliran bicara?
+
+    KENAPA BUKAN `_fraksi_bicara_bersama` SAJA. Syarat lama menuntut dua orang
+    aktif DI FRAME YANG SAMA minimal 22% durasi. Itu keliru menggambarkan
+    percakapan: dalam obrolan normal orang BERGILIRAN, bukan menyahut bersamaan.
+    Tumpang-suara hanya terjadi saat tertawa atau memotong bicara. Akibatnya
+    rentang dua orang yang jelas sedang ngobrol tetap ditolak dan jatuh ke FILL —
+    tepat keluhan "auto layout gak ada yang terjadi pada video samsek".
+
+    Aturan sekarang, salah satu cukup:
+      (a) beberapa orang aktif bersamaan >= BOTH_TALK_FRAC durasi (tertawa,
+          saling memotong), ATAU
+      (b) MINIMAL n_wajah orang BERBEDA masing-masing pernah aktif >=
+          GILIRAN_MIN_FRAC durasi rentang (bergiliran bicara).
+
+    Cara membedakan "orang" tanpa identitas track: posisi horizontal (cx)
+    dikelompokkan ke keranjang selebar CX_BUCKET. Dua wajah pada kolom yang
+    berbeda = dua orang berbeda. Cukup untuk keputusan layout, dan tidak
+    bergantung pada ID track yang bisa berganti setelah oklusi.
+    """
+    if b < a:
+        return False
+    if _fraksi_bicara_bersama(frames, a, b) >= BOTH_TALK_FRAC:
+        return True
+
+    total = b - a + 1
+    hitung: dict[int, int] = {}
+    for fr in frames[a:b + 1]:
+        # satu orang dihitung sekali per frame walau deteksinya berlipat
+        keranjang = set()
+        for f in fr.get("faces", []):
+            if f.get("w_frac", 0) < MIN_FACE_FRAC or not _aktif(f):
+                continue
+            keranjang.add(int(float(f.get("cx") or 0.0) / CX_BUCKET))
+        for k in keranjang:
+            hitung[k] = hitung.get(k, 0) + 1
+
+    cukup = [k for k, v in hitung.items() if v >= total * GILIRAN_MIN_FRAC]
+    return len(cukup) >= n_wajah
 
 
 def rencana_layout(frames: list[dict[str, Any]], fps: float,
@@ -187,9 +238,13 @@ def rencana_layout(frames: list[dict[str, Any]], fps: float,
         if nama not in izin:
             continue
         for a, b in _rentang_layak(frames, n, fps):
-            if nama == SPLIT and _fraksi_bicara_bersama(frames, a, b) < BOTH_TALK_FRAC:
-                # dua orang terlihat, tapi hanya satu yang aktif → FILL lebih
-                # baik: split membuang setengah layar untuk orang yang diam.
+            if nama == SPLIT and not _percakapan(frames, a, b, 2):
+                # dua orang terlihat, tapi tidak ada percakapan (satu orang saja
+                # yang aktif sepanjang rentang) → FILL lebih baik: split membuang
+                # setengah layar untuk orang yang diam.
+                continue
+            if nama in (THREE, FOUR) and not _percakapan(frames, a, b, 2):
+                # panel banyak hanya pantas kalau memang ada interaksi
                 continue
             kandidat.append((a, b, nama))
     # rentang yang lebih "kaya" (lebih banyak orang) menang saat bertumpuk

@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Crown, Download, LayoutDashboard, LogOut, Menu, ShieldCheck, X } from "lucide-react";
+import { BookOpen, Crown, Download, LayoutDashboard, LogOut, Menu, ShieldCheck, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -41,6 +41,7 @@ export function AppNav({
   const links = [
     { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { to: "/unduh", label: "Unduhan", icon: Download },
+    { to: "/docs", label: "Panduan", icon: BookOpen },
     ...(isAdmin ? [{ to: "/admin", label: "Admin", icon: ShieldCheck }] : []),
   ] as const;
 

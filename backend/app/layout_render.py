@@ -112,7 +112,38 @@ def build_layout_filter(segmen: list[dict[str, Any]], src_w: int, src_h: int,
         pos: list[float] = list(s.get("positions") or [])
         comp = f"comp{si}"
 
-        if lay in N_PANEL:
+        if lay == FOUR:
+            # GRID 2x2, BUKAN empat baris bertumpuk.
+            # Empat panel yang di-vstack pada bingkai 9:16 menghasilkan pita
+            # 720x320 per orang — rasio 2,25:1, jadi wajah terpotong atas-bawah
+            # dan hampir tidak ada yang terlihat. Grid 2x2 memberi 360x640 per
+            # panel, yaitu 9:16 penuh per orang. Ini juga yang dipakai OpusClip.
+            pw = out_w // 2 // 2 * 2
+            ph = out_h // 2 // 2 * 2
+            while len(pos) < 4:
+                pos.append((len(pos) + 0.5) / 4)
+            pos = pos[:4]
+            # urutan panel: kiri-atas, kanan-atas, kiri-bawah, kanan-bawah
+            pl = []
+            for k in range(4):
+                lbl = f"q{si}_{k}"
+                parts.append(_panel_crop(labels[idx], lbl, src_w, src_h,
+                                         pw, ph, pos[k], cw_frac=0.30))
+                pl.append(lbl)
+                idx += 1
+            parts.append(f"[{pl[0]}][{pl[1]}]hstack=inputs=2[{si}top]")
+            parts.append(f"[{pl[2]}][{pl[3]}]hstack=inputs=2[{si}bot]")
+            sisa_w = out_w - pw * 2
+            sisa_h = out_h - ph * 2
+            atas, bawah = f"{si}top", f"{si}bot"
+            if sisa_w or sisa_h:
+                # tambal pembagian bulat supaya ukuran akhir tepat out_w x out_h
+                parts.append(f"[{atas}]pad={out_w}:{ph}:0:0[{si}topp]")
+                parts.append(f"[{bawah}]pad={out_w}:{out_h - ph}:0:0[{si}botp]")
+                atas, bawah = f"{si}topp", f"{si}botp"
+            parts.append(f"[{atas}][{bawah}]vstack=inputs=2[{comp}]")
+
+        elif lay in N_PANEL:
             n = N_PANEL[lay]
             panel_h = out_h // n
             # posisi kurang → sebar merata; kebanyakan → ambil n pertama

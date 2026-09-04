@@ -394,6 +394,14 @@ function Dashboard() {
                 <Crown className="size-4" /> Perpanjang Premium
               </Button>
             )}
+
+            {/* Jalan pintas ke Unduhan: sebelumnya hanya lewat menu hamburger,
+                padahal ini tujuan yang paling sering dicari setelah render. */}
+            <Button variant="outline" className="mt-2.5 w-full" asChild>
+              <Link to="/unduh">
+                <Download className="size-4" /> Unduhan
+              </Link>
+            </Button>
           </aside>
         </div>
 

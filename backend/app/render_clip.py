@@ -565,6 +565,25 @@ def _lay_seg_dari(st: dict[str, Any], clip: dict[str, Any]) -> list[dict[str, An
         return []
 
 
+def _cam_track_dari(st: dict[str, Any], fps: float,
+                    cuts: list[int]) -> dict[str, Any]:
+    """Bagian hasil analisis yang layak disimpan ke clips.camera_track.
+
+    Hanya `layout_frames` + fps + cuts. Trajektori penuh TIDAK disimpan: panel
+    auto layout tidak memakainya dan ia membesarkan baris DB tanpa guna.
+
+    Kenapa penting: menghitung layout_frames butuh analisis wajah penuh (44 detik
+    untuk klip 61 detik). Tanpa disimpan di sini, membuka panel auto layout
+    memicu analisis ULANG dari nol — itu sebabnya tombolnya terasa mati/lemot.
+    Terukur: 34 dari 38 klip tidak punya camera_track sebelum perbaikan ini.
+    """
+    return {
+        "layout_frames": st.get("layout_frames") or [],
+        "analysis_fps": float(fps),
+        "cuts": list(cuts or []),
+    }
+
+
 async def render_preview_clip(
     project_id: str,
     clip_id: str,
@@ -637,6 +656,9 @@ async def render_preview_clip(
         cam_fps = 15.0
         cam_rolls: list[float] = []
         lay_seg: list[dict[str, Any]] = []
+        # Hasil analisis lengkap, disimpan ke clips.camera_track di akhir supaya
+        # panel auto layout tidak perlu menganalisis ulang (lihat komentar di PATCH).
+        cam_track: dict[str, Any] = {}
 
         seek_url = await _source_seek_url(project)
         made = False
@@ -665,6 +687,7 @@ async def render_preview_clip(
                 cam_fps = float(st.get("analysis_fps") or 15.0)
                 cam_rolls = list(st.get("roll") or [])
                 lay_seg = _lay_seg_dari(st, clip)
+                cam_track = _cam_track_dari(st, cam_fps, cam_cuts)
                 if not traj or len(traj) < 2:
                     print("[preview] face tracking kosong → crop tengah")
                     traj = None
@@ -706,6 +729,7 @@ async def render_preview_clip(
                 cam_fps = float(st.get("analysis_fps") or 15.0)
                 cam_rolls = list(st.get("roll") or [])
                 lay_seg = _lay_seg_dari(st, clip)
+                cam_track = _cam_track_dari(st, cam_fps, cam_cuts)
                 if not traj or len(traj) < 2:
                     traj = None
             except Exception as exc:
@@ -750,6 +774,16 @@ async def render_preview_clip(
                     "preview_url": preview_url,
                     "preview_ready": True,
                     "preview_style_hash": style_hash,
+                    # camera_track DISIMPAN di sini, bukan hanya oleh endpoint
+                    # rencana layout. Tanpa ini, membuka panel auto layout memaksa
+                    # analisis wajah ULANG dari nol (44 detik untuk klip 61s), jadi
+                    # tombolnya terlihat "tidak bisa dipencet" dan aplikasi terasa
+                    # lemot. Terukur: 34 dari 38 klip TIDAK punya camera_track
+                    # karena preview tidak pernah menyimpannya.
+                    # layout_frames-lah yang paling mahal dihitung, dan ia sudah
+                    # ada di tangan kita di sini — membuangnya lalu menghitung
+                    # ulang saat panel dibuka adalah pemborosan murni.
+                    **({"camera_track": cam_track} if cam_track else {}),
                 },
             )
 

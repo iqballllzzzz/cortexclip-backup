@@ -152,16 +152,24 @@ export function PremiumDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4" onClick={onClose}>
       <div
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-border bg-background p-6"
+        className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-background p-4 sm:p-5"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="flex items-center gap-2 text-xl font-bold">
-            <Crown className="size-5 text-accent" /> Upgrade Premium
+        {/* Tombol tutup DIJADIKAN sticky: dialog ini bisa lebih tinggi dari
+            layar HP, dan saat isinya digulir tombol X ikut hilang ke atas
+            sehingga dialog terasa tidak bisa ditutup. */}
+        <div className="sticky top-0 z-10 -mx-4 -mt-4 mb-3 flex items-center justify-between gap-2 border-b border-border bg-background px-4 pb-2.5 pt-4 sm:-mx-5 sm:-mt-5 sm:px-5 sm:pt-5">
+          <h2 className="flex min-w-0 items-center gap-2 text-[17px] font-bold">
+            <Crown className="size-4 shrink-0 text-accent" />
+            <span className="truncate">Upgrade Premium</span>
           </h2>
-          <button onClick={onClose} className="rounded-full p-2 hover:bg-muted" aria-label="Tutup">
+          <button
+            onClick={onClose}
+            className="grid size-8 shrink-0 place-items-center rounded-full border border-border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            aria-label="Tutup"
+          >
             <X className="size-4" />
           </button>
         </div>
