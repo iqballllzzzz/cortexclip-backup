@@ -272,10 +272,11 @@ async def create_job(body: JobIn, request: Request, authorization: str = Header(
     job_id = uuid.uuid4().hex
     jobs[job_id] = {"status": "queued", "progress": 0, "project_id": body.project_id,
                     "user_id": user["id"], "created": time.time()}
-    asyncio.create_task(run_pipeline(
+    from .background import spawn
+    spawn(run_pipeline(
         job_id, body.project_id, user["id"], body.media_path,
         body.target_count, body.caption_style,
-    ))
+    ), name=f"pipeline:{job_id[:8]}", key=f"pipeline:{job_id}")
     return {"job_id": job_id}
 
 
@@ -364,7 +365,8 @@ async def api_preview_clip(body: RenderClipIn, request: Request, authorization: 
         return {"status": "ready", "url": rows[0]["preview_url"], "cached": True}
 
     key = f"preview:{body.clip_id}"
-    if key in _preview_tasks and not _preview_tasks[key].done():
+    from .background import sedang_jalan, spawn
+    if sedang_jalan(key):
         return {"status": "processing", "url": None}
 
     async def run_preview():
@@ -389,10 +391,11 @@ async def api_preview_clip(body: RenderClipIn, request: Request, authorization: 
                                 meta={"error": str(exc)[:200]})
             except Exception:
                 pass
-        finally:
-            _preview_tasks.pop(key, None)
 
-    _preview_tasks[key] = asyncio.create_task(run_preview())
+    # spawn() menyimpan referensi KUAT ke task (lihat background.py): task tanpa
+    # referensi boleh dibuang GC kapan saja menurut dokumentasi asyncio, dan itu
+    # penyebab "proses berhenti kalau pengguna keluar dari website".
+    _preview_tasks[key] = spawn(run_preview(), name=key, key=key)
     return {"status": "processing", "url": None}
 
 
@@ -480,10 +483,15 @@ async def api_preview_status(clip_id: str, request: Request,
         return {"status": "ready", "url": row["preview_url"],
                 "progress": 100, "stage": "Selesai"}
     key = f"preview:{clip_id}"
-    running = key in _preview_tasks and not _preview_tasks[key].done()
+    from .background import sedang_jalan
+    running = sedang_jalan(key)
     return {"status": "processing" if running else "idle", "url": None,
             "progress": int(prog.get("pct", 0)),
-            "stage": prog.get("tahap") or ("Menyiapkan" if running else "")}
+            "stage": prog.get("tahap") or ("Menyiapkan" if running else ""),
+            # estimasi sisa detik dari laju NYATA (lihat preview_progress.py) —
+            # dipakai UI untuk hitung mundur; None kalau belum bisa dihitung
+            "eta_s": prog.get("eta_s"),
+            "elapsed_s": prog.get("elapsed_s", 0)}
 
 
 # ---------------------------------------------------------------------------
@@ -601,7 +609,9 @@ async def api_start_render_job(body: RenderJobIn, request: Request, authorizatio
                     json={"status": "failed", "error": str(exc)[:500]},
                 )
 
-    asyncio.create_task(run_job())
+    from .background import spawn
+    spawn(run_job(), name=f"render:{job['id'][:8]}",
+          key=f"render-job:{job['id']}")
     return {"job_id": job["id"], "status": "pending"}
 
 
@@ -1010,7 +1020,9 @@ async def api_youtube_process(body: YoutubeIn, request: Request, authorization: 
         "source_type": "youtube", "source_url": url, "status": "downloading",
     }])
     project_id = rows[0]["id"]
-    asyncio.create_task(_youtube_task(project_id, user["id"], url, target))
+    from .background import spawn
+    spawn(_youtube_task(project_id, user["id"], url, target),
+          name=f"youtube:{project_id[:8]}", key=f"proyek:{project_id}")
     return {"project_id": project_id, "plan": quota["plan"], "target_clips": target}
 
 
@@ -1232,7 +1244,9 @@ async def api_project_upload_done(request: Request, authorization: str | None = 
     await sb("PATCH", f"projects?id=eq.{body.project_id}",
              json_body={"storage_path": body.storage_path, "source_url": body.storage_path,
                         "status": "downloading"})
-    asyncio.create_task(_upload_task(body.project_id, user["id"], body.storage_path, target))
+    from .background import spawn
+    spawn(_upload_task(body.project_id, user["id"], body.storage_path, target),
+          name=f"upload:{body.project_id[:8]}", key=f"proyek:{body.project_id}")
     return {"ok": True, "target_clips": target}
 
 
@@ -1284,7 +1298,9 @@ async def api_project_reprocess(
     await sb("PATCH", f"projects?id=eq.{project_id}",
              json_body={"status": "downloading", "error_message": None})
 
-    asyncio.create_task(_reprocess_task(project_id, user["id"], proj["storage_path"], target))
+    from .background import spawn
+    spawn(_reprocess_task(project_id, user["id"], proj["storage_path"], target),
+          name=f"reproses:{project_id[:8]}", key=f"proyek:{project_id}")
     return {"ok": True, "status": "downloading", "target_clips": target}
 
 
@@ -1355,11 +1371,18 @@ async def _start_render_watchdog() -> None:
             )
     except Exception as exc:
         print(f"[render-watchdog] startup sweep gagal: {exc}")
-    asyncio.create_task(_reap_stale_render_jobs())
+    from .background import spawn
+    spawn(_reap_stale_render_jobs(), name="watchdog:render")
     # order QRIS pending yang lewat 60 menit ditutup otomatis, walau user
     # sudah menutup tab (get_order_status hanya jalan saat dialog terbuka)
     from .premium import reap_expired_orders_loop
-    asyncio.create_task(reap_expired_orders_loop())
+    spawn(reap_expired_orders_loop(), name="watchdog:qris")
+    # penjadwal auto-publish ke TikTok/YouTube (social_upload.py)
+    try:
+        from .social_upload import loop_penjadwal
+        spawn(loop_penjadwal(), name="watchdog:autopublish")
+    except Exception as exc:
+        print(f"[autopublish] penjadwal tidak dijalankan: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -1368,3 +1391,7 @@ async def _start_render_watchdog() -> None:
 from .broll_api import register_broll_routes  # noqa: E402
 
 register_broll_routes(app, get_user, SUPABASE_URL, SUPABASE_ANON_KEY)
+
+from .social_api import register_social_routes  # noqa: E402
+
+register_social_routes(app, get_user)

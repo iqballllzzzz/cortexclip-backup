@@ -1,10 +1,9 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowUpRight,
   CheckCircle2,
-  Clock,
   Crown,
   Download,
   FileVideo,
@@ -12,10 +11,10 @@ import {
   Loader2,
   MoreVertical,
   Pencil,
-  Plus,
+  Send,
   Share2,
-  Sparkles,
   Trash2,
+  TriangleAlert,
   Upload,
   Youtube,
 } from "lucide-react";
@@ -76,6 +75,18 @@ function statusOf(p: Project) {
   return STATUS[p.status as string] ?? { label: String(p.status), tone: "text-muted-foreground" };
 }
 
+/** Tahap pipeline tempat sebuah proyek berada saat ini. */
+type Tahap = "jalan" | "selesai" | "gagal";
+
+function tahapOf(p: Project): Tahap {
+  const s = String(p.status);
+  if (s === "completed") return "selesai";
+  if (s === "failed") return "gagal";
+  return "jalan";
+}
+
+type Filter = "semua" | Tahap;
+
 /* ------------------------------------------------------------------- page */
 
 function Dashboard() {
@@ -96,6 +107,7 @@ function Dashboard() {
   const [sharing, setSharing] = useState(false);
   const [sharedLink, setSharedLink] = useState<string | null>(null);
   const [premiumOpen, setPremiumOpen] = useState(false);
+  const [filter, setFilter] = useState<Filter>("semua");
   const [quota, setQuota] = useState<{
     plan: string;
     used: number;
@@ -315,11 +327,51 @@ function Dashboard() {
   }
 
   const displayName = profile?.display_name ?? user.email?.split("@")[0] ?? "Creator";
-  const doneCount = projects.filter((p) => p.status === "completed").length;
-  const activeCount = projects.filter(
-    (p) => p.status !== "completed" && p.status !== "failed",
-  ).length;
   const quotaPct = quota ? Math.min(100, Math.round((quota.used / quota.limit) * 100)) : 0;
+  const sisa = quota ? Math.max(0, quota.limit - quota.used) : null;
+
+  const hitung = useMemo(() => {
+    const h = { jalan: 0, selesai: 0, gagal: 0 };
+    for (const p of projects) h[tahapOf(p)] += 1;
+    return h;
+  }, [projects]);
+
+  const terlihat = useMemo(
+    () => (filter === "semua" ? projects : projects.filter((p) => tahapOf(p) === filter)),
+    [projects, filter],
+  );
+
+  /* Rel pipeline: tahap NYATA yang dilalui setiap proyek. Angkanya dihitung
+     dari data, bukan ditulis tangan — tidak ada metrik yang dikarang. */
+  const rel = [
+    {
+      id: "jalan" as const,
+      urut: "01",
+      nama: "Sedang diproses",
+      nilai: hitung.jalan,
+      ket: "transkripsi → analisis → render",
+      ikon: Loader2,
+      putar: hitung.jalan > 0,
+    },
+    {
+      id: "selesai" as const,
+      urut: "02",
+      nama: "Siap dipakai",
+      nilai: hitung.selesai,
+      ket: "klip sudah bisa diedit & diunduh",
+      ikon: CheckCircle2,
+      putar: false,
+    },
+    {
+      id: "gagal" as const,
+      urut: "03",
+      nama: "Perlu diulang",
+      nilai: hitung.gagal,
+      ket: "gagal di tengah jalan",
+      ikon: TriangleAlert,
+      putar: false,
+    },
+  ];
 
   return (
     <div className="min-h-screen bg-background text-foreground antialiased">
@@ -332,84 +384,82 @@ function Dashboard() {
         themeToggle
       />
 
-      <main className="mx-auto max-w-[1180px] px-4 pb-28 pt-9 sm:px-6 sm:pt-12">
-        {/* ==== Kepala: kiri berat (sapaan + tindakan), kanan ringan (meteran) ==== */}
-        <div className="grid gap-8 lg:grid-cols-[1.45fr_1fr] lg:gap-12">
-          <section className="reveal" style={{ ["--i" as string]: 0 }}>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              Ruang kerja
-            </p>
-            <h1 className="mt-3 font-display text-[30px] leading-[1.04] font-bold tracking-tight sm:text-[46px]">
-              Selamat datang,
-              <br />
-              <span className="text-accent">{displayName}</span>.
-            </h1>
-            <p className="mt-5 max-w-prose text-[15px] leading-relaxed text-muted-foreground">
-              Tempel satu link YouTube atau unggah video panjang. Sisanya kami kerjakan: transkripsi,
-              pemilihan momen, subtitle karaoke, framing wajah, sampai file siap unggah.
-            </p>
-          </section>
-
-          {/* meteran kuota — tinggi tak sama dengan kolom kiri (asimetri disengaja) */}
-          <aside
-            className="reveal self-end panel px-5 py-5"
-            style={{ ["--i" as string]: 1 }}
-          >
-            <div className="flex items-baseline justify-between gap-3">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                {quota?.plan === "premium" ? "Paket Premium" : "Paket Gratis"}
+      <main className="mx-auto max-w-[1180px] px-4 pb-28 pt-8 sm:px-6 sm:pt-10">
+        {/* ═══ KEPALA: satu band hairline. Sapaan kiri, kuota kanan — tidak ada
+             kartu besar, tidak ada hero setinggi layar. ═══ */}
+        <section
+          className="reveal border-b border-border pb-7"
+          style={{ ["--i" as string]: 0 }}
+        >
+          <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+            <div className="min-w-0">
+              <h1 className="font-display text-[27px] font-bold leading-[1.08] tracking-tight sm:text-[38px]">
+                Halo, <span className="text-accent">{displayName}</span>
+              </h1>
+              <p className="mt-2.5 max-w-[46ch] text-[14px] leading-relaxed text-muted-foreground">
+                Tempel satu link atau unggah video panjang. Transkripsi, pemilihan momen,
+                subtitle karaoke, dan framing wajah dikerjakan di server.
               </p>
-              {quota?.plan === "premium" ? (
-                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-accent">
-                  <Crown className="size-3" /> aktif
+            </div>
+
+            {/* Meteran kuota: angka besar + bar, tanpa panel — menempel pada band */}
+            <div className="w-full shrink-0 sm:w-[248px]">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {quota?.plan === "premium" ? "Premium" : "Paket gratis"}
                 </span>
-              ) : null}
+                {quota?.plan === "premium" ? (
+                  <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px] font-semibold text-accent">
+                    <Crown className="size-3" /> aktif
+                  </span>
+                ) : null}
+              </div>
+              <p className="stat-figure mt-2 text-[34px] leading-none">
+                {sisa ?? "—"}
+                <span className="ml-2 font-sans text-[13px] font-medium tracking-normal text-muted-foreground">
+                  video tersisa hari ini
+                </span>
+              </p>
+              <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-border">
+                <div
+                  className="h-full rounded-full bg-accent transition-[width] duration-500"
+                  style={{ width: `${quotaPct}%` }}
+                />
+              </div>
+              <p className="mt-2 text-[12px] text-muted-foreground">
+                {quota
+                  ? `${quota.used}/${quota.limit} terpakai · maks ${quota.clips_per_video} klip per video`
+                  : "Memuat kuota…"}
+              </p>
             </div>
+          </div>
 
-            <p className="stat-figure mt-4 text-[40px]">
-              {quota ? quota.limit - quota.used : "—"}
-              <span className="ml-1.5 font-sans text-sm font-medium tracking-normal text-muted-foreground">
-                video tersisa hari ini
-              </span>
-            </p>
-
-            <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-border">
-              <div
-                className="h-full rounded-full bg-accent transition-[width] duration-500"
-                style={{ width: `${quotaPct}%` }}
-              />
-            </div>
-            <p className="mt-2.5 text-[12px] text-muted-foreground">
-              {quota
-                ? `${quota.used} dari ${quota.limit} terpakai · maks ${quota.clips_per_video} klip per video`
-                : "Memuat kuota…"}
-            </p>
-
-            {quota?.plan !== "premium" ? (
-              <Button variant="accent" className="mt-5 w-full" onClick={() => setPremiumOpen(true)}>
-                <Crown className="size-4" /> Upgrade ke Premium
-              </Button>
-            ) : (
-              <Button variant="outline" className="mt-5 w-full" onClick={() => setPremiumOpen(true)}>
-                <Crown className="size-4" /> Perpanjang Premium
-              </Button>
-            )}
-
-            {/* Jalan pintas ke Unduhan: sebelumnya hanya lewat menu hamburger,
-                padahal ini tujuan yang paling sering dicari setelah render. */}
-            <Button variant="outline" className="mt-2.5 w-full" asChild>
+          {/* Tiga tindakan sejajar, lebar tidak sama — Premium paling berat */}
+          <div className="mt-6 flex flex-wrap gap-2.5">
+            <Button
+              variant={quota?.plan === "premium" ? "outline" : "accent"}
+              onClick={() => setPremiumOpen(true)}
+              className="whitespace-nowrap"
+            >
+              <Crown className="size-4" />
+              {quota?.plan === "premium" ? "Perpanjang Premium" : "Beli Premium"}
+            </Button>
+            <Button variant="outline" asChild className="whitespace-nowrap">
               <Link to="/unduh">
                 <Download className="size-4" /> Unduhan
               </Link>
             </Button>
-          </aside>
-        </div>
+            <Button variant="outline" asChild className="whitespace-nowrap">
+              <Link to="/social">
+                <Send className="size-4" /> Social Auto Publishing
+              </Link>
+            </Button>
+          </div>
+        </section>
 
-        {/* ==== Dua jalur mulai: kolom tidak sama lebar ==== */}
-        <section
-          className="reveal mt-12 grid gap-3 lg:grid-cols-[1.15fr_1fr]"
-          style={{ ["--i" as string]: 2 }}
-        >
+        {/* ═══ MULAI: satu panel, dua jalur bertumpuk (link dominan, unggah
+             sekunder) — bukan dua kartu kembar bersebelahan. ═══ */}
+        <section className="reveal mt-10" style={{ ["--i" as string]: 1 }}>
           <input
             ref={fileInput}
             type="file"
@@ -422,77 +472,76 @@ function Dashboard() {
             }}
           />
 
-          {/* jalur 1: link YouTube (utama) */}
-          <div className="panel flex flex-col justify-between px-5 py-5 sm:px-6 sm:py-6">
-            <div>
-              <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                <Youtube className="size-3.5 text-accent" /> Dari link
-              </p>
-              <h2 className="mt-3 font-display text-lg font-bold tracking-tight">
-                Tempel URL YouTube
-              </h2>
+          <div className="panel overflow-hidden">
+            {/* jalur utama: link YouTube */}
+            <div className="px-5 py-5 sm:px-7 sm:py-6">
+              <h2 className="font-display text-lg font-bold tracking-tight">Mulai klip baru</h2>
               <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground">
                 Video diunduh di server kami — koneksi kamu tidak dipakai.
               </p>
-            </div>
-            <div className="mt-5 flex flex-col gap-2.5 sm:flex-row">
-              <label className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-border bg-background px-3.5 py-2.5 transition-colors focus-within:border-accent">
-                <span className="sr-only">Link YouTube</span>
-                <input
-                  value={youtubeUrl}
-                  onChange={(e) => setYoutubeUrl(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void createFromYoutube();
-                  }}
-                  placeholder="https://youtu.be/…"
-                  className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                />
-              </label>
-              <Button
-                variant="accent"
-                disabled={creating}
-                onClick={() => void createFromYoutube()}
-                className="shrink-0"
-              >
-                {creating ? <Loader2 className="size-4 animate-spin" /> : <ArrowUpRight className="size-4" />}
-                Proses
-              </Button>
-            </div>
-          </div>
-
-          {/* jalur 2: unggah file */}
-          <button
-            type="button"
-            disabled={creating}
-            onClick={() => fileInput.current?.click()}
-            className="panel group px-5 py-5 text-left transition-colors hover:border-accent/45 disabled:opacity-60 sm:px-6 sm:py-6"
-          >
-            <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              <Upload className="size-3.5 text-accent" /> Dari perangkat
-            </p>
-            <h2 className="mt-3 font-display text-lg font-bold tracking-tight">Unggah video</h2>
-            <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground">
-              MP4, MOV, MKV, atau audio. Progres unggahan tampil di sini.
-            </p>
-            <span className="mt-5 inline-flex items-center gap-2.5 rounded-xl border border-dashed border-border px-4 py-3 text-sm font-semibold transition-colors group-hover:border-accent/60">
-              {creating && uploadPct !== null ? (
-                <Loader2 className="size-4 animate-spin text-accent" />
-              ) : (
-                <FileVideo className="size-4 text-accent" />
-              )}
-              {creating && uploadPct !== null
-                ? `Mengunggah ${Math.round(uploadPct * 100)}%`
-                : "Pilih file"}
-            </span>
-
-            {uploadPct !== null ? (
-              <span className="mt-4 block">
-                <span className="block h-1.5 w-full overflow-hidden rounded-full bg-border">
-                  <span
-                    className="block h-full rounded-full bg-accent transition-[width]"
-                    style={{ width: `${Math.round(uploadPct * 100)}%` }}
+              <div className="mt-4 flex flex-col gap-2.5 sm:flex-row">
+                <label className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-border bg-background px-3.5 py-2.5 transition-colors focus-within:border-accent">
+                  <Youtube className="size-4 shrink-0 text-accent" />
+                  <span className="sr-only">Link YouTube</span>
+                  <input
+                    value={youtubeUrl}
+                    onChange={(e) => setYoutubeUrl(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void createFromYoutube();
+                    }}
+                    placeholder="https://youtu.be/…"
+                    className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
                   />
+                </label>
+                <Button
+                  variant="accent"
+                  disabled={creating}
+                  onClick={() => void createFromYoutube()}
+                  className="shrink-0 whitespace-nowrap"
+                >
+                  {creating ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <ArrowUpRight className="size-4" />
+                  )}
+                  Proses
+                </Button>
+              </div>
+            </div>
+
+            {/* jalur sekunder: unggah file — baris di dalam panel yang sama */}
+            <button
+              type="button"
+              disabled={creating}
+              onClick={() => fileInput.current?.click()}
+              className="flex w-full items-center gap-3.5 border-t border-border bg-surface/40 px-5 py-4 text-left transition-colors hover:bg-surface/70 disabled:opacity-60 sm:px-7"
+            >
+              <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-background text-accent">
+                {creating && uploadPct !== null ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Upload className="size-4" />
+                )}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[14px] font-semibold tracking-tight">
+                  {creating && uploadPct !== null
+                    ? `Mengunggah ${Math.round(uploadPct * 100)}%`
+                    : "Atau unggah dari perangkat"}
                 </span>
+                <span className="mt-0.5 block truncate text-[12px] text-muted-foreground">
+                  MP4, MOV, MKV, atau audio
+                </span>
+                {uploadPct !== null ? (
+                  <span className="mt-2.5 block h-1.5 w-full overflow-hidden rounded-full bg-border">
+                    <span
+                      className="block h-full rounded-full bg-accent transition-[width]"
+                      style={{ width: `${Math.round(uploadPct * 100)}%` }}
+                    />
+                  </span>
+                ) : null}
+              </span>
+              {uploadPct !== null ? (
                 <span
                   role="button"
                   tabIndex={0}
@@ -503,81 +552,116 @@ function Dashboard() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter") uploadRef.current?.abort();
                   }}
-                  className="mt-2 inline-block text-[12px] font-medium text-muted-foreground underline decoration-border underline-offset-2"
+                  className="shrink-0 whitespace-nowrap text-[12px] font-medium text-muted-foreground underline decoration-border underline-offset-2"
                 >
-                  Batalkan unggahan
+                  Batalkan
                 </span>
-              </span>
-            ) : null}
-          </button>
+              ) : (
+                <FileVideo className="size-4 shrink-0 text-muted-foreground" />
+              )}
+            </button>
+          </div>
         </section>
 
-        {/* ==== Angka ringkas: satu baris, bukan tiga kartu seragam ==== */}
-        <section
-          className="reveal mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-2xl bg-border sm:grid-cols-4"
-          style={{ ["--i" as string]: 3 }}
-        >
-          {[
-            { label: "Total proyek", value: projects.length, icon: Film },
-            { label: "Sedang diproses", value: activeCount, icon: Clock },
-            { label: "Selesai", value: doneCount, icon: CheckCircle2 },
-            {
-              label: "Klip siap unduh",
-              value: doneCount,
-              icon: Download,
-              href: "/unduh" as const,
-            },
-          ].map((s) => (
-            <div key={s.label} className="bg-card px-4 py-4 sm:px-5 sm:py-5">
-              <p className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                <s.icon className="size-3 text-accent" /> {s.label}
-              </p>
-              <p className="stat-figure mt-2.5 text-[28px]">{s.value}</p>
-              {s.href ? (
-                <Link
-                  to={s.href}
-                  className="mt-1 inline-flex items-center gap-1 text-[12px] font-semibold text-accent transition-opacity hover:opacity-70"
+        {/* ═══ REL PIPELINE: tahap nyata, angkanya dari data. Menekan satu tahap
+             menyaring daftar di bawah — jadi angka ini bukan hiasan. ═══ */}
+        <section className="reveal mt-10" style={{ ["--i" as string]: 2 }}>
+          <div className="grid gap-px overflow-hidden rounded-2xl bg-border sm:grid-cols-3">
+            {rel.map((t) => {
+              const aktif = filter === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  aria-pressed={aktif}
+                  onClick={() => setFilter(aktif ? "semua" : t.id)}
+                  className={`bg-card px-4 py-4 text-left transition-colors hover:bg-surface/60 sm:px-5 sm:py-5 ${
+                    aktif ? "bg-surface" : ""
+                  }`}
                 >
-                  Riwayat unduhan
-                </Link>
-              ) : null}
-            </div>
-          ))}
+                  <span className="flex items-center gap-2">
+                    <t.ikon
+                      className={`size-3.5 shrink-0 ${
+                        t.id === "gagal" ? "text-destructive" : "text-accent"
+                      } ${t.putar ? "animate-spin" : ""}`}
+                    />
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      {t.nama}
+                    </span>
+                  </span>
+                  <span className="stat-figure mt-2.5 block text-[27px] leading-none">
+                    {t.nilai}
+                  </span>
+                  <span className="mt-1.5 block text-[12px] leading-snug text-muted-foreground">
+                    {t.ket}
+                  </span>
+                  <span
+                    className={`mt-2.5 block h-0.5 rounded-full transition-all ${
+                      aktif ? "w-10 bg-accent" : "w-0 bg-transparent"
+                    }`}
+                  />
+                </button>
+              );
+            })}
+          </div>
         </section>
 
-        {/* ==== Daftar proyek: baris hairline, bukan grid kartu ==== */}
-        <section className="reveal mt-14" style={{ ["--i" as string]: 4 }}>
+        {/* ═══ DAFTAR PROYEK ═══ */}
+        <section className="reveal mt-12" style={{ ["--i" as string]: 3 }}>
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">
               Proyek kamu
             </h2>
-            <span className="text-[13px] text-muted-foreground">{projects.length} total</span>
+            <span className="text-[13px] text-muted-foreground">
+              {filter === "semua" ? (
+                `${projects.length} total`
+              ) : (
+                <>
+                  {terlihat.length} ditampilkan ·{" "}
+                  <button
+                    type="button"
+                    onClick={() => setFilter("semua")}
+                    className="font-semibold text-accent underline-offset-2 hover:underline"
+                  >
+                    tampilkan semua
+                  </button>
+                </>
+              )}
+            </span>
           </div>
 
           {loading ? (
             <PageLoading label="Memuat proyek" />
-          ) : projects.length === 0 ? (
-            <div className="mt-6 rounded-2xl border border-dashed border-border px-6 py-16 text-center">
-              <Sparkles className="mx-auto size-8 text-muted-foreground/50" />
-              <p className="mt-4 font-display text-base font-bold">Belum ada proyek</p>
-              <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
-                Tempel link YouTube di atas, atau unggah video dari perangkat untuk membuat klip
-                pertama kamu.
+          ) : terlihat.length === 0 ? (
+            <div className="mt-6 rounded-2xl border border-dashed border-border px-6 py-14 text-center">
+              <p className="font-display text-base font-bold">
+                {projects.length === 0 ? "Belum ada proyek" : "Tidak ada di tahap ini"}
               </p>
-              <Button variant="accent" className="mt-6" onClick={() => fileInput.current?.click()}>
-                <Plus className="size-4" /> Buat proyek pertama
+              <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
+                {projects.length === 0
+                  ? "Tempel link YouTube di atas, atau unggah video dari perangkat untuk membuat klip pertama kamu."
+                  : "Coba tahap lain, atau tampilkan semua proyek."}
+              </p>
+              <Button
+                variant={projects.length === 0 ? "accent" : "outline"}
+                className="mt-6 whitespace-nowrap"
+                onClick={() =>
+                  projects.length === 0 ? fileInput.current?.click() : setFilter("semua")
+                }
+              >
+                {projects.length === 0 ? "Buat proyek pertama" : "Tampilkan semua"}
               </Button>
             </div>
           ) : (
             <ul className="mt-6 overflow-hidden rounded-2xl border border-border">
-              {projects.map((p, i) => {
+              {terlihat.map((p, i) => {
                 const st = statusOf(p);
-                const busy = !["completed", "failed"].includes(String(p.status));
+                const busy = tahapOf(p) === "jalan";
                 return (
                   <li
                     key={p.id}
                     className="reveal relative border-b border-border last:border-0"
-                    style={{ ["--i" as string]: Math.min(8, 5 + i) }}
+                    style={{ ["--i" as string]: Math.min(8, 4 + i) }}
                   >
                     <div className="group flex items-center gap-3 bg-card transition-colors hover:bg-surface/60 sm:gap-4">
                       <Link
@@ -689,10 +773,19 @@ function Dashboard() {
           )}
         </section>
 
-        <p className="mt-12 max-w-prose text-[13px] leading-relaxed text-muted-foreground">
-          Render berjalan di server — kamu boleh menutup halaman ini. Hasilnya menunggu di{" "}
+        {/* ═══ PENUTUP: satu paragraf, bukan footer empat kolom ═══ */}
+        <p className="mt-12 max-w-prose border-t border-border pt-6 text-[13px] leading-relaxed text-muted-foreground">
+          Semua pemrosesan berjalan di server — kamu boleh menutup halaman ini dan pekerjaannya
+          tetap lanjut. Hasilnya menunggu di{" "}
           <Link to="/unduh" className="font-semibold text-accent underline-offset-2 hover:underline">
             halaman unduhan
+          </Link>
+          , dan bisa tayang sendiri lewat{" "}
+          <Link
+            to="/social"
+            className="font-semibold text-accent underline-offset-2 hover:underline"
+          >
+            Social Auto Publishing
           </Link>
           .
         </p>

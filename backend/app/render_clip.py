@@ -256,13 +256,16 @@ async def render_clip_server(
         # IKON & B-ROLL overlay: planner baru (genre-aware, katalog 500+).
         # PARITY: preview memuat PNG dari GET /api/icons/{icon_id} — berkas
         # yang SAMA dengan yang dibakar ffmpeg di sini.
+        #
+        # CATATAN URUTAN: di sini HANYA rencana (kapan & aset apa) yang dibuat.
+        # POSISI ikon/b-roll dihitung SETELAH face tracking & auto split
+        # diketahui (lihat blok "TATA LETAK OVERLAY" di bawah), karena posisi
+        # yang benar butuh tahu di mana wajah berada dan di mana subtitle
+        # berada pada momen itu.
         broll_video_overlays: list[dict[str, Any]] = []
+        placements: list[dict[str, Any]] = []
         if broll_enabled:
             try:
-                from anyio import to_thread
-
-                from .broll_video import broll_local_path
-                from .icon_png import icon_png_from_id
                 from .overlay_plan import plan_overlays
 
                 duration = float(clip["end_time"]) - float(clip["start_time"])
@@ -279,8 +282,8 @@ async def render_clip_server(
                     placements = saved
                     print(f"[render] overlay_plan dari preview: {len(placements)} item")
                 else:
-                    placements = await plan_overlays(words, duration, genre=genre)
-                    print(f"[render] genre={genre} overlay baru={len(placements or [])}")
+                    placements = await plan_overlays(words, duration, genre=genre) or []
+                    print(f"[render] genre={genre} overlay baru={len(placements)}")
                     # SIMPAN supaya render ulang / preview berikutnya IDENTIK
                     # (planner AI temperature 0.4 → tiap panggilan beda).
                     if placements:
@@ -295,43 +298,9 @@ async def render_clip_server(
                                 )
                         except Exception as exc:
                             print(f"[render] simpan overlay_plan gagal: {exc}")
-                for p in placements or []:
-                    icon_id = str(p.get("icon_id") or "StarIcon")
-                    png = icon_png_from_id(icon_id)
-                    if not png:
-                        continue
-                    ts = float(p.get("time_start", 0))
-                    te = max(ts + 0.5, float(p.get("time_end", ts + 2.5)))
-                    side = str(p.get("side", "right"))
-                    # mirror preview: left:20%/50%/80%, top:26%, translate(-50%,-50%)
-                    px = int(vw * (0.20 if side == "left" else 0.80 if side == "right" else 0.5))
-                    py = int(vh * 0.26)
-                    icon_png_overlays.append({
-                        "png": png, "x": px, "y": py,
-                        "size": int(vw * 0.24),   # mirror width fit.w*0.24
-                        "t_start": ts, "t_end": te,
-                        "anim": str(p.get("animation") or "slide-left"),
-                    })
-
-                    # B-ROLL VIDEO PiP (mirror <video> PiP preview)
-                    burl = p.get("broll_url")
-                    if burl:
-                        bfile = await to_thread.run_sync(broll_local_path, str(burl))
-                        if bfile:
-                            # Jendela b-roll di bawah wajah pembicara (wajah
-                            # ~25-41% tinggi) & di atas subtitle (80%), lebar 74%
-                            bw = int(vw * 0.74)
-                            broll_video_overlays.append({
-                                "file": bfile,
-                                "x": (vw - bw) // 2,
-                                "y": int(vh * 0.44),
-                                "width": bw,
-                                "height": int(bw * 9 / 16),
-                                "t_start": ts,
-                                "t_end": te,
-                            })
             except Exception as exc:
-                print(f"[render] broll overlay gagal (render tetap jalan): {exc}")
+                print(f"[render] rencana overlay gagal (render tetap jalan): {exc}")
+                placements = []
 
         # start/end sudah dihitung relatif terhadap segmen di atas
         out_name = f"{uuid.uuid4().hex[:10]}.mp4"
@@ -410,6 +379,104 @@ async def render_clip_server(
                 print(f"[render] subtitle: {len(lay_seg)} rentang split → seam \\an5")
             except Exception as exc:
                 print(f"[render] subtitle seam gagal ({str(exc)[:120]}) → posisi normal")
+
+        # ================= TATA LETAK OVERLAY (anti-tabrakan) =================
+        # Posisi ikon & b-roll dihitung DI SINI, setelah wajah (st_full) dan
+        # rentang split diketahui. Sebelumnya posisinya tetap (ikon 26% tinggi,
+        # b-roll 44%) sehingga pada close-up ikon jatuh tepat di wajah dan
+        # b-roll bisa menutupi subtitle. Sekarang tiap overlay diberi posisi
+        # yang tumpang-tindihnya paling kecil terhadap wajah + band subtitle.
+        # Waktu b-roll juga digeser supaya tidak muncul bersamaan dengan ikon.
+        if placements:
+            try:
+                from anyio import to_thread
+
+                from . import overlay_layout as OL
+                from .broll_video import broll_local_path
+                from .icon_png import icon_png_from_id
+
+                st_pos = {**st_full, "layout_frames": lay_frames,
+                          "analysis_fps": cam_fps, "trajectory": traj or []}
+                sub_pct = float(style.get("position", 75) or 75)
+                dur_klip = max(0.5, float(end) - float(start))
+                rencana_waktu = OL.jadwalkan(placements, dur_klip)
+
+                ikon_frac = 0.24                      # lebar ikon (fraksi vw)
+                # ikon berbentuk persegi di piksel: lebar 24% dari vw, jadi
+                # tingginya 0.24*vw px = 0.24*vw/vh fraksi tinggi frame
+                ikon_h_frac = ikon_frac * vw / vh
+                bw = int(vw * 0.74)
+                bh = int(bw * 9 / 16)
+                bw_frac, bh_frac = bw / vw, bh / vh
+
+                for p in rencana_waktu:
+                    icon_id = str(p.get("icon_id") or "StarIcon")
+                    png = icon_png_from_id(icon_id)
+                    if not png:
+                        continue
+                    ts = float(p.get("time_start", 0))
+                    te = max(ts + 0.5, float(p.get("time_end", ts + 2.5)))
+                    # PARITY: kalau broll_api sudah menyimpan koordinat, PAKAI.
+                    # Menghitung ulang di sini bisa memberi angka berbeda
+                    # (camera_track tersimpan vs analisis baru) → preview dan
+                    # unduhan tidak sama, padahal itu janji produk.
+                    if p.get("icon_cx") is not None:
+                        icx = float(p["icon_cx"])
+                        icy = float(p.get("icon_cy", 0.26))
+                        alasan = str(p.get("icon_reason") or "tersimpan")
+                    else:
+                        icx, icy, alasan = OL.posisi_ikon(
+                            st_pos, ts, ikon_frac, ikon_h_frac, sub_pct,
+                            split_ranges=lay_seg)
+                    icon_png_overlays.append({
+                        "png": png,
+                        "x": int(vw * icx), "y": int(vh * icy),
+                        "size": int(vw * ikon_frac),
+                        "t_start": ts, "t_end": te,
+                        "anim": str(p.get("animation") or "slide-left"),
+                    })
+                    print(f"[overlay] ikon t={ts:.1f}s → ({icx:.2f},{icy:.2f}) {alasan}")
+
+                    burl = p.get("broll_url")
+                    if not burl:
+                        if p.get("broll_skip_reason"):
+                            print(f"[overlay] b-roll t={ts:.1f}s dilewati: "
+                                  f"{p['broll_skip_reason']}")
+                        continue
+                    bfile = await to_thread.run_sync(broll_local_path, str(burl))
+                    if not bfile:
+                        continue
+                    b0 = float(p.get("broll_start", ts))
+                    b1 = float(p.get("broll_end", te))
+                    # PARITY: pakai koordinat & skala tersimpan kalau ada
+                    if p.get("broll_cy") is not None:
+                        bcx = float(p.get("broll_cx", 0.5))
+                        bcy = float(p["broll_cy"])
+                        bskala = float(p.get("broll_scale", 1.0))
+                        alasan_b = str(p.get("broll_reason") or "tersimpan")
+                    else:
+                        # ikon yang sedang tampil di jendela b-roll juga dihindari
+                        hindari = [OL._kotak(icx, icy, ikon_frac, ikon_h_frac)] \
+                            if b0 < te else []
+                        bcx, bcy, alasan_b, bskala = OL.posisi_broll(
+                            st_pos, b0, bw_frac, bh_frac, sub_pct,
+                            split_ranges=lay_seg, dihindari=hindari)
+                    bw2 = int(bw * bskala) - (int(bw * bskala) % 2)
+                    bh2 = int(bh * bskala) - (int(bh * bskala) % 2)
+                    broll_video_overlays.append({
+                        "file": bfile,
+                        "x": int(vw * bcx) - bw2 // 2,
+                        "y": int(vh * bcy) - bh2 // 2,
+                        "width": bw2, "height": bh2,
+                        "t_start": b0, "t_end": b1,
+                    })
+                    print(f"[overlay] b-roll t={b0:.1f}-{b1:.1f}s "
+                          f"(ikon di {ts:.1f}s) → y={bcy:.2f} "
+                          f"skala={bskala:.0%} {alasan_b}")
+            except Exception as exc:
+                import traceback
+                print(f"[render] tata letak overlay gagal ({str(exc)[:150]})")
+                traceback.print_exc()
 
         render_mod.render_clip(
             src, start, end, ass_path, out_path,

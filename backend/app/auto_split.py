@@ -89,11 +89,19 @@ def deteksi_rentang_split(frames: list[dict[str, Any]], fps: float,
         return []
     n = len(frames)
 
+    # PENTING: daftar posisi ini di-INDEKS PER FRAME (None kalau frame itu tidak
+    # punya pasangan), bukan dipadatkan. Versi lama hanya append saat pasangan
+    # ada, sehingga `kiri_x[a:b+1]` mengambil sampel dari FRAME LAIN — median
+    # posisi panel bisa berasal dari bagian video yang sama sekali berbeda.
     ok2: list[bool] = []
-    kiri_x: list[float] = []
-    kanan_x: list[float] = []
-    kiri_cy: list[float] = []
-    kanan_cy: list[float] = []
+    kiri_x: list[Optional[float]] = []
+    kanan_x: list[Optional[float]] = []
+    kiri_cy: list[Optional[float]] = []
+    kanan_cy: list[Optional[float]] = []
+    # lebar wajah per orang: dipakai anti-bocor panel (geometri_panel_bersih)
+    # untuk memperkirakan lebar badan orang di sebelahnya
+    kiri_w: list[Optional[float]] = []
+    kanan_w: list[Optional[float]] = []
     for i in range(n):
         pasangan = _pasang_kiri_kanan(frames, i, i, src_w)
         if pasangan:
@@ -103,8 +111,16 @@ def deteksi_rentang_split(frames: list[dict[str, Any]], fps: float,
             kanan_x.append(float(kanan.get("cx", 0.5)))
             kiri_cy.append(float(kiri.get("cy", 0.45)))
             kanan_cy.append(float(kanan.get("cy", 0.45)))
+            kiri_w.append(float(kiri.get("w_frac", 0.06)))
+            kanan_w.append(float(kanan.get("w_frac", 0.06)))
         else:
             ok2.append(False)
+            kiri_x.append(None)
+            kanan_x.append(None)
+            kiri_cy.append(None)
+            kanan_cy.append(None)
+            kiri_w.append(None)
+            kanan_w.append(None)
 
     # tutup celah pendek (detektor bolong saat menoleh) — 0.6 detik
     gap = max(1, int(fps * 0.6))
@@ -143,19 +159,26 @@ def deteksi_rentang_split(frames: list[dict[str, Any]], fps: float,
         bersama = sum(1 for k in range(a, b + 1) if ok2[k])
         if bersama / max(1, b - a + 1) < MIN_COEXISTENCE:
             continue
-        def med(xs: list[float]) -> float:
-            return float(np.median(xs)) if xs else 0.5
-        kiri_sampel = kiri_x[a:b + 1]
-        kanan_sampel = kanan_x[a:b + 1]
+
+        def med(xs: list[Optional[float]], bawaan: float) -> float:
+            """Median dari sampel YANG ADA di rentang ini (None dilewati)."""
+            v = [float(x) for x in xs if x is not None]
+            return float(np.median(v)) if v else bawaan
+
+        kiri_sampel = [x for x in kiri_x[a:b + 1] if x is not None]
+        kanan_sampel = [x for x in kanan_x[a:b + 1] if x is not None]
         if not kiri_sampel or not kanan_sampel:
             continue
         out.append({
             "start": a / fps,
             "end": (b + 1) / fps,
-            "kiri_cx": med(kiri_sampel),
-            "kanan_cx": med(kanan_sampel),
-            "kiri_cy": med(kiri_cy[a:b + 1]) if kiri_cy[a:b + 1] else 0.45,
-            "kanan_cy": med(kanan_cy[a:b + 1]) if kanan_cy[a:b + 1] else 0.45,
+            "kiri_cx": med(kiri_x[a:b + 1], 0.3),
+            "kanan_cx": med(kanan_x[a:b + 1], 0.7),
+            "kiri_cy": med(kiri_cy[a:b + 1], 0.45),
+            "kanan_cy": med(kanan_cy[a:b + 1], 0.45),
+            # lebar wajah masing-masing (fraksi lebar sumber) → anti-bocor panel
+            "kiri_w": med(kiri_w[a:b + 1], 0.06),
+            "kanan_w": med(kanan_w[a:b + 1], 0.06),
             "co_existence": bersama / max(1, b - a + 1),
         })
     return out
@@ -281,11 +304,22 @@ def split_filtergraph_parts(src_w: int, src_h: int, out_w: int, out_h: int,
     input menjadi dua salinan panel; TANPA baris itu label panel tak pernah
     didefinisikan dan ffmpeg keluar 234 ("unconnected input") — bug yang
     menghentikan preview pertama kali.
+
+    ANTI-BOCOR: crop tiap panel dihitung dengan geometri_panel_bersih supaya
+    lengan/baju orang di sebelahnya tidak ikut masuk. Kalau ruang cukup, hasilnya
+    identik dengan crop dasar (aksi "utuh") — video yang orangnya berjauhan tidak
+    berubah sama sekali.
     """
-    w0, h0, x0, y0, half_h = geometri_panel(
-        src_w, src_h, out_w, out_h, kiri["kiri_cx"], kiri["kiri_cy"])
-    w1, h1, x1, y1, _ = geometri_panel(
-        src_w, src_h, out_w, out_h, kanan["kanan_cx"], kanan["kanan_cy"])
+    kw = float(kanan.get("kanan_w", kiri.get("kanan_w", 0.06)) or 0.06)
+    lw = float(kiri.get("kiri_w", kanan.get("kiri_w", 0.06)) or 0.06)
+    w0, h0, x0, y0, half_h, aksi0 = geometri_panel_bersih(
+        src_w, src_h, out_w, out_h,
+        kiri["kiri_cx"], kiri["kiri_cy"],
+        cx_lain=float(kanan["kanan_cx"]), w_frac_lain=kw, sisi="kiri")
+    w1, h1, x1, y1, _, aksi1 = geometri_panel_bersih(
+        src_w, src_h, out_w, out_h,
+        kanan["kanan_cx"], kanan["kanan_cy"],
+        cx_lain=float(kiri["kiri_cx"]), w_frac_lain=lw, sisi="kanan")
     la, lb = labels
     split_line = f"[{in_label}]split=2[{la}][{lb}]"
     part0 = (f"[{la}]crop=w={w0}:h={h0}:x={x0}:y={y0},"
@@ -294,6 +328,8 @@ def split_filtergraph_parts(src_w: int, src_h: int, out_w: int, out_h: int,
              f"scale={out_w}:{half_h}[{lb}p]")
     vstack = (f"[{la}p][{lb}p]vstack=inputs=2,"
               f"pad={out_w}:{out_h}:0:0,setsar=1[{kanan.get('si', 0)}comp]")
+    if aksi0 != "utuh" or aksi1 != "utuh":
+        print(f"[auto-split] anti-bocor panel: atas={aksi0} bawah={aksi1}")
     return split_line, part0, part1, vstack
 
 
@@ -405,6 +441,98 @@ def geometri_panel(src_w: int, src_h: int, out_w: int, out_h: int,
     y = int(round(cy * src_h - crop_h * 0.42))
     y = max(0, min(y, src_h - crop_h))
     return crop_w, crop_h, x - (x % 2), y - (y % 2), half_h
+
+
+# --- ANTI-BOCOR PANEL (permintaan pengguna) ---
+# Masalah nyata yang terlihat di frame uji: dua orang duduk berdempetan, jadi
+# crop panel orang PERTAMA masih memuat lengan/baju orang KEDUA. Solusinya
+# bertingkat, meniru cara editor manusia: GESER dulu (murah, komposisi tetap
+# lega), ZOOM hanya kalau geser tidak cukup.
+BAHU_HALF = 1.15        # setengah lebar badan ≈ 1,15 × lebar wajah. Wajah saja
+                        # tidak cukup: yang terlihat bocor justru bahu & lengan.
+BOCOR_MARGIN = 0.012    # jarak aman tambahan (fraksi lebar sumber)
+MIN_TEPI_WAJAH = 0.10   # wajah harus ≥10% lebar panel dari tepi panel, kalau
+                        # tidak orangnya menempel tepi dan terlihat terpotong
+MAKS_ZOOM = 1.55        # batas zoom. Lebih dari ini wajah jadi terlalu besar
+                        # dan panel kehilangan konteks — lebih baik terima
+                        # sedikit bocor daripada close-up ekstrem.
+
+
+def geometri_panel_bersih(src_w: int, src_h: int, out_w: int, out_h: int,
+                          cx: float, cy: float,
+                          cx_lain: float, w_frac_lain: float,
+                          sisi: str) -> tuple[int, int, int, int, int, str]:
+    """Crop panel yang TIDAK memuat orang lain: geser dulu, zoom kalau perlu.
+
+    sisi="kiri"  → orang ini di kiri, orang lain di KANAN: tepi KANAN crop
+                   dibatasi di pangkal badan orang lain.
+    sisi="kanan" → sebaliknya.
+
+    Balik (w, h, x, y, half_h, aksi); aksi ∈ {"utuh","geser","zoom","mustahil"}
+    untuk log dan pengujian.
+
+    Cara kerja: hitung dulu ruang horizontal yang BEBAS dari orang lain, lalu
+    ambil jendela crop TERBESAR yang muat di ruang itu (dengan rasio panel
+    tetap), dipusatkan ke wajah. Kalau ruangnya masih lebih lebar dari crop
+    dasar, hasilnya sama dengan sebelumnya (aksi "utuh") — jadi video yang
+    orangnya berjauhan tidak berubah sama sekali, sesuai permintaan
+    "cuma berlaku di video yang samping-sampingan yang kedeteksi keliatan".
+    """
+    w0, h0, x0, y0, half_h = geometri_panel(src_w, src_h, out_w, out_h, cx, cy)
+    aspect = w0 / float(h0) if h0 else 1.0
+
+    occ = max(0.0, float(w_frac_lain)) * BAHU_HALF + BOCOR_MARGIN
+    wajah_px = cx * src_w
+
+    if sisi == "kiri":
+        batas = (float(cx_lain) - occ) * src_w
+        lo, hi = 0.0, min(float(src_w), max(0.0, batas))
+    else:
+        batas = (float(cx_lain) + occ) * src_w
+        lo, hi = max(0.0, min(float(src_w), batas)), float(src_w)
+
+    ruang = hi - lo
+    # wajah sendiri sudah di dalam wilayah orang lain → dua orang bertumpuk;
+    # tidak ada crop yang bisa memisahkan mereka. Pakai crop dasar apa adanya.
+    if wajah_px < lo or wajah_px > hi or ruang < 32:
+        return w0, h0, x0, y0, half_h, "mustahil"
+
+    if ruang >= w0:
+        # cukup ruang: tinggal geser (mungkin tidak perlu bergerak sama sekali)
+        w, h = w0, h0
+        x = wajah_px - w / 2.0
+        x = max(lo, min(x, hi - w))
+        aksi = "utuh" if abs(x - x0) < 2 else "geser"
+    else:
+        # harus mengecilkan crop = zoom in. Batasi supaya tidak ekstrem.
+        w_min = w0 / MAKS_ZOOM
+        w = max(w_min, ruang)
+        h = w / aspect
+        if h > src_h:
+            h = float(src_h)
+            w = h * aspect
+        x = wajah_px - w / 2.0
+        x = max(lo, min(x, max(lo, hi - w)))
+        # kalau ruang lebih sempit dari w_min, crop tetap sedikit melewati batas
+        aksi = "zoom"
+
+    # wajah tidak boleh menempel tepi panel
+    tepi_min = MIN_TEPI_WAJAH * w
+    if wajah_px - x < tepi_min:
+        x = max(lo, wajah_px - tepi_min)
+    elif (x + w) - wajah_px < tepi_min:
+        x = min(max(lo, hi - w), wajah_px + tepi_min - w)
+
+    y = cy * src_h - h * 0.42
+    y = max(0.0, min(y, src_h - h))
+
+    wi = int(round(w)) - (int(round(w)) % 2)
+    hi_ = int(round(h)) - (int(round(h)) % 2)
+    xi = int(round(x)) - (int(round(x)) % 2)
+    yi = int(round(y)) - (int(round(y)) % 2)
+    xi = max(0, min(xi, src_w - wi))
+    yi = max(0, min(yi, src_h - hi_))
+    return wi, hi_, xi, yi, half_h, aksi
 
 
 def split_filtergraph(src_w: int, src_h: int, out_w: int, out_h: int,

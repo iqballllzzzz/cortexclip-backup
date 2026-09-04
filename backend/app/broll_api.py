@@ -43,7 +43,7 @@ def register_broll_routes(
         async with httpx.AsyncClient(timeout=30) as client:
             cr = await client.get(
                 f"{supabase_url}/rest/v1/clips?id=eq.{body.clip_id}"
-                "&select=caption_words,end_time,start_time,overlay_plan",
+                "&select=caption_words,end_time,start_time,overlay_plan,camera_track",
                 headers={"apikey": supabase_anon_key,
                          "Authorization": f"Bearer {token}"},
             )
@@ -92,6 +92,49 @@ def register_broll_routes(
             return {"placements": saved, "genre": genre, "cached": True}
 
         placements = await plan_overlays(words, max(1.0, duration), genre=genre)
+
+        # ── TATA LETAK + JADWAL dihitung DI SINI, lalu DISIMPAN ──────────
+        # Kenapa di sini dan bukan hanya di render: preview browser membaca
+        # overlay_plan apa adanya. Sebelumnya pemisahan waktu ikon↔b-roll dan
+        # posisi anti-tabrakan hanya dihitung di render_clip.py, jadi preview
+        # menampilkan ikon & b-roll pada detik yang SAMA dan pada posisi
+        # hardcoded 26%/44% — persis keluhan pengguna. Dengan menyimpannya,
+        # preview dan hasil unduhan memakai angka yang identik.
+        try:
+            from . import overlay_layout as OL
+
+            ct = clip.get("camera_track") or {}
+            st_pos = {"layout_frames": ct.get("layout_frames") or [],
+                      "analysis_fps": ct.get("analysis_fps") or 15.0}
+            lay = (ct.get("auto_splits") or []) if isinstance(ct, dict) else []
+            sub_pct = 80.0
+            ikon_w = 0.24                      # fraksi lebar keluaran
+            ikon_h = ikon_w * (720.0 / 1280.0)  # ikon persegi di piksel
+            bw = 0.74
+            bh = bw * (9.0 / 16.0) * (720.0 / 1280.0)
+
+            placements = OL.jadwalkan(placements, max(1.0, duration))
+            for p in placements:
+                ts = float(p.get("time_start", 0) or 0)
+                icx, icy, alasan_i = OL.posisi_ikon(
+                    st_pos, ts, ikon_w, ikon_h, sub_pct, split_ranges=lay)
+                p["icon_cx"] = round(icx, 4)
+                p["icon_cy"] = round(icy, 4)
+                p["icon_reason"] = alasan_i
+                if p.get("broll_url"):
+                    b0 = float(p.get("broll_start", ts))
+                    hindari = [OL._kotak(icx, icy, ikon_w, ikon_h)] \
+                        if b0 <= float(p.get("time_end", ts + 2.5) or ts + 2.5) else []
+                    bcx, bcy, alasan_b, bskala = OL.posisi_broll(
+                        st_pos, b0, bw, bh, sub_pct,
+                        split_ranges=lay, dihindari=hindari)
+                    p["broll_cx"] = round(bcx, 4)
+                    p["broll_cy"] = round(bcy, 4)
+                    p["broll_scale"] = round(bskala, 4)
+                    p["broll_reason"] = alasan_b
+            print(f"[broll] tata letak tersimpan untuk {len(placements)} item")
+        except Exception as exc:
+            print(f"[broll] tata letak gagal ({str(exc)[:120]}) → posisi bawaan")
 
         # SIMPAN rencana ke klip → render unduhan memakai penempatan yang SAMA
         # (tanpa ini AI dipanggil 2x dan preview != hasil).

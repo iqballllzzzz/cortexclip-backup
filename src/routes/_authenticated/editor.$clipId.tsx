@@ -77,6 +77,16 @@ interface Placement {
   animation: string;
   broll_url?: string | null;
   genre?: string;
+  /* Tata letak & jadwal dari backend (overlay_layout.py). Semua opsional
+     supaya rencana lama yang belum punya field ini tetap terbaca — nilainya
+     jatuh ke bawaan lewat `??` di tempat pemakaian. */
+  icon_cx?: number;
+  icon_cy?: number;
+  broll_start?: number;
+  broll_end?: number;
+  broll_cx?: number;
+  broll_cy?: number;
+  broll_scale?: number;
 }
 
 /* ------------------------------------------------------------------- page */
@@ -139,6 +149,9 @@ function EditorPage() {
   // tanpa keterangan saat klip panjang sedang diproses
   const [prevPct, setPrevPct] = useState(0);
   const [prevStage, setPrevStage] = useState<string>("");
+  // estimasi sisa detik & waktu berjalan dari backend (laju nyata, bukan tebakan)
+  const [prevEta, setPrevEta] = useState<number | null>(null);
+  const [prevElapsed, setPrevElapsed] = useState(0);
 
   // JALUR KAMERA face tracking. Dipakai untuk membingkai video SUMBER langsung
   // di browser (object-position), jadi preview tidak lagi memotong bagian TENGAH
@@ -153,8 +166,11 @@ function EditorPage() {
   // Framing CSS hanya untuk video SUMBER (16:9 penuh) — dipakai saat preview
   // hasil render BELUM ada. Kalau preview sudah ada, videonya sudah 9:16 dan
   // sudah dibingkai server; menggesernya lagi = salah dua kali.
+  // Framing CSS untuk video SUMBER sudah TIDAK PERNAH dipakai lagi: video
+  // sumber tidak lagi diputar di editor (preview hanya tampil setelah 100%).
+  // Dimatikan permanen supaya tidak ada dua sistem framing yang bertengkar.
   useCameraFraming(videoRef, cameraTrack, {
-    enabled: !clip?.preview_url && !!sourceUrl,
+    enabled: false,
     clipStart: startNum,
   });
 
@@ -346,8 +362,11 @@ function EditorPage() {
         // persen & tahap NYATA dari ffmpeg (bukan animasi palsu)
         if (typeof sd.progress === "number") setPrevPct(sd.progress);
         if (typeof sd.stage === "string" && sd.stage) setPrevStage(sd.stage);
+        setPrevEta(typeof sd.eta_s === "number" ? sd.eta_s : null);
+        if (typeof sd.elapsed_s === "number") setPrevElapsed(sd.elapsed_s);
         if (sd.status === "ready" && sd.url) {
           setPrevPct(100);
+          setPrevEta(0);
           setClip((c) => (c && c.id === clipId ? { ...c, preview_url: sd.url, preview_ready: true } : c));
           return;
         }
@@ -653,7 +672,16 @@ function EditorPage() {
   // Berkas preview sudah 9:16, sudah pakai face tracking + deroll yang sama
   // dengan hasil unduhan, jadi memakainya sekaligus menjamin preview == unduhan.
   // Video sumber hanya dipakai kalau preview belum ada (sedang dibuat).
-  const videoSrc = clip.preview_url ?? sourceUrl ?? null;
+  // PERMINTAAN PENGGUNA: "preview gak akan keliatan kalau belum seratus persen".
+  // Dulu di sini ada `?? sourceUrl` — jadi selama server merender, editor
+  // memutar VIDEO SUMBER 16:9 mentah (tanpa split, tanpa anti-bocor, tanpa
+  // subtitle terbakar). Itu sebabnya di 4% preview sudah terlihat, dan
+  // terlihatnya justru versi yang salah: baju orang kedua masih ada karena
+  // frame itu memang belum melewati auto split sama sekali.
+  // Sekarang: hanya berkas preview hasil render yang boleh tampil.
+  const videoSrc = clip.preview_ready && clip.preview_url ? clip.preview_url : null;
+  // sumber mentah tetap dipakai untuk MENGHITUNG durasi/aspek saja, tidak diputar
+  const sedangDiproses = !clip.preview_ready;
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-background text-foreground">
@@ -741,37 +769,55 @@ function EditorPage() {
               </>
             ) : null}
 
-            {/* Indikator "memuat preview" + persen NYATA dari ffmpeg.
-                Layar penuh kalau belum ada video sama sekali; pita kecil kalau
-                video sumber sudah bisa diputar dan preview cuma menaikkan
-                kualitas — jadi tidak pernah ada layar hitam tanpa keterangan. */}
-            {!clip.preview_ready && prevStage ? (
-              <PreviewLoading pct={prevPct} stage={prevStage} compact={!!videoSrc} />
+            {/* TIRAI PEMROSESAN — hitam 80%, tahap, persen 1-100, hitung mundur.
+                TAMPIL SELAMA preview belum siap, TANPA syarat prevStage: dulu
+                syaratnya `prevStage` non-kosong, jadi pada detik-detik pertama
+                (sebelum polling pertama menjawab) tirai tidak ada dan video
+                sumber sempat terlihat. Sekarang tirai muncul lebih dulu. */}
+            {sedangDiproses ? (
+              <PreviewLoading
+                pct={prevPct}
+                stage={prevStage}
+                etaS={prevEta}
+                elapsedS={prevElapsed}
+              />
             ) : null}
 
-            <LiveCaptionOverlay
-              words={words}
-              time={time}
-              style={liveStyle}
-              containerWidth={fit.w}
-              showEmoji={emojiEnabled}
-              {...(layoutEnabled && layoutPlan ? { splitRanges: layoutPlan } : {})}
-            />
+            {!sedangDiproses ? (
+              <LiveCaptionOverlay
+                words={words}
+                time={time}
+                style={liveStyle}
+                containerWidth={fit.w}
+                showEmoji={emojiEnabled}
+                {...(layoutEnabled && layoutPlan ? { splitRanges: layoutPlan } : {})}
+              />
+            ) : null}
 
-            {/* B-ROLL VIDEO PiP — parity dengan render unduhan (ffmpeg overlay) */}
+            {/* B-ROLL VIDEO PiP — parity dengan render unduhan (ffmpeg overlay).
+                Waktu & posisi dibaca dari overlay_plan yang DISIMPAN backend
+                (broll_start/broll_cx/broll_cy/broll_scale), bukan angka tetap:
+                dulu di sini `time_start` dan 0.74/0.44 hardcoded, jadi b-roll
+                muncul bersamaan dengan ikon dan bisa menutupi wajah. */}
             {brollEnabled
               ? livePlacements
                   .filter((p) => !!p.broll_url)
                   .map((p, idx) => {
-                    const active = time >= p.time_start && time <= p.time_end;
+                    const b0 = p.broll_start ?? p.time_start;
+                    const b1 = p.broll_end ?? p.time_end;
+                    const active = time >= b0 && time <= b1;
+                    const sk = p.broll_scale ?? 1;
+                    const w = fit.w * 0.74 * sk;
+                    const hgt = w * (9 / 16);
+                    const cy = p.broll_cy ?? 0.44;
                     return (
                       <BrollPip
-                        key={`broll-${p.time_start}-${idx}`}
+                        key={`broll-${b0}-${idx}`}
                         url={p.broll_url as string}
                         active={active}
-                        localTime={Math.max(0, time - p.time_start)}
-                        width={fit.w * 0.74}
-                        top={fit.h * 0.44}
+                        localTime={Math.max(0, time - b0)}
+                        width={w}
+                        top={fit.h * cy - hgt / 2}
                       />
                     );
                   })
@@ -800,8 +846,12 @@ function EditorPage() {
                       key={`${p.time_start}-${idx}`}
                       className="pointer-events-none absolute flex items-center justify-center transition-[transform,opacity] duration-500 ease-out"
                       style={{
-                        left: p.side === "left" ? "20%" : p.side === "center" ? "50%" : "80%",
-                        top: "26%",
+                        /* Posisi dari backend (icon_cx/icon_cy) — sudah dihitung
+                           supaya tidak menutupi wajah maupun band subtitle.
+                           `side` lama dipakai hanya kalau rencana belum punya
+                           koordinat (klip lama). */
+                        left: `${(p.icon_cx ?? (p.side === "left" ? 0.2 : p.side === "center" ? 0.5 : 0.8)) * 100}%`,
+                        top: `${(p.icon_cy ?? 0.26) * 100}%`,
                         transform: active ? "translate(-50%, -50%)" : hidden,
                         opacity: active ? 1 : 0,
                       }}
