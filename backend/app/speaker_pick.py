@@ -14,10 +14,12 @@ from __future__ import annotations
 import math
 from typing import Any, Optional
 
-from .speaker_track import (COOLDOWN_S, CUT_MIN_SAMPLES, DEADZONE_FRAC,
-                            DOMINANCE, HOLD_FRAMES, LOOKAHEAD_S, LOST_HOLD_S,
+from .speaker_track import (AV_TIE_MARGIN, AV_TIE_RATIO, COOLDOWN_S,
+                            CUT_MIN_SAMPLES, DEADZONE_FRAC, DOMINANCE,
+                            HOLD_FRAMES, LOOKAHEAD_S, LOST_HOLD_S,
                             MAX_PAN_PER_S, RECENT_FRAMES, SMOOTH_TIME_S,
-                            SPEAK_ON, SPRING_HZ, STICKY_S, STILL_SPAN_FRAC)
+                            SPEAK_OFF, SPEAK_ON, SPRING_HZ, STICKY_S,
+                            STILL_SPAN_FRAC)
 
 
 def pick_active(live: list[dict[str, Any]], state: dict[str, Any], fi: int,
@@ -96,6 +98,26 @@ def pick_active(live: list[dict[str, Any]], state: dict[str, Any], fi: int,
         # terdeteksi ulang langsung "menang" dan kamera pindah ke orang yang diam.
         and len(cand["ap"]) >= CUT_MIN_SAMPLES
     )
+    # PEMUTUS SERI LEWAT SINKRON AUDIO — hanya untuk kasus RAGU.
+    # Diukur: skor mulut memisahkan bicara/diam ~10x, jadi menambahkan bobot
+    # audio ke skor itu tidak mengubah apa pun (0/602 keputusan berubah pada
+    # bobot wajar). Yang benar-benar sulit adalah saat DUA orang skor mulutnya
+    # BERDEKATAN — satu bicara, satu tertawa atau bilang "oh". Di situ korelasi
+    # aktivitas bibir-audio terukur memisahkan +0.150 (pembicara +0.109 vs yang
+    # lain -0.041), jadi dipakai HANYA di sini: kandidat yang skornya cukup dekat
+    # boleh menang kalau sinkron audionya jelas lebih baik.
+    # Ambang mulut di jalur ini SPEAK_OFF, bukan SPEAK_ON. Alasannya: SPEAK_ON
+    # dibuat tinggi supaya derau tidak memindahkan kamera — tapi di jalur ini
+    # sudah ada bukti KEDUA yang berdiri sendiri (sinkron audio), jadi bukti
+    # mulut tidak perlu sekuat itu. Terukur pada kasus "A bicara, B tertawa":
+    # skor mulut keduanya 0.0038 vs 0.0039 (di bawah SPEAK_ON 0.0060), dan tanpa
+    # pelonggaran ini pemutus seri tidak pernah aktif.
+    if not layak and cand["speak"] >= SPEAK_OFF and len(cand["ap"]) >= CUT_MIN_SAMPLES:
+        dekat = cand["speak"] > cur["speak"] * AV_TIE_RATIO
+        av_c = float(cand.get("av") or 0.0)
+        av_u = float(cur.get("av") or 0.0)
+        if dekat and av_c - av_u >= AV_TIE_MARGIN:
+            layak = True
     # CATATAN: pernah dicoba "jalur kedua" berbasis skor jangka panjang (2.4 s)
     # supaya kandidat yang mendominasi lama tetap bisa memicu perpindahan meski
     # perbandingan sesaat belum memenuhi DOMINANCE. Diukur pada uji 3 orang:

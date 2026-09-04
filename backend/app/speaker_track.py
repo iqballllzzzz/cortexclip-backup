@@ -94,6 +94,9 @@ SCENE_CUT_DIFF = 22.0     # ambang potongan adegan (beda rata-rata piksel)
 # "goyang-goyang" pada podcast orang duduk.
 STILL_SPAN_FRAC = 0.16    # sebaran target < 16% lebar crop → kamera DIKUNCI
 SMOOTH_TIME_S = 0.55      # perkiraan waktu kamera mencapai target (SmoothDamp)
+# Pemutus seri sinkron audio (dipakai HANYA saat dua skor mulut berdekatan)
+AV_TIE_RATIO = 0.70       # kandidat >= 70% skor yang disorot = dianggap "dekat"
+AV_TIE_MARGIN = 0.20      # dan sinkron audionya harus lebih baik >= 0.20
 DEADZONE_FRAC = 0.045     # sisa dari versi lama; tidak lagi dipakai stabilizer
 SPRING_HZ = 1.25          # sisa dari versi lama; diganti SMOOTH_TIME_S
 MAX_PAN_PER_S = 0.55      # batas kecepatan kamera: 55% lebar crop per detik

@@ -194,7 +194,15 @@ function EditorPage() {
               .createSignedUrl(proj.storage_path, 60 * 60)
               .then(({ data: s }) => {
                 if (!cancelled && s?.signedUrl) {
-                  videoKindRef.current = "source";
+                  // JANGAN paksa "source" kalau preview sudah ada.
+                  // videoKindRef menentukan BASIS WAKTU: "source" = waktu absolut
+                  // video penuh, "preview" = waktu relatif klip. Dulu baris ini
+                  // selalu menulis "source", padahal yang diputar berkas preview,
+                  // sehingga rAF loop menghitung waktu = currentTime - start_time
+                  // = 0 - 1923 → negatif → di-clamp ke 0. Akibatnya progress bar
+                  // BEKU di 0, subtitle karaoke tidak jalan, dan ikon/b-roll tidak
+                  // pernah muncul karena semuanya dipicu oleh waktu itu.
+                  if (!c.preview_url) videoKindRef.current = "source";
                   setSourceUrl(s.signedUrl);
                 }
               });
@@ -305,15 +313,19 @@ function EditorPage() {
     return () => ro.disconnect();
   }, [loading]);
 
-  /* --- WAKU VIDEO: rAF loop (anti-stuck) — sumber penuh → relatif klip --- */
+  /* --- WAKU VIDEO: rAF loop (anti-stuck) — sumber penuh → relatif klip ---
+     Basis waktu diambil dari `effectiveKind`, BUKAN videoKindRef saja: kalau
+     preview_url ada, yang diputar berkas preview (waktu relatif) meskipun
+     signed URL sumber sempat dibuat. Salah basis = waktu negatif = progress bar
+     beku di 0 dan subtitle/ikon/b-roll tidak pernah muncul. */
   useEffect(() => {
     let raf = 0;
     const tick = () => {
       const v = videoRef.current;
       const c = clipRef.current;
       if (v && c && !v.paused && v.readyState >= 2) {
-        const kind = videoKindRef.current;
-        const raw = kind === "source" ? v.currentTime - Number(c.start_time) : v.currentTime;
+        const pakaiSumber = !c.preview_url && videoKindRef.current === "source";
+        const raw = pakaiSumber ? v.currentTime - Number(c.start_time) : v.currentTime;
         if (raw >= duration) {
           // akhir klip → pause + kunci waktu di durasi
           v.pause();
@@ -335,7 +347,7 @@ function EditorPage() {
     const v = videoRef.current;
     const c = clipRef.current;
     if (!v || !c) return;
-    if (videoKindRef.current === "source") {
+    if (!c.preview_url && videoKindRef.current === "source") {
       try {
         v.currentTime = Number(c.start_time);
       } catch {
@@ -402,7 +414,9 @@ function EditorPage() {
     const v = videoRef.current;
     if (!v) return;
     const clamped = Math.max(0, Math.min(duration - 0.05, t));
-    if (videoKindRef.current === "source") v.currentTime = Number(clip?.start_time ?? 0) + clamped;
+    // basis waktu sama dengan rAF loop: preview_url ada = waktu relatif klip
+    if (!clip?.preview_url && videoKindRef.current === "source")
+      v.currentTime = Number(clip?.start_time ?? 0) + clamped;
     else v.currentTime = clamped;
     setTime(clamped);
   }

@@ -175,7 +175,7 @@ def analyze(src: str, start: float, end: float, *, probe_size, run_ffmpeg,
         for t in live:
             if not scene_cut:
                 push_sample(t, fi, t["det"], frame_rgb=frame)
-        commit_speak(tracker.all_tracks(), fi, audio)
+        commit_speak(tracker.all_tracks(), fi, audio, SAMPLE_FPS)
 
         if scene_cut:
             segar = [t for t in live if t["last"] == fi]
