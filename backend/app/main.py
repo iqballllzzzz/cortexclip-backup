@@ -423,12 +423,11 @@ async def api_camera_track(clip_id: str, request: Request,
 @app.put("/api/layout-prefs/{clip_id}")
 async def api_layout_prefs(clip_id: str, body: dict, request: Request,
                            authorization: str | None = Header(None)):
-    """Simpan pilihan AUTO LAYOUT pengguna untuk klip ini.
+    """Simpan status AUTO SPLIT pengguna untuk klip ini.
 
-    Body: {"enabled": bool, "layouts": ["fill","split","three",...],
-           "has_screenshare": bool, "has_gameplay": bool}
-    Mengubah pilihan ikut MEMBATALKAN preview lama (layout dibakar ke berkas
-    preview supaya preview == unduhan).
+    Body: {"enabled": bool}. Mengubahnya ikut MEMBATALKAN preview lama (split
+    dibakar ke berkas preview supaya preview == unduhan). Field `layouts` dari
+    klien lama diterima tapi diabaikan — tidak ada lagi pilihan tata letak.
     """
     user = await get_user(request, authorization)
     ensure_uuid(clip_id, "Klip")
@@ -442,7 +441,7 @@ async def api_layout_prefs(clip_id: str, body: dict, request: Request,
 @app.get("/api/layout-plan/{clip_id}")
 async def api_layout_plan(clip_id: str, request: Request,
                           authorization: str | None = Header(None)):
-    """Rencana segmen AUTO LAYOUT untuk klip ini (tanpa merender)."""
+    """Rentang AUTO SPLIT untuk klip ini (tanpa merender)."""
     user = await get_user(request, authorization)
     ensure_uuid(clip_id, "Klip")
     from . import render as render_mod
@@ -452,7 +451,7 @@ async def api_layout_plan(clip_id: str, request: Request,
         return await rencana(clip_id, str(user["id"]), render_mod=render_mod,
                              source_url_for=_source_seek_url)
     except Exception as exc:
-        print(f"[layout-plan] gagal: {exc}")
+        print(f"[split-plan] gagal: {exc}")
         raise HTTPException(400, str(exc)[:200])
 
 

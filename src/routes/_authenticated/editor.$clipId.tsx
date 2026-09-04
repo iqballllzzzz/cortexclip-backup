@@ -58,16 +58,12 @@ const TOOLS: { id: ToolId; label: string; Icon: typeof Hash }[] = [
   { id: "broll", label: "Ikon", Icon: Sticker },
 ];
 
-/** Tata letak AUTO LAYOUT. Nama id HARUS sama dengan backend (auto_layout.py). */
-const LAYOUT_OPTIONS: { id: string; label: string; desc: string }[] = [
-  { id: "fill", label: "Fill", desc: "1 orang, isi penuh" },
-  { id: "fit", label: "Fit", desc: "utuh + bilah hitam" },
-  { id: "split", label: "Split", desc: "2 orang atas-bawah" },
-  { id: "three", label: "Three", desc: "3 orang" },
-  { id: "four", label: "Four", desc: "4 orang" },
-  { id: "gameplay", label: "Gameplay", desc: "orang 30% / aksi 70%" },
-  { id: "screenshare", label: "Screenshare", desc: "layar + orang" },
-];
+/** AUTO SPLIT — satu keputusan, resep openshorts. Tidak ada lagi pilihan
+ *  tata letak (fill/fit/split/three/four/gameplay/screenshare): terukur,
+ *  pilihan itu tidak pernah mengubah video (hanya 3% frame punya 2 wajah dan
+ *  syarat rentang berurutan memutus semuanya). Sekarang backend memutuskan
+ *  sendiri kapan layar dibagi dua — saat dua orang benar-benar bergiliran
+ *  bicara — dan memakai kamera saja di sisanya. */
 
 interface Placement {
   time_start: number;
@@ -122,9 +118,8 @@ function EditorPage() {
   const [livePlacements, setLivePlacements] = useState<Placement[]>([]);
   const [iconListOpen, setIconListOpen] = useState(false);
 
-  // AUTO LAYOUT (fill/fit/split/three/four/screenshare/gameplay)
+  // AUTO SPLIT (satu toggle, resep openshorts) — 7 pilihan layout dihapus
   const [layoutEnabled, setLayoutEnabled] = useState(false);
-  const [layoutPicks, setLayoutPicks] = useState<string[]>([]);
   const [layoutSaving, setLayoutSaving] = useState(false);
   const [layoutPlan, setLayoutPlan] = useState<
     { start: number; end: number; layout: string }[] | null
@@ -251,13 +246,16 @@ function EditorPage() {
     })();
   }, []);
 
-  /* --- AUTO LAYOUT: muat pilihan tersimpan + rencana segmen --- */
+  /* --- AUTO SPLIT: muat status tersimpan + rentang split --- */
   useEffect(() => {
-    const prefs = (clip as unknown as { layout_prefs?: { enabled?: boolean; layouts?: string[] } } | null)
+    const prefs = (clip as unknown as { layout_prefs?: { enabled?: boolean } } | null)
       ?.layout_prefs;
     if (!prefs) return;
     setLayoutEnabled(!!prefs.enabled);
-    setLayoutPicks(Array.isArray(prefs.layouts) ? prefs.layouts : []);
+    // Rentang split dimuat OTOMATIS saat aktif — bukan hanya kalau panel
+    // dibuka. Preview memakainya untuk memindahkan caption ke garis batas,
+    // jadi tanpa ini preview dan unduhan menaruh caption di tempat berbeda.
+    if (prefs.enabled) void muatRencanaLayout();
   }, [clip?.id]);
 
   const muatRencanaLayout = useCallback(async () => {
@@ -275,13 +273,13 @@ function EditorPage() {
     }
   }, [clip?.id]);
 
-  /** Simpan pilihan auto layout. Mengubahnya membatalkan preview lama, jadi
-   *  preview dirender ulang dengan layout baru (preview = hasil unduhan). */
+  /** Simpan status Auto Split. Mengubahnya membatalkan preview lama, jadi
+   *  preview dirender ulang dengan split baru (preview = hasil unduhan). */
   const simpanLayout = useCallback(
-    async (enabled: boolean, picks: string[]) => {
+    async (enabled: boolean) => {
       if (!clip) return;
       // TIDAK memblokir tombol. Sebelumnya seluruh panel di-disable sampai PUT
-      // selesai, dan karena mengubah pilihan memicu render preview ulang,
+      // selesai, dan karena mengubahnya memicu render preview ulang,
       // tombolnya terasa "gak bisa dipencet" — user menyangka aplikasi lemot.
       // Sekarang state lokal berubah SEKETIKA (optimistis) dan penyimpanan
       // jalan di belakang; yang tampil hanya penanda kecil "menyimpan".
@@ -291,10 +289,10 @@ function EditorPage() {
         const res = await fetch(`/api/layout-prefs/${clip.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ enabled, layouts: picks }),
+          body: JSON.stringify({ enabled }),
         });
         if (!res.ok) {
-          toast.error("Gagal menyimpan auto layout");
+          toast.error("Gagal menyimpan Auto Split");
           return;
         }
         const d = await res.json();
@@ -303,12 +301,12 @@ function EditorPage() {
           setClip((c) => (c ? { ...c, preview_url: null, preview_ready: false } : c));
           setPrevPct(0);
           setPrevStage("Menyiapkan");
-          toast.success(enabled ? "Auto layout aktif — preview dibuat ulang" : "Auto layout mati");
+          toast.success(enabled ? "Auto Split aktif — preview dibuat ulang" : "Auto Split mati");
         }
         if (enabled) void muatRencanaLayout();
         else setLayoutPlan(null);
       } catch {
-        toast.error("Gagal menyimpan auto layout");
+        toast.error("Gagal menyimpan Auto Split");
       } finally {
         setLayoutSaving(false);
       }
@@ -751,7 +749,14 @@ function EditorPage() {
               <PreviewLoading pct={prevPct} stage={prevStage} compact={!!videoSrc} />
             ) : null}
 
-            <LiveCaptionOverlay words={words} time={time} style={liveStyle} containerWidth={fit.w} showEmoji={emojiEnabled} />
+            <LiveCaptionOverlay
+              words={words}
+              time={time}
+              style={liveStyle}
+              containerWidth={fit.w}
+              showEmoji={emojiEnabled}
+              {...(layoutEnabled && layoutPlan ? { splitRanges: layoutPlan } : {})}
+            />
 
             {/* B-ROLL VIDEO PiP — parity dengan render unduhan (ffmpeg overlay) */}
             {brollEnabled
@@ -970,15 +975,15 @@ function EditorPage() {
                     />
                   </div>
 
-                  {/* ================= AUTO LAYOUT ================= */}
+                  {/* ================= AUTO SPLIT ================= */}
                   <div className="mt-1.5">
                     <ToggleRow
-                      label="Auto layout"
-                      desc="Dua orang atas-bawah di momen tepat."
+                      label="Auto Split"
+                      desc="Layar dibagi dua saat dua orang bergiliran bicara."
                       enabled={layoutEnabled}
                       onChange={(v) => {
                         setLayoutEnabled(v);
-                        void simpanLayout(v, layoutPicks);
+                        void simpanLayout(v);
                       }}
                     />
 
@@ -991,60 +996,9 @@ function EditorPage() {
                               Menyimpan &amp; menyiapkan preview…
                             </>
                           ) : (
-                            "Semua dipilih (atau kosong) = sistem memilih sendiri."
+                            "Sistem memilih sendiri momennya — subtitle ikut pindah ke tengah."
                           )}
                         </p>
-                        <div className="mt-2 grid grid-cols-3 gap-1">
-                          {LAYOUT_OPTIONS.map((o) => {
-                            const aktif = layoutPicks.includes(o.id);
-                            return (
-                              <button
-                                key={o.id}
-                                type="button"
-                                aria-pressed={aktif}
-                                title={o.desc}
-                                onClick={() => {
-                                  const next = aktif
-                                    ? layoutPicks.filter((x) => x !== o.id)
-                                    : [...layoutPicks, o.id];
-                                  setLayoutPicks(next);
-                                  void simpanLayout(layoutEnabled, next);
-                                }}
-                                className={`truncate rounded-md border px-1.5 py-1 text-center text-[10px] font-medium transition-colors disabled:opacity-50 ${
-                                  aktif
-                                    ? "border-accent bg-accent/10 text-accent"
-                                    : "border-border bg-background text-muted-foreground hover:text-foreground"
-                                }`}
-                              >
-                                {o.label}
-                              </button>
-                            );
-                          })}
-                        </div>
-
-                        <div className="mt-1.5 flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const semua = LAYOUT_OPTIONS.map((o) => o.id);
-                              setLayoutPicks(semua);
-                              void simpanLayout(true, semua);
-                            }}
-                            className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
-                          >
-                            Pilih semua (cerdas)
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setLayoutPicks([]);
-                              void simpanLayout(true, []);
-                            }}
-                            className="rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
-                          >
-                            Kosongkan
-                          </button>
-                        </div>
 
                         {layoutPlan && layoutPlan.length > 0 ? (
                           <>
@@ -1054,7 +1008,7 @@ function EditorPage() {
                               aria-expanded={layoutListOpen}
                               className="mt-1.5 flex w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium transition-colors hover:text-foreground"
                             >
-                              <span>Rencana layout ({layoutPlan.length})</span>
+                              <span>Momen split ({layoutPlan.length})</span>
                               <ChevronDown
                                 className={`size-3 shrink-0 transition-transform ${layoutListOpen ? "rotate-180" : ""}`}
                               />
@@ -1066,7 +1020,9 @@ function EditorPage() {
                                     key={i}
                                     className="flex items-center justify-between gap-2 rounded-md border border-border bg-background px-2 py-1 text-[10px]"
                                   >
-                                    <span className="min-w-0 truncate capitalize">{s.layout}</span>
+                                    <span className="min-w-0 truncate">
+                                      {(s.end - s.start).toFixed(1)}s dua orang
+                                    </span>
                                     <button
                                       type="button"
                                       onClick={() => seek(Math.max(0, s.start))}
@@ -1086,7 +1042,7 @@ function EditorPage() {
                             onClick={() => void muatRencanaLayout()}
                             className="mt-1.5 w-full rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
                           >
-                            Lihat rencana layout
+                            Lihat momen split
                           </button>
                         )}
                       </>

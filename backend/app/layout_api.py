@@ -1,14 +1,21 @@
-"""API AUTO LAYOUT: simpan pilihan pengguna & pratinjau rencana layout.
+"""API AUTO SPLIT: simpan satu toggle & pratinjau rentang split.
 
 Dua endpoint:
-  PUT  /api/layout-prefs/{clip_id}   simpan {"enabled":bool,"layouts":[...]}
+  PUT  /api/layout-prefs/{clip_id}   simpan {"enabled":bool}
                                      → INVALIDASI preview supaya dirender ulang
-  GET  /api/layout-plan/{clip_id}    rencana segmen (untuk ditampilkan di editor)
+  GET  /api/layout-plan/{clip_id}    rentang split (untuk ditampilkan di editor)
 
-Kenapa menyimpan pilihan MEMBATALKAN preview: layout ikut dibakar ke berkas
+Kenapa menyimpan pilihan MEMBATALKAN preview: split ikut dibakar ke berkas
 preview (supaya preview == unduhan). Kalau preview lama dibiarkan, pengguna
-mencentang "split" tapi videonya tidak berubah sampai render berikutnya — bug
-yang sudah pernah terjadi dengan cache preview.
+menyalakan Auto Split tapi videonya tidak berubah sampai render berikutnya —
+bug yang sudah pernah terjadi dengan cache preview.
+
+PIVOT (openshorts): tidak ada lagi 7 pilihan layout (fill/fit/split/three/
+four/gameplay/screenshare). Terukur, pilihan itu tidak pernah menghasilkan
+apa pun: hanya 3% frame punya >=2 wajah dan syarat rentang berurutan
+memutus semuanya. Sekarang SATU keputusan — split saat dua orang benar-benar
+bergiliran bicara, kamera saja di sisanya. `layouts` masih diterima di body
+untuk kompatibilitas klien lama, tapi diabaikan.
 """
 from __future__ import annotations
 
@@ -16,8 +23,6 @@ import os
 from typing import Any, Optional
 
 import httpx
-
-from .auto_layout import SEMUA_LAYOUT
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
@@ -42,18 +47,16 @@ async def _sb(method: str, path: str, **kw) -> Any:
 
 
 def bersihkan_prefs(body: dict[str, Any]) -> dict[str, Any]:
-    """Validasi masukan pengguna. Layout tak dikenal DIBUANG, bukan diteruskan.
+    """Validasi masukan pengguna — kini hanya SATU keputusan: enabled.
 
-    Meneruskan nama layout asing ke perencana berarti nama itu ikut jadi kunci
-    `diizinkan` dan menghasilkan rencana yang tidak bisa dirender.
+    `layouts` dari klien lama diabaikan (auto split tidak punya pilihan tata
+    letak). Disimpan sebagai [] supaya baris lama di database ikut bersih dan
+    perbandingan "berubah" di simpan_prefs tidak pernah salah karena sisa
+    pilihan lama.
     """
-    layouts = [str(x) for x in (body.get("layouts") or [])
-               if str(x) in SEMUA_LAYOUT]
     return {
         "enabled": bool(body.get("enabled")),
-        "layouts": layouts,
-        "has_screenshare": bool(body.get("has_screenshare")),
-        "has_gameplay": bool(body.get("has_gameplay")),
+        "layouts": [],
     }
 
 
@@ -68,8 +71,8 @@ async def simpan_prefs(clip_id: str, user_id: str,
 
     prefs = bersihkan_prefs(body)
     lama = rows[0].get("layout_prefs") or {}
-    berubah = (bool(lama.get("enabled")) != prefs["enabled"]
-               or sorted(lama.get("layouts") or []) != sorted(prefs["layouts"]))
+    # hanya `enabled` yang menentukan hasil render sekarang; `layouts` selalu []
+    berubah = bool(lama.get("enabled")) != prefs["enabled"]
 
     patch: dict[str, Any] = {"layout_prefs": prefs}
     if berubah:
@@ -81,9 +84,11 @@ async def simpan_prefs(clip_id: str, user_id: str,
 
 async def rencana(clip_id: str, user_id: str, *, render_mod,
                   source_url_for) -> dict[str, Any]:
-    """Rencana segmen layout untuk klip ini (tanpa merender).
+    """Rentang AUTO SPLIT untuk klip ini (tanpa merender).
 
     Memakai camera_track kalau sudah ada supaya tidak menganalisis dua kali.
+    Bentuk balikan tetap {"segments": [...]} agar editor lama tidak pecah;
+    setiap segmen kini {start, end, layout:"split"}.
     """
     rows = await _sb(
         "GET",
@@ -96,8 +101,18 @@ async def rencana(clip_id: str, user_id: str, *, render_mod,
         raise RuntimeError("bukan milik pengguna ini")
 
     ct = clip.get("camera_track") or {}
+    # rentang yang SUDAH dipakai render — sumber kebenaran, jadi apa yang
+    # dilihat pengguna di daftar = apa yang ada di videonya.
+    tersimpan = ct.get("auto_splits")
+    if tersimpan:
+        seg = [{"start": float(s["start"]), "end": float(s["end"]),
+                "layout": "split"} for s in tersimpan]
+        return {"segments": seg,
+                "ringkas": {"split": round(sum(s["end"] - s["start"] for s in seg), 1)},
+                "layout_prefs": clip.get("layout_prefs") or {}}
+
+    st: dict[str, Any] = dict(ct)
     frames = ct.get("layout_frames") or []
-    fps = float(ct.get("analysis_fps") or 15.0)
     if not frames:
         proj = await _sb("GET", f"projects?id=eq.{clip['project_id']}"
                                 "&select=id,storage_path,user_id")
@@ -108,19 +123,17 @@ async def rencana(clip_id: str, user_id: str, *, render_mod,
             raise RuntimeError("sumber video tidak tersedia")
         st = render_mod.analyze_speaker_track(
             url, float(clip["start_time"]), float(clip["end_time"]))
-        frames = st.get("layout_frames") or []
-        fps = float(st.get("analysis_fps") or 15.0)
         # simpan supaya panggilan berikutnya instan
         try:
             await _sb("PATCH", f"clips?id=eq.{clip_id}",
                       json={"camera_track": {**(ct or {}), **st}})
         except Exception as exc:
-            print(f"[layout] simpan camera_track gagal (lanjut): {exc}")
+            print(f"[split] simpan camera_track gagal (lanjut): {exc}")
 
-    from . import layout_plan
-    seg = layout_plan.segmen_untuk({"layout_frames": frames, "analysis_fps": fps},
-                                   clip.get("layout_prefs")
-                                   or {"enabled": True, "layouts": []})
-    from .auto_layout import ringkas
-    return {"segments": seg, "ringkas": ringkas(seg),
+    from . import auto_split
+    r = auto_split.rencana_auto_split(st, src_w=int(st.get("src_w") or 0))
+    seg = [{"start": float(s["start"]), "end": float(s["end"]),
+            "layout": "split"} for s in (r.get("splits") or [])]
+    return {"segments": seg,
+            "ringkas": {"split": round(sum(s["end"] - s["start"] for s in seg), 1)},
             "layout_prefs": clip.get("layout_prefs") or {}}

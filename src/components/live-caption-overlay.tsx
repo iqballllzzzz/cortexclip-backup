@@ -112,6 +112,7 @@ export function LiveCaptionOverlay({
   containerWidth = 360,
   className,
   showEmoji = false,
+  splitRanges,
 }: {
   words: LiveWord[];
   /** waktu video saat ini (detik, relatif klip) */
@@ -122,6 +123,11 @@ export function LiveCaptionOverlay({
   className?: string;
   /** tampilkan emoji di samping kata kunci (fitur "Tambahkan Emoji") */
   showEmoji?: boolean;
+  /** Rentang AUTO SPLIT (detik, relatif klip). Di dalamnya layar terbagi dua
+   *  panel, jadi caption pindah ke GARIS BATAS (50% tinggi, anchor tengah) —
+   *  persis seperti \an5 di ASS yang dibakar ke unduhan. Tanpa ini preview
+   *  menaruh caption di wajah orang panel bawah sementara unduhan tidak. */
+  splitRanges?: { start: number; end: number }[];
 }) {
   const scale = containerWidth / 360;
 
@@ -142,10 +148,22 @@ export function LiveCaptionOverlay({
   const fontSize = style.fontSize * scale;
   const strokeWidth = style.strokeWidth * scale;
 
+  // PARITY seam: build_ass memutuskan per EVENT dengan titik tengah event.
+  // Di sini padanan event adalah baris aktif, jadi patokannya titik tengah
+  // baris — bukan `time` — supaya caption tidak melompat di tengah baris.
+  const lineMid =
+    ((activeLine[0]?.start ?? 0) + (activeLine[activeLine.length - 1]?.end ?? 0)) / 2;
+  const diSeam = (splitRanges ?? []).some((r) => lineMid >= r.start && lineMid <= r.end);
+
   return (
     <div
       className={cn("pointer-events-none absolute inset-x-0 flex justify-center px-[6%]", className)}
-      style={{ top: `${style.position}%`, opacity: style.opacity }}
+      style={{
+        // di rentang split: garis batas dua panel = 50% tinggi. Anchor sudah
+        // tengah (translateY(-50%) di bawah), jadi 50% = persis \an5 di ASS.
+        top: `${diSeam ? 50 : style.position}%`,
+        opacity: style.opacity,
+      }}
     >
       <div
         className="flex flex-wrap items-center justify-center gap-x-[0.3em] gap-y-[0.15em] text-center"

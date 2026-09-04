@@ -522,6 +522,7 @@ def build_ass(
     video_width: int = 1080,
     video_height: int = 1920,
     server_render: bool = True,
+    split_ranges: list[Any] | None = None,
 ) -> str:
     """Bangun ASS karaoke OpusClip-style.
 
@@ -529,6 +530,12 @@ def build_ass(
     style: {"preset": "hormozi", ...override} — key template Supoclip.
     server_render=True (default): emoji teks tidak disisipkan (PNG overlay
     terpisah yang menggambar emoji di render final).
+    split_ranges: rentang AUTO SPLIT [(start, end), ...] atau
+        [{"start":..,"end":..}]. Di dalam rentang itu layar terbagi dua panel
+        (atas/bawah), jadi caption pada posisi normal (y=0.74..0.80 tinggi)
+        menutupi WAJAH orang di panel bawah. Openshorts memindahkannya ke
+        SEAM — garis batas dua panel, tepat tengah vertikal — dengan
+        \\an5 (anchor tengah) per event supaya tidak menutupi siapa pun.
     """
     if isinstance(style, str):
         try:
@@ -643,6 +650,42 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     line_prefix = f"{{\\pos({video_width // 2},{y_pos})" + ("\\blur4" if glow else "") + "}"
     font_tag = f"\\fn{font_name}"
 
+    # --- AUTO SPLIT: caption pindah ke SEAM (garis batas dua panel) ---
+    # Di rentang split layar = dua panel (out_w x out_h/2). Caption di posisi
+    # normal (position_y 0.70-0.80 tinggi) jatuh TEPAT DI WAJAH orang panel
+    # bawah. openshorts memindahkannya ke garis batas panel = video_height/2,
+    # anchor tengah. Alignment style memang sudah 5 (center-center), jadi
+    # \pos menempatkan TITIK TENGAH teks; \an5 ditulis eksplisit supaya event
+    # tetap benar walau template/override mengubah alignment.
+    _splits: list[tuple[float, float]] = []
+    for _s in (split_ranges or []):
+        try:
+            if isinstance(_s, dict):
+                _a, _b = float(_s.get("start", 0)), float(_s.get("end", 0))
+            else:
+                _a, _b = float(_s[0]), float(_s[1])
+            if _b > _a:
+                _splits.append((_a, _b))
+        except Exception:
+            continue
+    seam_prefix = (f"{{\\an5\\pos({video_width // 2},{video_height // 2})"
+                   + ("\\blur4" if glow else "") + "}")
+
+    def prefix_for(t0: float, t1: float) -> str:
+        """Prefix posisi event [t0..t1]: seam bila TITIK TENGAHnya di rentang split.
+
+        Dipilih titik tengah (bukan tumpang-tindih apa pun) supaya event yang
+        cuma menyenggol tepi rentang tidak ikut melompat — melompat bolak-balik
+        antar posisi terlihat seperti caption berkedip.
+        """
+        if not _splits:
+            return line_prefix
+        mid = (float(t0) + float(t1)) / 2.0
+        for a, b in _splits:
+            if a <= mid <= b:
+                return seam_prefix
+        return line_prefix
+
     def render_text(global_idx: int, word: dict[str, Any]) -> str:
         text = str(word.get("word", word.get("text", "")))
         if uppercase:
@@ -699,7 +742,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 entrance = f"{{{line_entrance}}}" if line_entrance else ""
                 events.append(
                     f"Dialogue: 0,{ass_timestamp(pre_start)},{ass_timestamp(chunk_begin)},"
-                    f"Default,,0,0,0,,{line_prefix}{entrance}{' '.join(idle_parts)}"
+                    f"Default,,0,0,0,,{prefix_for(pre_start, chunk_begin)}{entrance}{' '.join(idle_parts)}"
                 )
             for local_i, word in enumerate(chunk):
                 start = float(word["start"])
@@ -722,7 +765,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     else ""
                 )
                 events.append(
-                    f"Dialogue: 0,{ass_timestamp(start)},{ass_timestamp(end)},Default,,0,0,0,,{line_prefix}{entrance}{line}"
+                    f"Dialogue: 0,{ass_timestamp(start)},{ass_timestamp(end)},Default,,0,0,0,,{prefix_for(start, end)}{entrance}{line}"
                 )
         else:
             start = pre_start
@@ -745,7 +788,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             elif animation == "bounce":
                 effect = "{\\fscx70\\fscy70\\t(0,120,\\fscx112\\fscy112)\\t(120,240,\\fscx100\\fscy100)}"
             events.append(
-                f"Dialogue: 0,{ass_timestamp(start)},{ass_timestamp(end)},Default,,0,0,0,,{line_prefix}{effect}{chunk_text}"
+                f"Dialogue: 0,{ass_timestamp(start)},{ass_timestamp(end)},Default,,0,0,0,,{prefix_for(start, end)}{effect}{chunk_text}"
             )
         prev_chunk_end = chunk_end
 

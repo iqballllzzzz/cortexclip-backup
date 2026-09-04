@@ -99,8 +99,13 @@ SMOOTH_TIME_S = 0.55      # perkiraan waktu kamera mencapai target (SmoothDamp)
 # baru diarahkan." Jadi kamera diam PERSIS sampai target benar-benar pindah
 # tempat: jauh (BIG_MOVE_FRAC) DAN bertahan lama (DWELL_S). Setelah sampai
 # (SETTLE_FRAC) kamera mengunci lagi.
-BIG_MOVE_FRAC = 0.20      # target harus menjauh > 20% lebar crop
-DWELL_S = 0.60            # dan bertahan 0.6 detik (geleng biasanya < 0.4 s)
+BIG_MOVE_FRAC = 0.35      # target harus menjauh > 35% lebar crop
+                          # (0.20 terukur terlalu sensitif: geleng besar,
+                          # badan condong, dan menunjuk sudah memicu geser →
+                          # kamera "over" bergerak hampir sepanjang klip)
+DWELL_S = 0.90            # dan bertahan 0.9 detik (geleng biasanya < 0.4 s;
+                          # condong badan < 0.7 s) — hanya pindah tempat
+                          # sungguhan yang lolos
 SETTLE_FRAC = 0.05        # selisih <= 5% lebar crop → kunci ulang
 # Pemutus seri sinkron audio (dipakai HANYA saat dua skor mulut berdekatan)
 AV_TIE_RATIO = 0.70       # kandidat >= 70% skor yang disorot = dianggap "dekat"

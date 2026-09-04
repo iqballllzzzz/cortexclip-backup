@@ -421,6 +421,7 @@ def render_clip(
     icon_ass_path: Optional[str] = None,
     icon_png_overlays: Optional[list[dict[str, Any]]] = None,
     broll_video_overlays: Optional[list[dict[str, Any]]] = None,
+    auto_splits: Optional[list[dict[str, Any]]] = None,
     layout_segments: Optional[list[dict[str, Any]]] = None,
 ) -> str:
     """Cut + reframe + burn subtitles (+ ikon overlay) -> vertical MP4.
@@ -429,9 +430,10 @@ def render_clip(
     watermark: bakar watermark CortexClipAI (default ON — dihapus hanya
     setelah user menonton 4 iklan, via flag dari render_clip.py).
     icon_ass_path: ASS overlay ikon/b-roll (layer terpisah dari subtitle).
-    layout_segments: rencana AUTO LAYOUT dari auto_layout.rencana_layout().
-        Segmen `fill` tidak menghasilkan filter apa pun (lapisan dasar sudah
-        fill); segmen lain ditumpuk sebagai komposit dengan `enable=between(t..)`.
+    auto_splits: rencana AUTO SPLIT (auto_split.rencana_auto_split) — rentang
+        split dua-panel ala openshorts. Di-rentang ini lapisan dasar DITIMPA
+        komposit vstack dua crop statis; subtitle \\an5 di tengah.
+    layout_segments: (LAMA, tak dipakai lagi oleh pemanggil baru).
     """
     w, h = map(int, resolution.split("x"))
     aspect = w / h
@@ -519,20 +521,33 @@ def render_clip(
     input_idx = 1
     clip_dur = max(0.2, float(end) - float(start))
 
-    # --- AUTO LAYOUT: komposit split/three/four/gameplay/screenshare/fit ---
-    # Ditempel di ATAS lapisan `vbase` (yang sudah reframe 9:16 face tracking),
-    # lalu subtitle & ikon dipasang SETELAHNYA supaya tidak tertutup panel.
-    if layout_segments:
+    # --- AUTO SPLIT (openshorts): DUA rantai terpisah dari sumber, bukan dari
+    # vbase. Alasan (terukur): vbase 9:16 hasil tracking hampir tak pernah
+    # memuat dua wajah (0/14 sampel) — jendela kamera muat satu orang — jadi
+    # panel yang dipotong dari vbase mustahil menampilkan dua orang. Panel dari
+    # SUMBER 16:9 memuat keduanya (110/110). Graph: per rentang split, split=2
+    # dari [0:v] → crop statis per orang (geometri openshorts) → scale half →
+    # vstack → overlay ke vbase hanya pada rentang itu (enable=between).
+    if auto_splits:
         try:
-            from .layout_render import build_layout_filter
-            lay_parts, lay_out = build_layout_filter(
-                layout_segments, src_w, src_h, w, h,
-                base_label=cur, in_label="0:v")
-            if lay_parts:
-                fc_parts.extend(lay_parts)
-                cur = lay_out
+            from .auto_split import split_filtergraph_parts
+            for si, s in enumerate(auto_splits):
+                s = {**s, "si": si}
+                split_line, part0, part1, vstack = split_filtergraph_parts(
+                    src_w, src_h, w, h, s, s,
+                    labels=(f"as0_{si}", f"as1_{si}"))
+                fc_parts.append(split_line)
+                fc_parts.append(part0)
+                fc_parts.append(part1)
+                fc_parts.append(vstack)
+                a = float(s["start"]); b = float(s["end"])
+                keluar = f"asplit{si}"
+                fc_parts.append(
+                    f"[{cur}][{si}comp]overlay=0:0:"
+                    f"enable='between(t\\,{a:.3f}\\,{b:.3f})'[{keluar}]")
+                cur = keluar
         except Exception as exc:
-            print(f"[layout] gagal membangun filter ({str(exc)[:150]}) → fill saja")
+            print(f"[auto-split] gagal membangun filter ({str(exc)[:150]}) → kamera")
 
     # subtitle & ikon ASS: SETELAH komposit layout
     if vf_overlay_after:
@@ -662,6 +677,7 @@ def render_preview_fast(
     camera_cuts: Optional[list[int]] = None,
     camera_fps: float = 15.0,
     camera_rolls: Optional[list[float]] = None,
+    auto_splits: Optional[list[dict[str, Any]]] = None,
     layout_segments: Optional[list[dict[str, Any]]] = None,
 ) -> str:
     """Preview: potong + reframe 9:16 + transkode.
@@ -712,20 +728,33 @@ def render_preview_fast(
     vf_parts.append(f"scale={w}:{h}:force_original_aspect_ratio=increase")
     vf_parts.append(f"crop={w}:{h}")
 
-    # AUTO LAYOUT juga di preview — kalau tidak, preview dan unduhan berbeda
-    # (janji "preview = hasil unduhan"). Rantai bercabang, jadi harus lewat
-    # filter_complex, bukan -vf.
-    lay_parts: list[str] = []
-    lay_out = "vbase"
-    if layout_segments:
+    # AUTO SPLIT juga di preview — kalau tidak, preview dan unduhan berbeda
+    # (janji "preview = hasil unduhan"). Panel dari SUMBER (lihat render_clip:
+    # vbase hasil tracking muat satu orang, bukan dua).
+    as_parts: list[str] = []
+    as_cur = "vbase"
+    if auto_splits:
         try:
-            from .layout_render import build_layout_filter
-            lay_parts, lay_out = build_layout_filter(
-                layout_segments, src_w, src_h, w, h,
-                base_label="vbase", in_label="0:v")
+            from .auto_split import split_filtergraph_parts
+            for si, s in enumerate(auto_splits):
+                s = {**s, "si": si}
+                split_line, part0, part1, vstack = split_filtergraph_parts(
+                    src_w, src_h, w, h, s, s,
+                    labels=(f"as0_{si}", f"as1_{si}"))
+                as_parts.append(split_line)
+                as_parts.append(part0)
+                as_parts.append(part1)
+                as_parts.append(vstack)
+                a = float(s["start"]); b = float(s["end"])
+                keluar = f"asplit{si}"
+                as_parts.append(
+                    f"[{as_cur}][{si}comp]overlay=0:0:"
+                    f"enable='between(t\\,{a:.3f}\\,{b:.3f})'[{keluar}]")
+                as_cur = keluar
         except Exception as exc:
-            print(f"[layout] preview: gagal ({str(exc)[:150]}) → fill saja")
-            lay_parts, lay_out = [], "vbase"
+            print(f"[auto-split] preview: gagal ({str(exc)[:150]}) → kamera")
+            as_parts = []
+            as_cur = "vbase"
 
     pre: list[str] = ["ffmpeg", "-y", "-v", "error"]
     # sumber HTTP (video besar di storage): jangan mati karena putus sesaat,
@@ -737,9 +766,9 @@ def render_preview_fast(
     cmd = pre + [
         "-ss", f"{start:.3f}", "-t", f"{end - start:.3f}", "-i", src,
     ]
-    if lay_parts:
-        fc = ";".join([f"[0:v]{','.join(vf_parts)}[vbase]"] + lay_parts
-                      + [f"[{lay_out}]null[vout]"])
+    if as_parts:
+        fc = ";".join([f"[0:v]{','.join(vf_parts)}[vbase]"] + as_parts
+                      + [f"[{as_cur}]null[vout]"])
         cmd += ["-filter_complex", fc, "-map", "[vout]", "-map", "0:a?"]
     else:
         cmd += ["-vf", ",".join(vf_parts)]

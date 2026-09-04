@@ -342,9 +342,11 @@ async def render_clip_server(
         cam_fps = 15.0
         cam_rolls: list[float] = []
         lay_frames: list[dict[str, Any]] = []
+        st_full: dict[str, Any] = {}
         if face_tracking:
             try:
                 st = render_mod.analyze_speaker_track(src, start, end)
+                st_full = st if isinstance(st, dict) else {}
                 traj = st.get("trajectory") or None
                 cam_cuts = list(st.get("cuts") or [])
                 cam_fps = float(st.get("analysis_fps") or 15.0)
@@ -373,18 +375,41 @@ async def render_clip_server(
         user_id = clip.get("user_id") or project.get("user_id")
         watermark_on = await _watermark_aktif_untuk(str(user_id))
 
-        # AUTO LAYOUT (opsional, sesuai pilihan pengguna di editor)
+        # AUTO SPLIT (pengganti auto layout, resep openshorts): satu keputusan —
+        # split atau tidak. lay_frames + audio sudah ada di tangan.
+        # Split dirender lewat render_mod.render_auto_split (vstack dua crop
+        # statis per orang, geometri openshorts).
         lay_seg: list[dict[str, Any]] = []
         try:
-            from . import layout_plan
-            lay_seg = layout_plan.segmen_untuk(
-                {"layout_frames": lay_frames, "analysis_fps": cam_fps},
-                clip.get("layout_prefs"))
-            if lay_seg:
-                print(f"[render] auto layout: {layout_plan.ringkas_teks(lay_seg)}")
+            from . import auto_split
+            prefs = clip.get("layout_prefs") or {}
+            if prefs.get("enabled"):
+                rencana = auto_split.rencana_auto_split(
+                    {**st_full,
+                     "layout_frames": lay_frames, "analysis_fps": cam_fps},
+                    src_w=int(st_full.get("src_w") or 0))
+                lay_seg = rencana.get("splits") or []
+                if lay_seg:
+                    print(f"[render] auto split: {len(lay_seg)} rentang "
+                          + "; ".join(f"{s['start']:.1f}-{s['end']:.1f}s"
+                                      for s in lay_seg))
         except Exception as exc:
-            print(f"[render] auto layout gagal ({str(exc)[:150]}) → fill")
+            print(f"[render] auto split gagal ({str(exc)[:150]}) → kamera saja")
             lay_seg = []
+
+        # SUBTITLE DI SEAM saat split: ASS dibangun di atas (sebelum rencana
+        # split diketahui), jadi kalau ada rentang split kita BANGUN ULANG
+        # dengan split_ranges → event di dalam rentang memakai \an5 di garis
+        # batas panel. Tanpa ini caption menutupi wajah orang di panel bawah.
+        if lay_seg:
+            try:
+                ass2 = build_ass(words, style, video_width=vw, video_height=vh,
+                                 split_ranges=lay_seg)
+                with open(ass_path, "w", encoding="utf-8") as f:
+                    f.write(ass2)
+                print(f"[render] subtitle: {len(lay_seg)} rentang split → seam \\an5")
+            except Exception as exc:
+                print(f"[render] subtitle seam gagal ({str(exc)[:120]}) → posisi normal")
 
         render_mod.render_clip(
             src, start, end, ass_path, out_path,
@@ -393,7 +418,7 @@ async def render_clip_server(
             camera_trajectory=traj,
             camera_cuts=cam_cuts,
             camera_fps=cam_fps,
-            layout_segments=lay_seg or None,
+            auto_splits=lay_seg or None,
             camera_rolls=cam_rolls or None,
             watermark=watermark_on,
             icon_ass_path=icon_ass_path,
@@ -548,29 +573,14 @@ async def _ensure_source_local(project: dict[str, Any], dest: str) -> str:
     return dest
 
 
-def _lay_seg_dari(st: dict[str, Any], clip: dict[str, Any]) -> list[dict[str, Any]]:
-    """Rencana auto layout dari hasil analisis + pilihan pengguna. Aman gagal.
-
-    Dipakai preview MAUPUN unduhan lewat satu jalur supaya keduanya tidak pernah
-    menghasilkan layout berbeda.
-    """
-    try:
-        from . import layout_plan
-        seg = layout_plan.segmen_untuk(st, clip.get("layout_prefs"))
-        if seg:
-            print(f"[layout] {layout_plan.ringkas_teks(seg)}")
-        return seg
-    except Exception as exc:
-        print(f"[layout] gagal merencanakan ({str(exc)[:150]}) → fill")
-        return []
-
-
 def _cam_track_dari(st: dict[str, Any], fps: float,
                     cuts: list[int]) -> dict[str, Any]:
     """Bagian hasil analisis yang layak disimpan ke clips.camera_track.
 
-    Hanya `layout_frames` + fps + cuts. Trajektori penuh TIDAK disimpan: panel
-    auto layout tidak memakainya dan ia membesarkan baris DB tanpa guna.
+    Hanya `layout_frames` + fps + cuts + src_w. Trajektori penuh TIDAK disimpan:
+    panel auto split tidak memakainya dan ia membesarkan baris DB tanpa guna.
+    src_w WAJIB: rencana_auto_split menolak jalan tanpa itu (ambang fraksi
+    lebar tidak bermakna tanpa lebar sumber).
 
     Kenapa penting: menghitung layout_frames butuh analisis wajah penuh (44 detik
     untuk klip 61 detik). Tanpa disimpan di sini, membuka panel auto layout
@@ -581,6 +591,8 @@ def _cam_track_dari(st: dict[str, Any], fps: float,
         "layout_frames": st.get("layout_frames") or [],
         "analysis_fps": float(fps),
         "cuts": list(cuts or []),
+        "src_w": int(st.get("src_w") or 0),
+        "audio": (st.get("audio") if isinstance(st.get("audio"), list) else None),
     }
 
 
@@ -655,10 +667,10 @@ async def render_preview_clip(
         cam_cuts: list[int] = []
         cam_fps = 15.0
         cam_rolls: list[float] = []
-        lay_seg: list[dict[str, Any]] = []
         # Hasil analisis lengkap, disimpan ke clips.camera_track di akhir supaya
-        # panel auto layout tidak perlu menganalisis ulang (lihat komentar di PATCH).
+        # panel Auto Split tidak perlu menganalisis ulang (lihat komentar di PATCH).
         cam_track: dict[str, Any] = {}
+        auto_splits: list[dict[str, Any]] = []
 
         seek_url = await _source_seek_url(project)
         made = False
@@ -686,11 +698,31 @@ async def render_preview_clip(
                 cam_cuts = list(st.get("cuts") or [])
                 cam_fps = float(st.get("analysis_fps") or 15.0)
                 cam_rolls = list(st.get("roll") or [])
-                lay_seg = _lay_seg_dari(st, clip)
                 cam_track = _cam_track_dari(st, cam_fps, cam_cuts)
                 if not traj or len(traj) < 2:
                     print("[preview] face tracking kosong → crop tengah")
                     traj = None
+                # AUTO SPLIT: rencana sekali di sini, dipakai kedua jalur
+                # preview (fast & fallback). Waktu pada sumber = waktu klip
+                # (analisis dari abs_start), jadi langsung dipakai.
+                try:
+                    from . import auto_split
+                    prefs = clip.get("layout_prefs") or {}
+                    auto_splits = []
+                    if prefs.get("enabled"):
+                        rencana = auto_split.rencana_auto_split(
+                            st, src_w=int(st.get("src_w") or 0))
+                        auto_splits = rencana.get("splits") or []
+                    if auto_splits:
+                        print(f"[preview] auto split: "
+                              + "; ".join(f"{s['start']:.1f}-{s['end']:.1f}s"
+                                          for s in auto_splits))
+                except Exception as exc:
+                    print(f"[preview] auto split gagal ({str(exc)[:120]})")
+                    auto_splits = []
+                # simpan rencana split ke camera_track supaya bisa diverifikasi
+                # dan dipakai caption tanpa analisis ulang
+                cam_track = {**cam_track, "auto_splits": auto_splits}
             except Exception as exc:
                 print(f"[preview] face tracking gagal ({str(exc)[:120]}) → crop tengah")
                 traj = None
@@ -700,7 +732,7 @@ async def render_preview_clip(
                     seek_url, abs_start, abs_end, out_path,
                     camera_trajectory=traj, camera_cuts=cam_cuts,
                     camera_fps=cam_fps, camera_rolls=cam_rolls or None,
-                    layout_segments=lay_seg or None,
+                    auto_splits=auto_splits or None,
                     on_progress=lambda p: lapor(60 + int(p * 0.30),
                                                 "Memproses video")))
                 made = os.path.exists(out_path) and os.path.getsize(out_path) > 8000
@@ -728,19 +760,37 @@ async def render_preview_clip(
                 cam_cuts = list(st.get("cuts") or [])
                 cam_fps = float(st.get("analysis_fps") or 15.0)
                 cam_rolls = list(st.get("roll") or [])
-                lay_seg = _lay_seg_dari(st, clip)
                 cam_track = _cam_track_dari(st, cam_fps, cam_cuts)
                 if not traj or len(traj) < 2:
                     traj = None
+                # AUTO SPLIT jalur fallback: JANGAN merencanakan ulang. Pakai
+                # `auto_splits` yang sudah dihitung pada jalur HTTP-seek —
+                # waktunya relatif KLIP (analisis abs_start..abs_end), dan
+                # render fallback juga berbasis waktu klip (-ss rs oleh ffmpeg
+                # menggeser ke 0 = waktu klip). Merencanakan ulang pada st
+                # potongan lokal terbukti menghasilkan rentang kosong/beda.
+                try:
+                    auto_splits2 = list(auto_splits or [])
+                    if auto_splits2:
+                        print("[preview] auto split(fallback): "
+                              + "; ".join(f"{s['start']:.1f}-{s['end']:.1f}s"
+                                          for s in auto_splits2))
+                except Exception as exc:
+                    print(f"[preview] auto split(fallback) gagal ({str(exc)[:120]})")
+                    auto_splits2 = []
+                # gabungkan rencana dari jalur mana pun ke camera_track yang
+                # disimpan (yang dipakai E2E & caption)
+                cam_track = {**cam_track, "auto_splits": auto_splits2}
             except Exception as exc:
                 print(f"[preview] face tracking gagal ({exc}) → crop tengah")
                 traj = None
+                auto_splits2 = []
             try:
                 await to_thread.run_sync(lambda: render_mod.render_preview_fast(
                     src2, rs, re_, out_path,
                     camera_trajectory=traj, camera_cuts=cam_cuts,
                     camera_fps=cam_fps, camera_rolls=cam_rolls or None,
-                    layout_segments=lay_seg or None,
+                    auto_splits=auto_splits2 or None,
                     on_progress=lambda p: lapor(15 + int(p * 0.75),
                                                 "Memproses video")))
             except Exception as exc:

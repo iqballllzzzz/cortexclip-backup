@@ -282,4 +282,10 @@ def analyze(src: str, start: float, end: float, *, probe_size, run_ffmpeg,
     return {"trajectory": traj, "faces": max_faces, "switches": switches,
             "cuts": sorted(cuts), "analysis_fps": SAMPLE_FPS,
             "roll": [round(v, 3) for v in rolls], "engine": "yunet",
-            "layout_frames": layout_frames}
+            "layout_frames": layout_frames,
+            # untuk pemetaan posisi panel ke RUANG BASE (layout_plan →
+            # posisi_panel_base): lebar sumber & lebar jendela crop 9:16
+            "src_w": w, "crop_w": crop_w,
+            # audio envelope 15fps (0..1) — gerbang "tidak ada yang bicara"
+            # untuk auto_split (openshorts AUDIO_GATE)
+            "audio": (audio if isinstance(audio, list) else None)}
