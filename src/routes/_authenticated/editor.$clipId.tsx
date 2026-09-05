@@ -771,6 +771,26 @@ function EditorPage() {
   const videoSrc = clip.preview_ready && clip.preview_url ? clip.preview_url : null;
   // sumber mentah tetap dipakai untuk MENGHITUNG durasi/aspek saja, tidak diputar
   const sedangDiproses = !clip.preview_ready;
+  // ANTI-GELAP: saat auto split selesai, preview_url GANTI → kalau <video src>
+  // langsung ditukar, frame pertama video baru belum terdecode = layar hitam
+  // beberapa ratus ms (keluhan: "previewnya jadi gelap dulu baru muncul").
+  // Simpan URL lama; tampilkan video LAMA beku sampai video BARU onLoadedData.
+  const [urlTampil, setUrlTampil] = useState<string | null>(null);
+  const urlBaruRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (videoSrc && videoSrc !== urlTampil) {
+      urlBaruRef.current = videoSrc;
+      if (!urlTampil) setUrlTampil(videoSrc); // pertama kali: langsung
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoSrc]);
+  const videoSiapBaru = () => {
+    // frame video baru sudah terdecode — aman menampilkan
+    if (urlBaruRef.current && urlBaruRef.current !== urlTampil) {
+      setUrlTampil(urlBaruRef.current);
+      urlBaruRef.current = null;
+    }
+  };
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-background text-foreground">
@@ -814,19 +834,34 @@ function EditorPage() {
             className="relative shrink-0 overflow-hidden rounded-2xl border border-border bg-black shadow-lg"
             style={{ width: fit.w, height: fit.h }}
           >
-            {videoSrc ? (
-              <video
-                ref={videoRef}
-                src={videoSrc}
-                playsInline
-                preload="auto"
-                className="absolute inset-0 size-full object-cover"
-                onClick={togglePlay}
-                onLoadedMetadata={handleLoadedMetadata}
-                onEnded={() => setPlaying(false)}
-                onPlay={() => setPlaying(true)}
-                onPause={() => setPlaying(false)}
-              />
+            {urlTampil ? (
+              <>
+                {/* video BARU dirender DI BELAKANG, tersembunyi sampai frame siap */}
+                {videoSrc && videoSrc !== urlTampil ? (
+                  <video
+                    key={videoSrc}
+                    src={videoSrc}
+                    playsInline
+                    preload="auto"
+                    muted
+                    className="absolute inset-0 size-full object-cover opacity-0"
+                    onLoadedData={videoSiapBaru}
+                    aria-hidden
+                  />
+                ) : null}
+                <video
+                  ref={videoRef}
+                  src={urlTampil}
+                  playsInline
+                  preload="auto"
+                  className="absolute inset-0 size-full object-cover"
+                  onClick={togglePlay}
+                  onLoadedMetadata={handleLoadedMetadata}
+                  onEnded={() => setPlaying(false)}
+                  onPlay={() => setPlaying(true)}
+                  onPause={() => setPlaying(false)}
+                />
+              </>
             ) : (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-4 text-center text-xs text-muted-foreground">
                 <Loader2 className="size-6 animate-spin" />

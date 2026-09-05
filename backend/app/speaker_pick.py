@@ -352,4 +352,102 @@ def build_trajectory(targets: list[float], cuts: set[int], src_w: int,
             out.extend([tetap] * len(seg))
         else:
             out.extend(stabilize(bersih))
-    return [max(half, min(src_w - half, x * scale)) for x in out]
+
+    # ===== GUARD AKURASI (keluhan: "face tracking gak pas ke orangnya, yang
+    # terlihat cuman pundaknya doang") =====
+    # Bandingkan jalur kamera dengan target wajah asli per segmen. Kalau
+    # MEDIAN jarak kamera→wajah pada segmen melebihi 35% lebar crop, kamera
+    # jelas menatap yang salah (median dipilih supaya frame melenceng tidak
+    # memicu). Perbaiki dengan MENCIUM posisi target segmen itu (bukan pan
+    # panjang): satu frame snap, seperti perpindahan pembicara.
+    guard = crop_a * 0.35
+
+    def perbaiki(b0: int, b1: int, kedalaman: int) -> list[float]:
+        """Kalau kamera salah target di segmen ini, pecah di lompatan target
+        terbesar lalu kunci ulang per bagian (rekursif, maks 6 kedalaman)."""
+        seg_out = out[b0:b1]
+        seg_tgt = targets[b0:b1]
+        if not seg_out or b1 - b0 < 4:
+            return list(seg_out)
+        valid = [t for t in seg_tgt if t is not None]
+        if not valid:
+            return list(seg_out)
+        pasangan = [(o, t) for o, t in zip(seg_out, seg_tgt) if t is not None]
+        jarak = sorted(abs(o - t) for o, t in pasangan)
+        # P90 (bukan median): salah yang menetap (≥10% segmen) harus terdeteksi,
+        # sementara frame melenceng sesaat (<10%) tidak memicu pemecahan.
+        p90 = jarak[min(len(jarak) - 1, int(len(jarak) * 0.9))]
+        if p90 <= guard:
+            return list(seg_out)              # kamera benar — biarkan
+        if kedalaman >= 6:
+            med_t = sorted(valid)[len(valid) // 2]
+            return [med_t] * (b1 - b0)        # darurat: satu kuncian
+        # cari titik lompatan target terbesar → batas sub-bagian baru
+        terbaik, delta_terbaik = None, 0.0
+        for i in range(b0 + 2, b1 - 2):
+            a, b = targets[i - 1], targets[i]
+            if a is None or b is None:
+                continue
+            d = abs(b - a)
+            if d > delta_terbaik:
+                delta_terbaik, terbaik = d, i
+        if terbaik is None or delta_terbaik < guard:
+            # tidak ada lompatan jelas → kunci ulang seluruh segmen ke median
+            med_t = sorted(valid)[len(valid) // 2]
+            return [med_t] * (b1 - b0)
+        kiri = perbaiki(b0, terbaik, kedalaman + 1)
+        kanan = perbaiki(terbaik, b1, kedalaman + 1)
+        return kiri + kanan
+
+    # konversi ke piksel SUMBER + clamp SEKALI di sini, lalu guard membandingkan
+    # dalam satuan sumber — target juga di-clamp (wajah di luar jangkauan crop
+    # bukan kesalahan kamera)
+    sumber = [max(half, min(src_w - half, x * scale)) for x in out]
+    sasaran = [max(half, min(src_w - half, t * scale))
+               for t in (targets if targets else [])]
+
+    def perbaiki_sumber(b0: int, b1: int, kedalaman: int) -> list[float]:
+        seg = sumber[b0:b1]
+        tgt = sasaran[b0:b1]
+        if not seg or b1 - b0 < 4 or not tgt:
+            return list(seg)
+        pasangan = [(o, t) for o, t in zip(seg, tgt) if t is not None]
+        if not pasangan:
+            return list(seg)
+        jarak = sorted(abs(o - t) for o, t in pasangan)
+        p90 = jarak[min(len(jarak) - 1, int(len(jarak) * 0.9))]
+        if p90 <= guard_s:
+            return list(seg)
+        if kedalaman >= 6:
+            med = sorted(t for t in tgt if t is not None)
+            m = med[len(med) // 2]
+            print(f"[face-track] guard: segmen {b0}-{b1} salah target "
+                  f"(p90 {p90:.0f}px > {guard_s:.0f}px) → kunci {m:.0f}")
+            return [m] * (b1 - b0)
+        terbaik, delta_terbaik = None, 0.0
+        for i in range(b0 + 2, b1 - 2):
+            a, b = sasaran[i - 1], sasaran[i]
+            if a is None or b is None:
+                continue
+            d = abs(b - a)
+            if d > delta_terbaik:
+                delta_terbaik, terbaik = d, i
+        if terbaik is None or delta_terbaik < guard_s:
+            med = sorted(t for t in tgt if t is not None)
+            m = med[len(med) // 2]
+            print(f"[face-track] guard: segmen {b0}-{b1} salah target tanpa "
+                  f"lompatan jelas → kunci {m:.0f}")
+            return [m] * (b1 - b0)
+        kiri = perbaiki_sumber(b0, terbaik, kedalaman + 1)
+        kanan = perbaiki_sumber(terbaik, b1, kedalaman + 1)
+        return kiri + kanan
+
+    guard_s = (crop_w * 1.0) * 0.35   # 35% lebar crop (piksel sumber)
+    hasil: list[float] = []
+    for b0, b1 in zip(bounds, bounds[1:]):
+        segmen = perbaiki_sumber(b0, b1, 0)
+        if len(segmen) != b1 - b0:
+            hasil.extend(sumber[b0:b1])
+        else:
+            hasil.extend(segmen)
+    return hasil

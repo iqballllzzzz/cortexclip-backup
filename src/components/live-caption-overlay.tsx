@@ -138,9 +138,9 @@ export function LiveCaptionOverlay({
   // cari baris aktif berdasarkan waktu
   const activeLine = useMemo(() => {
     const found = lines.find(
-      (l) => time >= l[0].start && time <= l[l.length - 1].end,
+      (l) => l.length > 0 && time >= l[0]!.start && time <= l[l.length - 1]!.end,
     );
-    return found ?? lines.find((l) => time < l[0].start) ?? null;
+    return found ?? lines.find((l) => l.length > 0 && time < l[0]!.start) ?? null;
   }, [lines, time]);
 
   if (!activeLine || !words.length) return null;
@@ -275,6 +275,8 @@ export function VideoWithLiveCaption({
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [containerW, setContainerW] = useState(360);
+  // alias properti onTime (dipakai di efek; lokal "onTime" lama menabraknya)
+  const onTimeProp = onTime;
 
   const usingPreview = videoSrc !== null;
   const duration = Math.max(0.1, end - start);
@@ -294,25 +296,75 @@ export function VideoWithLiveCaption({
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !videoSrc) return;
-    const onTime = () => {
+    // PENTING: nama lokal "onTime" dulu MENABRAK properti onTime (callback ke
+    // parent) — callback tidak pernah terpanggil (TS2554 menutupinya). Ganti
+    // nama lokal supaya callback properti benar-benar dipanggil.
+    const laporkanWaktu = () => {
       const rel = usingPreview ? video.currentTime : video.currentTime - start;
       setTime(Math.max(0, rel));
-      onTime?.(Math.max(0, rel));
+      onTimeProp?.(Math.max(0, rel));
     };
-    video.addEventListener("timeupdate", onTime);
+    video.addEventListener("timeupdate", laporkanWaktu);
     // requestAnimationFrame untuk update halus (karaoke presisi)
     let raf = 0;
     const tick = () => {
-      if (!video.paused) onTime();
+      if (!video.paused) laporkanWaktu();
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => {
-      video.removeEventListener("timeupdate", onTime);
+      video.removeEventListener("timeupdate", laporkanWaktu);
       cancelAnimationFrame(raf);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoSrc, start, usingPreview]);
+
+  // ANTI-PATAH-PATAH: kelola buffer sendiri. Keluhan: "preview patah-patah,
+  // suka berhenti lama" — di koneksi lambat browser berhenti begitu buffer
+  // habis lalu menunggu tanpa info. Sekarang:
+  //  - preload="auto": browser mulai buffer lebih banyak sejak awal.
+  //  - saat stall (buffered di depan < 2s): tampilkan indikator "memuat" +
+  //    jangan biarkan UI menganggap playing.
+  //  - lanjut otomatis begitu buffered di depan >= 6s ATAU seluruh klip
+  //    terbuffer (klip pendek) — rasa "sekali jalan tanpa nge-lag".
+  const [stall, setStall] = useState(false);
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !videoSrc) return;
+    const MIN_AHEAD = 6; // detik buffer di depan playhead sebelum lanjut
+    const cek = () => {
+      try {
+        const b = video.buffered;
+        const t = video.currentTime;
+        let ahead = 0;
+        for (let i = 0; i < b.length; i++) {
+          if (b.start(i) <= t && t <= b.end(i)) ahead = b.end(i) - t;
+        }
+        if (video.paused) return;
+        if (ahead < 2) {
+          setStall(true);
+        } else if (ahead >= MIN_AHEAD || t + ahead >= video.duration - 0.5) {
+          if (stall) {
+            setStall(false);
+            void video.play().catch(() => {});
+          }
+        }
+      } catch { /* buffered belum siap */ }
+    };
+    video.addEventListener("progress", cek);
+    video.addEventListener("waiting", () => setStall(true));
+    video.addEventListener("playing", () => cek());
+    video.addEventListener("canplay", cek);
+    const id = window.setInterval(cek, 700);
+    return () => {
+      video.removeEventListener("progress", cek);
+      video.removeEventListener("waiting", () => setStall(true));
+      video.removeEventListener("playing", cek);
+      video.removeEventListener("canplay", cek);
+      window.clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoSrc]);
 
   function toggle() {
     const video = videoRef.current;
@@ -347,7 +399,7 @@ export function VideoWithLiveCaption({
             ref={videoRef}
             src={videoSrc}
             playsInline
-            preload="metadata"
+            preload="auto"
             className="absolute inset-0 size-full object-cover"
             onClick={toggle}
           />
@@ -364,6 +416,16 @@ export function VideoWithLiveCaption({
           style={style}
           containerWidth={containerW}
         />
+
+        {stall ? (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute right-2 top-2 flex items-center gap-1.5 rounded-full bg-black/60 px-2 py-1 text-[10px] font-medium text-white"
+          >
+            <span className="size-1.5 animate-pulse rounded-full bg-white" />
+            Memuat…
+          </div>
+        ) : null}
 
         <button
           type="button"
