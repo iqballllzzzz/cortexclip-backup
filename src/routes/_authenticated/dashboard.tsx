@@ -634,7 +634,20 @@ function Dashboard() {
           </div>
 
           {loading ? (
-            <PageLoading label={t("umum.memuat")} />
+            /* SKELETON SHIMMER ala OpusClip: enam kartu berdenyut mengikuti
+               grid akhir — bukan spinner. Struktur terlihat sejak awal. */
+            <ul className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true" aria-label={t("umum.memuat")}>
+              {[0, 1, 2, 3, 4, 5].map((k) => (
+                <li key={k} className="overflow-hidden rounded-2xl border border-border bg-card">
+                  <span className="block h-1 w-full animate-pulse bg-border" />
+                  <div className="space-y-3 px-4 py-4">
+                    <span className="block h-4 w-3/4 animate-pulse rounded bg-border" />
+                    <span className="block h-3 w-1/2 animate-pulse rounded bg-border" style={{ animationDelay: "120ms" }} />
+                    <span className="block h-3 w-2/5 animate-pulse rounded bg-border" style={{ animationDelay: "240ms" }} />
+                  </div>
+                </li>
+              ))}
+            </ul>
           ) : terlihat.length === 0 ? (
             <div className="mt-6 rounded-2xl border border-dashed border-border px-6 py-14 text-center">
               <p className="font-display text-base font-bold">
@@ -656,48 +669,69 @@ function Dashboard() {
               </Button>
             </div>
           ) : (
-            <ul className="mt-6 overflow-hidden rounded-2xl border border-border">
+            <ul className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {terlihat.map((p, i) => {
                 const st = statusOf(p);
                 const busy = tahapOf(p) === "jalan";
                 return (
                   <li
                     key={p.id}
-                    className="reveal relative border-b border-border last:border-0"
-                    style={{ ["--i" as string]: Math.min(8, 4 + i) }}
+                    className="reveal"
+                    style={{ ["--i" as string]: Math.min(8, i) }}
                   >
-                    <div className="group flex items-center gap-3 bg-card transition-colors hover:bg-surface/60 sm:gap-4">
+                    <div className="group relative flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-card transition-all hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-lg hover:shadow-black/5">
+                      {/* BAND STATUS ATAS: warna mengikuti tahap — hijau selesai,
+                          amber berjalan, merah gagal, netral lainnya */}
+                      <span
+                        aria-hidden
+                        className={`h-1 w-full ${
+                          tahapOf(p) === "selesai"
+                            ? "bg-emerald-500/80"
+                            : tahapOf(p) === "gagal"
+                              ? "bg-destructive/80"
+                              : busy
+                                ? "animate-pulse bg-accent"
+                                : "bg-border"
+                        }`}
+                      />
                       <Link
                         to="/projects/$projectId"
                         params={{ projectId: p.id }}
-                        className="flex min-w-0 flex-1 items-center gap-3 px-4 py-4 sm:gap-4 sm:px-5"
+                        className="flex min-w-0 flex-1 flex-col px-4 py-4"
                       >
-                        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-surface text-accent">
-                          {p.source_type === "youtube" ? (
-                            <Youtube className="size-4" />
-                          ) : (
-                            <Film className="size-4" />
-                          )}
+                        <span
+                          className="block truncate font-display text-[15px] font-bold tracking-tight"
+                          title={p.title}
+                        >
+                          {p.title}
                         </span>
-                        <span className="min-w-0 flex-1">
-                          <span
-                            className="block truncate text-[15px] font-semibold tracking-tight"
-                            title={p.title}
-                          >
-                            {p.title}
+                        <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-muted-foreground">
+                          <span className={`inline-flex items-center gap-1 font-medium ${st.tone}`}>
+                            {busy ? (
+                              <Loader2 className="size-3 animate-spin" />
+                            ) : null}
+                            {st.label}
                           </span>
-                          <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-muted-foreground">
-                            <span className={`font-medium ${st.tone}`}>
-                              {busy ? (
-                                <Loader2 className="mr-1 inline size-3 animate-spin align-[-1px]" />
-                              ) : null}
-                              {st.label}
+                          <span className="opacity-40">·</span>
+                          <span>{p.source_type === "youtube" ? "YouTube" : "Unggahan"}</span>
+                        </span>
+                        <span className="mt-auto flex items-center justify-between pt-4 text-[12px] text-muted-foreground">
+                          <span className="inline-flex items-center gap-1.5">
+                            {p.source_type === "youtube" ? (
+                              <Youtube className="size-3.5" />
+                            ) : (
+                              <Film className="size-3.5" />
+                            )}
+                            {timeAgo(p.created_at)}
+                          </span>
+                          {busy ? (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent">
+                              <span className="size-1.5 animate-pulse rounded-full bg-accent" />
+                              proses
                             </span>
-                            <span className="opacity-40">·</span>
-                            <span>{p.source_type === "youtube" ? "YouTube" : "Unggahan"}</span>
-                            <span className="opacity-40">·</span>
-                            <span>{timeAgo(p.created_at)}</span>
-                          </span>
+                          ) : (
+                            <ArrowUpRight className="size-4 text-muted-foreground/50 transition-colors group-hover:text-accent" />
+                          )}
                         </span>
                       </Link>
                       <button
@@ -713,7 +747,7 @@ function Dashboard() {
                           setMenuAnchor({ top: r.bottom + 6, right: window.innerWidth - r.right });
                           setMenuFor(p.id);
                         }}
-                        className="mr-2 grid size-10 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-surface hover:text-foreground sm:mr-3"
+                        className="absolute right-2 top-3 grid size-8 place-items-center rounded-lg text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
                         aria-label={`Menu untuk ${p.title}`}
                         aria-expanded={menuFor === p.id}
                       >
