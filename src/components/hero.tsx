@@ -1,16 +1,42 @@
+import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { motion } from "motion/react";
-import { ArrowRight, Gift } from "lucide-react";
+import { ArrowRight, Gift, Play } from "lucide-react";
 
-import { CaptionPreview, defaultCaptionStyle } from "@/components/caption-preview";
-import { demoClips } from "@/data/demo-clips";
+type KlipHero = {
+  title: string;
+  url: string;
+  score: number | null;
+  duration: number;
+};
 
 /**
- * HERO landing — copy kiri berat, mockup klip vertikal kanan memakai
- * CaptionPreview sungguhan (bukan screenshot palsu). Asimetri 12/5.
+ * HERO landing — copy kiri berat, preview klip vertikal kanan memutar VIDEO
+ * ASLI terbaru dari akun admin (GET /api/showcase), bukan simulasi CSS.
+ * Keluhan pengguna: preview CSS adalah "bukti bohong" — subtitle-nya bukan
+ * keluaran pipeline. Video asli membuktikan hasil sesungguhnya.
+ *
+ * Prinsip yang sama dengan ResultShowcase: preload="none" (tidak mengunduh
+ * video sebelum pengunjung menekan putar) dan HANYA SATU video berjalan.
  */
 export function Hero() {
-  const demo = demoClips[0];
+  const [klip, setKlip] = useState<KlipHero | null>(null);
+  const [jalan, setJalan] = useState(false);
+
+  useEffect(() => {
+    let hidup = true;
+    fetch("/api/showcase")
+      .then((r) => (r.ok ? r.json() : { clips: [] }))
+      .then((d: { clips?: KlipHero[] }) => {
+        if (hidup) setKlip((d.clips ?? []).find((c) => c.url) ?? null);
+      })
+      .catch(() => {
+        /* hero tetap lengkap tanpa video */
+      });
+    return () => {
+      hidup = false;
+    };
+  }, []);
 
   return (
     <section className="relative overflow-hidden">
@@ -80,24 +106,54 @@ export function Hero() {
           </p>
         </div>
 
-        {/* mockup klip asli — komponen CaptionPreview yang sama dipakai editor */}
+        {/* VIDEO ASLI terbaru dari unduhan admin — bukan simulasi CSS */}
         <motion.div
           initial={{ opacity: 0, y: 18, rotate: 1.5 }}
           animate={{ opacity: 1, y: 0, rotate: 0 }}
           transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1], delay: 0.12 }}
           className="mx-auto w-full max-w-[300px] lg:col-span-5 lg:mt-2 lg:justify-self-end"
         >
-          {demo ? (
+          {klip ? (
             <div className="overflow-hidden rounded-3xl border border-border bg-card shadow-lg">
-              <CaptionPreview
-                clip={demo}
-                style={{ ...defaultCaptionStyle, accent: "var(--color-accent)" }}
-              />
+              <div className="relative aspect-[9/16] w-full bg-surface">
+                {jalan ? (
+                  <video
+                    src={klip.url}
+                    className="size-full object-contain"
+                    controls
+                    autoPlay
+                    playsInline
+                    preload="metadata"
+                    onEnded={() => setJalan(false)}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setJalan(true)}
+                    className="group grid size-full place-items-center"
+                    aria-label={`Putar contoh hasil: ${klip.title}`}
+                  >
+                    <video
+                      src={`${klip.url}#t=1`}
+                      className="absolute inset-0 size-full object-contain opacity-80"
+                      preload="metadata"
+                      muted
+                      playsInline
+                      tabIndex={-1}
+                    />
+                    <span className="relative grid size-14 place-items-center rounded-full bg-black/55 backdrop-blur transition-transform group-hover:scale-105">
+                      <Play className="size-6 translate-x-0.5 text-white" />
+                    </span>
+                  </button>
+                )}
+              </div>
               <div className="flex items-center justify-between px-4 py-3">
-                <span className="rounded-full border border-border px-2.5 py-0.5 text-[11px] text-muted-foreground">
-                  {demo.range}
+                <span className="truncate text-[11px] text-muted-foreground">
+                  Contoh hasil asli
                 </span>
-                <span className="stat-figure text-lg text-accent">{demo.score}/100</span>
+                {klip.score ? (
+                  <span className="stat-figure text-lg text-accent">{klip.score}/100</span>
+                ) : null}
               </div>
             </div>
           ) : null}

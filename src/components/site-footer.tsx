@@ -37,7 +37,7 @@ export function SiteFooter() {
       <div className="mx-auto grid max-w-[1180px] gap-10 px-4 py-14 sm:grid-cols-2 sm:px-6 md:grid-cols-4">
         <div className="md:col-span-2">
           <div className="flex items-center gap-2">
-            <img src="/favicon.png" alt="" loading="lazy" className="size-6 object-contain" />
+            <img src="/favicon.png" alt="" loading="lazy" className="size-6 object-contain dark:invert" />
             <span className="font-display text-base font-bold tracking-tight">CortexClip</span>
           </div>
           <p className="mt-3 max-w-sm text-sm leading-relaxed text-muted-foreground">

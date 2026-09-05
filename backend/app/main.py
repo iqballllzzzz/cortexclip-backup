@@ -1143,10 +1143,10 @@ async def api_showcase():
                 continue
             lihat.add(cid)
             klip = await sb("GET", f"clips?id=eq.{cid}&select=virality_score,"
-                                   "start_time,end_time,description,hashtags") or []
+                                   "start_time,end_time,description,hashtags,title") or []
             k = klip[0] if klip else {}
             out.append({
-                "title": j.get("clip_title") or "Klip",
+                "title": j.get("clip_title") or k.get("title") or "Klip",
                 "url": j.get("rendered_url"),
                 "score": k.get("virality_score"),
                 "duration": round(float(k.get("end_time") or 0)
@@ -1156,6 +1156,29 @@ async def api_showcase():
             })
             if len(out) >= 6:
                 break
+
+        # FALLBACK (kenapa showcase sempat selalu kosong): unduhan async
+        # menulis preview di clips.preview_url, TIDAK di render_jobs — klip
+        # admin terbaru tetap harus tampil walau belum pernah "diunduh".
+        if not out:
+            pre = await sb("GET", "clips?select=id,title,preview_url,virality_score,"
+                                  "start_time,end_time,description,hashtags"
+                                  f"&user_id=in.({daftar})&preview_ready=is.true"
+                                  "&preview_url=not.is.null"
+                                  "&order=updated_at.desc&limit=6") or []
+            for k in pre:
+                if not k.get("preview_url") or str(k["id"]) in lihat:
+                    continue
+                lihat.add(str(k["id"]))
+                out.append({
+                    "title": k.get("title") or "Klip",
+                    "url": k.get("preview_url"),
+                    "score": k.get("virality_score"),
+                    "duration": round(float(k.get("end_time") or 0)
+                                      - float(k.get("start_time") or 0)),
+                    "description": (k.get("description") or "")[:180],
+                    "hashtags": (k.get("hashtags") or [])[:4],
+                })
         hasil = {"clips": out}
         _SHOWCASE_CACHE = (now, hasil)
         return hasil

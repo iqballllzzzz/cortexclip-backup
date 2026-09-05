@@ -40,7 +40,7 @@ export function SiteHeader() {
     >
       <div className="mx-auto flex h-16 max-w-[1180px] items-center gap-6 px-4 sm:px-6">
         <Link to="/" className="flex shrink-0 items-center gap-2">
-          <img src="/favicon.png" alt="" className="size-7 object-contain" />
+          <img src="/favicon.png" alt="" className="size-7 object-contain dark:invert" />
           <span className="font-display text-[15px] font-bold tracking-tight">CortexClip</span>
         </Link>
 
