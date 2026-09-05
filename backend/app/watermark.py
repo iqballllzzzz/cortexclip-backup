@@ -121,8 +121,11 @@ def ffmpeg_overlay_args(
       - watermark_input: ["-i", wm_path] sebelum output
       - filter: [1:v]scale=...[wm];[0:v][wm]overlay=x:y
     """
-    # offset dari pojok: ~6% lebar ke kanan, ~5% tinggi ke bawah (space biar terbaca)
-    x = int(video_width * 0.055)
+    # offset dari pojok: dulu 5,5% lebar. Pengguna minta digeser ke kiri
+    # ("watermarknya terlalu ke kanan, ke kiri dikit saja") → 3,0%.
+    # Tetap di dalam safe-area TikTok/Reels (elemen UI mulai ~2% dari tepi),
+    # jadi tidak terpotong di aplikasi mana pun.
+    x = int(video_width * 0.030)
     y = int(video_height * 0.045)
     scale_w = int(video_width * 0.30)  # block lebar watermark 30% video
     vf = (

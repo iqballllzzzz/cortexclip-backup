@@ -367,7 +367,15 @@ async def api_preview_clip(body: RenderClipIn, request: Request, authorization: 
     key = f"preview:{body.clip_id}"
     from .background import sedang_jalan, spawn
     if sedang_jalan(key):
-        return {"status": "processing", "url": None}
+        # SINKRONISASI: klien yang baru masuk (keluar-masuk editor, tab kedua)
+        # HARUS bisa menempel ke proses yang sedang jalan, bukan memulai ulang.
+        # Persen terakhir dikirim di sini juga supaya tirai langsung menunjukkan
+        # angka yang benar tanpa menunggu polling pertama.
+        from .preview_progress import get_progress
+        p = get_progress(body.clip_id) or {}
+        return {"status": "processing", "url": None,
+                "progress": int(p.get("pct", 0)),
+                "stage": p.get("tahap") or "Menyiapkan"}
 
     async def run_preview():
         t0 = time.time()
@@ -1377,12 +1385,8 @@ async def _start_render_watchdog() -> None:
     # sudah menutup tab (get_order_status hanya jalan saat dialog terbuka)
     from .premium import reap_expired_orders_loop
     spawn(reap_expired_orders_loop(), name="watchdog:qris")
-    # penjadwal auto-publish ke TikTok/YouTube (social_upload.py)
-    try:
-        from .social_upload import loop_penjadwal
-        spawn(loop_penjadwal(), name="watchdog:autopublish")
-    except Exception as exc:
-        print(f"[autopublish] penjadwal tidak dijalankan: {exc}")
+    # CATATAN: penjadwal auto-publish TikTok/YouTube DIHAPUS atas permintaan
+    # pengguna ("hapus aja fitur auto publish karena gak jadi pakai").
 
 
 # ---------------------------------------------------------------------------
@@ -1391,7 +1395,3 @@ async def _start_render_watchdog() -> None:
 from .broll_api import register_broll_routes  # noqa: E402
 
 register_broll_routes(app, get_user, SUPABASE_URL, SUPABASE_ANON_KEY)
-
-from .social_api import register_social_routes  # noqa: E402
-
-register_social_routes(app, get_user)

@@ -50,6 +50,10 @@ def _keys_from_env(name: str) -> list[str]:
 
 
 BASE_URLS = {
+    # PRIORITAS 1 (kunci pengguna, model kuat): OpenAI-compatible justwoker.
+    # Dipakai untuk memilih momen viral — pekerjaan yang paling menentukan
+    # kualitas hasil, jadi tidak boleh jatuh ke model free yang ngawur.
+    "justwoker": "https://api.justwoker.icu/v1",
     "groq": "https://api.groq.com/openai/v1",
     "opencode": "https://opencode.ai/zen/v1",
     "openrouter": "https://openrouter.ai/api/v1",
@@ -60,6 +64,7 @@ BASE_URLS = {
 }
 
 KEY_ENV = {
+    "justwoker": "JUSTWOKER_API_KEYS",
     "groq": "GROQ_API_KEYS",
     "opencode": "OPENCODE_API_KEYS",
     "openrouter": "OPENROUTER_API_KEYS",
@@ -69,8 +74,15 @@ KEY_ENV = {
     "publicai": "PUBLICAI_ENABLED",
 }
 
+# Provider yang DIUTAMAKAN untuk pekerjaan penting (pemilihan momen viral).
+# Diverifikasi 2026-09-05: HTTP 200, balas JSON rapi.
+PRIORITAS_TINGGI = ("justwoker",)
+
 # Order matters within a provider. Free models first.
 DEFAULT_MODELS: dict[str, list[str]] = {
+    "justwoker": [
+        "claude-opus-5",
+    ],
     "groq": [
         "qwen/qwen3.8-27b",
         "openai/gpt-oss-20b",
@@ -186,11 +198,14 @@ class HydraGateway:
         by_provider: dict[str, list[Endpoint]] = {}
         for e in pool:
             by_provider.setdefault(e.provider, []).append(e)
-        # Provider BER-KEY selalu didahulukan (paling awal di pool); provider
-        # anonim/unlimited cuma jadi jaring pengaman terakhir. Rotasi tetap
-        # jalan di dalam masing-masing tier.
-        keyed = [p for p in by_provider if by_provider[p] and by_provider[p][0].key]
-        anon = [p for p in by_provider if by_provider[p] and not by_provider[p][0].key]
+        # PRIORITAS_TINGGI selalu dicoba PALING AWAL (provider berbayar milik
+        # pengguna dengan model kuat). Lalu provider ber-key lain, lalu provider
+        # anonim sebagai jaring pengaman. Rotasi tetap jalan di dalam tier.
+        prio = [p for p in by_provider if p in PRIORITAS_TINGGI and by_provider[p]]
+        keyed = [p for p in by_provider
+                 if p not in PRIORITAS_TINGGI and by_provider[p] and by_provider[p][0].key]
+        anon = [p for p in by_provider
+                if p not in PRIORITAS_TINGGI and by_provider[p] and not by_provider[p][0].key]
 
         def _rotate(names: list[str]) -> list[Endpoint]:
             if not names:
@@ -204,7 +219,13 @@ class HydraGateway:
                         out.append(by_provider[n].pop(0))
             return out
 
-        return _rotate(keyed) + _rotate(anon)
+        # prio TIDAK dirotasi: urutannya deterministik supaya model terbaik
+        # selalu jadi percobaan pertama.
+        urut_prio: list[Endpoint] = []
+        for n in prio:
+            urut_prio.extend(by_provider[n])
+            by_provider[n] = []
+        return urut_prio + _rotate(keyed) + _rotate(anon)
 
     def _fail(self, ep: Endpoint, status: int, body: str) -> None:
         ep.failures += 1

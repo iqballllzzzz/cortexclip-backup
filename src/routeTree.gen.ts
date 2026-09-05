@@ -17,7 +17,6 @@ import { Route as DocsRouteImport } from './routes/docs'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as StudioRouteImport } from './routes/studio'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
-import { Route as AuthenticatedSocialRouteImport } from './routes/_authenticated/social'
 import { Route as AuthenticatedUnduhRouteImport } from './routes/_authenticated/unduh'
 import { Route as ShareTokenRouteImport } from './routes/share.$token'
 import { Route as AuthenticatedEditorClipIdRouteImport } from './routes/_authenticated/editor.$clipId'
@@ -62,11 +61,6 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedSocialRoute = AuthenticatedSocialRouteImport.update({
-  id: '/social',
-  path: '/social',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
 const AuthenticatedUnduhRoute = AuthenticatedUnduhRouteImport.update({
   id: '/unduh',
   path: '/unduh',
@@ -98,7 +92,6 @@ export interface FileRoutesByFullPath {
   '/reset-password': typeof ResetPasswordRoute
   '/studio': typeof StudioRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
-  '/social': typeof AuthenticatedSocialRoute
   '/unduh': typeof AuthenticatedUnduhRoute
   '/share/$token': typeof ShareTokenRoute
   '/editor/$clipId': typeof AuthenticatedEditorClipIdRoute
@@ -112,7 +105,6 @@ export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
   '/studio': typeof StudioRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
-  '/social': typeof AuthenticatedSocialRoute
   '/unduh': typeof AuthenticatedUnduhRoute
   '/share/$token': typeof ShareTokenRoute
   '/editor/$clipId': typeof AuthenticatedEditorClipIdRoute
@@ -128,7 +120,6 @@ export interface FileRoutesById {
   '/reset-password': typeof ResetPasswordRoute
   '/studio': typeof StudioRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
-  '/_authenticated/social': typeof AuthenticatedSocialRoute
   '/_authenticated/unduh': typeof AuthenticatedUnduhRoute
   '/share/$token': typeof ShareTokenRoute
   '/_authenticated/editor/$clipId': typeof AuthenticatedEditorClipIdRoute
@@ -144,7 +135,6 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/studio'
     | '/dashboard'
-    | '/social'
     | '/unduh'
     | '/share/$token'
     | '/editor/$clipId'
@@ -158,7 +148,6 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/studio'
     | '/dashboard'
-    | '/social'
     | '/unduh'
     | '/share/$token'
     | '/editor/$clipId'
@@ -173,7 +162,6 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/studio'
     | '/_authenticated/dashboard'
-    | '/_authenticated/social'
     | '/_authenticated/unduh'
     | '/share/$token'
     | '/_authenticated/editor/$clipId'
@@ -249,13 +237,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/social': {
-      id: '/_authenticated/social'
-      path: '/social'
-      fullPath: '/social'
-      preLoaderRoute: typeof AuthenticatedSocialRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
     '/_authenticated/unduh': {
       id: '/_authenticated/unduh'
       path: '/unduh'
@@ -289,7 +270,6 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
-  AuthenticatedSocialRoute: typeof AuthenticatedSocialRoute
   AuthenticatedUnduhRoute: typeof AuthenticatedUnduhRoute
   AuthenticatedEditorClipIdRoute: typeof AuthenticatedEditorClipIdRoute
   AuthenticatedProjectsProjectIdRoute: typeof AuthenticatedProjectsProjectIdRoute
@@ -297,7 +277,6 @@ interface AuthenticatedRouteRouteChildren {
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
-  AuthenticatedSocialRoute: AuthenticatedSocialRoute,
   AuthenticatedUnduhRoute: AuthenticatedUnduhRoute,
   AuthenticatedEditorClipIdRoute: AuthenticatedEditorClipIdRoute,
   AuthenticatedProjectsProjectIdRoute: AuthenticatedProjectsProjectIdRoute,

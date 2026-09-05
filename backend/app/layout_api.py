@@ -53,6 +53,9 @@ def bersihkan_prefs(body: dict[str, Any]) -> dict[str, Any]:
     letak). Disimpan sebagai [] supaya baris lama di database ikut bersih dan
     perbandingan "berubah" di simpan_prefs tidak pernah salah karena sisa
     pilihan lama.
+
+    Nilai ini SELALU milik satu clip_id (lihat simpan_prefs) — tidak ada jalur
+    yang menulis layout_prefs untuk seluruh proyek.
     """
     return {
         "enabled": bool(body.get("enabled")),
@@ -71,13 +74,9 @@ async def simpan_prefs(clip_id: str, user_id: str,
 
     prefs = bersihkan_prefs(body)
     lama = rows[0].get("layout_prefs") or {}
-    # KETIADAAN prefs = MENYALA (lihat render_clip._auto_split_aktif), jadi
-    # perbandingan "berubah" harus memakai nilai efektif, bukan bool(None).
-    # Tanpa ini, klip tanpa prefs yang dimatikan pengguna tidak akan
-    # memicu render ulang: `bool(None)=False == False` → dianggap tidak berubah,
-    # padahal hasil rendernya berbeda (split → tanpa split).
-    lama_efektif = True if lama.get("enabled") is None else bool(lama.get("enabled"))
-    berubah = lama_efektif != prefs["enabled"]
+    # Bawaan MATI (lihat render_clip._auto_split_aktif), jadi bool() apa adanya
+    # sudah benar: klip tanpa prefs = mati, dan menyalakannya = berubah.
+    berubah = bool(lama.get("enabled")) != prefs["enabled"]
 
     patch: dict[str, Any] = {"layout_prefs": prefs}
     if berubah:

@@ -109,24 +109,24 @@ async def fetch_project_clip(project_id: str, clip_id: str, token: str) -> tuple
 
 
 def _auto_split_aktif(prefs: Optional[dict[str, Any]]) -> bool:
-    """Apakah Auto Split menyala untuk klip ini.
+    """Apakah Auto Split menyala untuk klip ini — KEPUTUSAN PER KLIP.
 
-    BAWAAN: MENYALA. Pengguna hanya perlu bertindak kalau ingin mematikannya.
-    Alasannya terukur: 36 dari 45 klip di database tidak punya `layout_prefs`
-    sama sekali (dibuat sebelum toggle ada, atau pengguna tidak membuka panel),
-    sehingga syarat `prefs.get("enabled")` membuat hasil unduhan mereka SELALU
-    tanpa split — pengguna melihat video dua orang berdampingan tapi hasilnya
-    satu bingkai penuh, lalu menyimpulkan fiturnya tidak jalan.
+    Bawaan: MATI. Pengguna yang memutuskan, per klip, di editor.
 
-    Split sendiri sudah bersyarat sangat ketat di auto_split.py (dua wajah
-    cukup besar, separasi >= 20% lebar, hadir bersama >= 50% rentang, keduanya
-    benar-benar bergiliran bicara), jadi klip yang bukan two-shot tidak
-    terpengaruh oleh bawaan ini.
+    Sejarah singkat supaya tidak diulang: sempat dibuat bawaan MENYALA karena
+    36 dari 45 klip lama tidak punya `layout_prefs` sehingga hasil unduhannya
+    tidak pernah ter-split. Itu salah obat — akibatnya klip LAIN dalam proyek
+    yang sama ikut ter-split padahal penggunanya tidak pernah menyalakannya.
+    Keluhan pengguna: "kalau aktifin auto split di salah satu dari 10 klip,
+    klip lain auto split-nya ikut aktif".
+
+    Obat yang benar ada di tempat lain: editor menyimpan pilihan lewat
+    PUT /api/layout-prefs/{clip_id} untuk SATU clip_id, dan klip lama tanpa
+    prefs dianggap MATI sampai penggunanya menyalakannya sendiri.
     """
     if not prefs:
-        return True
-    v = prefs.get("enabled")
-    return True if v is None else bool(v)
+        return False
+    return bool(prefs.get("enabled"))
 
 
 async def _watermark_aktif_untuk(user_id: str) -> bool:
@@ -228,18 +228,21 @@ async def render_clip_server(
         emoji_in_text = bool(style.get("emoji", True))
         if emoji_in_text:
             try:
-                from .subtitles import get_scaled_font_size
+                from .subtitles import get_em_font_px
                 from .twemoji import twemoji_png
                 from .word_emoji import word_emoji
 
                 pos_pct = float(style.get("position", 75))
                 # parity ukuran: preview render emoji sebagai teks fontSize*1.1
-                # (fontSize = font_size*0.42*vw/360) → PNG seukuran itu.
+                # (fontSize = em = font_size*0.42*vw/360) → PNG seukuran itu.
+                # WAJIB pakai get_em_font_px, BUKAN get_scaled_font_size: yang
+                # kedua sudah dikali faktor libass (em→Fontsize) dan akan
+                # membuat emoji 35% lebih besar daripada di preview.
                 try:
                     base_fs = int(style.get("font_size") or 32)
                 except (TypeError, ValueError):
                     base_fs = 32
-                em_size = max(24, int(get_scaled_font_size(base_fs, vw) * 1.12))
+                em_size = max(24, int(get_em_font_px(base_fs, vw) * 1.12))
                 emoji_count = 0
                 em_items: list[dict[str, Any]] = []
                 for w in words:

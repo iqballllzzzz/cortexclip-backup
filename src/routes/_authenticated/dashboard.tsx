@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowUpRight,
@@ -11,7 +12,7 @@ import {
   Loader2,
   MoreVertical,
   Pencil,
-  Send,
+  Play,
   Share2,
   Trash2,
   TriangleAlert,
@@ -101,6 +102,11 @@ function Dashboard() {
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  // Posisi menu titik-tiga dalam koordinat VIEWPORT. Menunya dirender lewat
+  // portal ke <body>, jadi tidak bisa lagi terpotong `overflow-hidden` pada
+  // <ul> daftar proyek atau tertimpa kartu proyek berikutnya (baris lain punya
+  // stacking context sendiri karena animasi .reveal memakai transform).
+  const [menuAnchor, setMenuAnchor] = useState<{ top: number; right: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Project | null>(null);
   const [renameTarget, setRenameTarget] = useState<Project | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -449,11 +455,6 @@ function Dashboard() {
                 <Download className="size-4" /> Unduhan
               </Link>
             </Button>
-            <Button variant="outline" asChild className="whitespace-nowrap">
-              <Link to="/social">
-                <Send className="size-4" /> Social Auto Publishing
-              </Link>
-            </Button>
           </div>
         </section>
 
@@ -699,73 +700,24 @@ function Dashboard() {
                       </Link>
                       <button
                         type="button"
-                        onClick={() => setMenuFor(menuFor === p.id ? null : p.id)}
+                        onClick={(e) => {
+                          if (menuFor === p.id) {
+                            setMenuFor(null);
+                            return;
+                          }
+                          // Posisi menu dihitung dari tombolnya lalu menu
+                          // dirender lewat PORTAL ke <body> (lihat di bawah).
+                          const r = e.currentTarget.getBoundingClientRect();
+                          setMenuAnchor({ top: r.bottom + 6, right: window.innerWidth - r.right });
+                          setMenuFor(p.id);
+                        }}
                         className="mr-2 grid size-10 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-surface hover:text-foreground sm:mr-3"
                         aria-label={`Menu untuk ${p.title}`}
+                        aria-expanded={menuFor === p.id}
                       >
                         <MoreVertical className="size-4" />
                       </button>
                     </div>
-
-                    <AnimatePresence>
-                      {menuFor === p.id ? (
-                        <>
-                          <button
-                            aria-label="Tutup menu"
-                            className="fixed inset-0 z-[var(--z-dropdown)] cursor-default"
-                            onClick={() => setMenuFor(null)}
-                          />
-                          <motion.div
-                            initial={{ opacity: 0, y: -4 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -4 }}
-                            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
-                            className="absolute right-3 top-[58px] z-[calc(var(--z-dropdown)+1)] w-52 overflow-hidden rounded-xl border border-border bg-popover shadow-md"
-                          >
-                            {[
-                              {
-                                label: sharing ? "Membuat link…" : "Bagikan proyek",
-                                icon: Share2,
-                                fn: () => void handleShare(p),
-                                disabled: sharing,
-                              },
-                              {
-                                label: "Ubah nama",
-                                icon: Pencil,
-                                fn: () => {
-                                  setRenameTarget(p);
-                                  setRenameValue(p.title);
-                                  setMenuFor(null);
-                                },
-                              },
-                              {
-                                label: "Hapus proyek",
-                                icon: Trash2,
-                                fn: () => {
-                                  setConfirmDelete(p);
-                                  setMenuFor(null);
-                                },
-                                danger: true,
-                              },
-                            ].map((item) => (
-                              <button
-                                key={item.label}
-                                type="button"
-                                disabled={item.disabled}
-                                onClick={item.fn}
-                                className={`flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] transition-colors disabled:opacity-50 ${
-                                  item.danger
-                                    ? "text-destructive hover:bg-destructive/8"
-                                    : "hover:bg-surface"
-                                }`}
-                              >
-                                <item.icon className="size-4" /> {item.label}
-                              </button>
-                            ))}
-                          </motion.div>
-                        </>
-                      ) : null}
-                    </AnimatePresence>
                   </li>
                 );
               })}
@@ -780,16 +732,106 @@ function Dashboard() {
           <Link to="/unduh" className="font-semibold text-accent underline-offset-2 hover:underline">
             halaman unduhan
           </Link>
-          , dan bisa tayang sendiri lewat{" "}
-          <Link
-            to="/social"
-            className="font-semibold text-accent underline-offset-2 hover:underline"
-          >
-            Social Auto Publishing
-          </Link>
           .
         </p>
       </main>
+
+      {/* ===== Menu titik-tiga (PORTAL ke <body>) =====
+           Dulu menu ini anak dari <li>, yang ada di dalam
+           <ul class="overflow-hidden rounded-2xl">. Dua akibatnya persis
+           seperti keluhan pengguna "tak terlihat kayak terpotong atau kena
+           timpa sama project lain":
+             1. overflow-hidden pada <ul> MEMOTONG menu baris terakhir;
+             2. tiap <li> memakai animasi .reveal (transform), dan transform
+                membuat stacking context baru — z-index menu tidak bisa
+                mengalahkan baris <li> setelahnya, jadi menu tertimpa.
+           Portal ke <body> + koordinat viewport (menuAnchor) menghilangkan
+           kedua sebab itu sekaligus. */}
+      {typeof document !== "undefined" && menuFor && menuAnchor
+        ? createPortal(
+            <AnimatePresence>
+              <>
+                <button
+                  aria-label="Tutup menu"
+                  className="fixed inset-0 z-[9998] cursor-default"
+                  onClick={() => {
+                    setMenuFor(null);
+                    setMenuAnchor(null);
+                  }}
+                />
+                <motion.div
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+                  role="menu"
+                  style={{
+                    position: "fixed",
+                    top: Math.min(menuAnchor.top, window.innerHeight - 160),
+                    right: Math.max(8, menuAnchor.right),
+                  }}
+                  className="z-[9999] w-52 overflow-hidden rounded-xl border border-border bg-popover shadow-lg"
+                >
+                  {(() => {
+                    const p = projects.find((x) => x.id === menuFor);
+                    if (!p) return null;
+                    const tutup = () => {
+                      setMenuFor(null);
+                      setMenuAnchor(null);
+                    };
+                    const items = [
+                      {
+                        label: sharing ? "Membuat link…" : "Bagikan proyek",
+                        icon: Share2,
+                        fn: () => void handleShare(p),
+                        disabled: sharing,
+                        danger: false,
+                      },
+                      {
+                        label: "Ubah nama",
+                        icon: Pencil,
+                        fn: () => {
+                          setRenameTarget(p);
+                          setRenameValue(p.title);
+                          tutup();
+                        },
+                        disabled: false,
+                        danger: false,
+                      },
+                      {
+                        label: "Hapus proyek",
+                        icon: Trash2,
+                        fn: () => {
+                          setConfirmDelete(p);
+                          tutup();
+                        },
+                        disabled: false,
+                        danger: true,
+                      },
+                    ];
+                    return items.map((item) => (
+                      <button
+                        key={item.label}
+                        type="button"
+                        role="menuitem"
+                        disabled={item.disabled}
+                        onClick={item.fn}
+                        className={`flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-[13px] transition-colors disabled:opacity-50 ${
+                          item.danger
+                            ? "text-destructive hover:bg-destructive/8"
+                            : "hover:bg-surface"
+                        }`}
+                      >
+                        <item.icon className="size-4" /> {item.label}
+                      </button>
+                    ));
+                  })()}
+                </motion.div>
+              </>
+            </AnimatePresence>,
+            document.body,
+          )
+        : null}
 
       {/* ===== Dialog: link share ===== */}
       <Modal open={!!sharedLink} onClose={() => setSharedLink(null)} title="Link berbagi dibuat">

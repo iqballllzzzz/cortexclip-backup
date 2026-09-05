@@ -160,6 +160,9 @@ function EditorPage() {
 
   const clipRef = useRef<Clip | null>(null);
   clipRef.current = clip;
+  // Pembatal loop polling preview: dipanggil saat klip berganti / komponen
+  // dilepas, supaya tidak ada dua loop menulis persen ke klip yang berbeda.
+  const pollAbortRef = useRef<(() => void) | null>(null);
   const startNum = Number(clip?.start_time ?? 0);
   const duration = clip ? Math.max(0.1, Number(clip.end_time) - Number(clip.start_time)) : 0.1;
 
@@ -267,16 +270,16 @@ function EditorPage() {
     const prefs = (clip as unknown as { layout_prefs?: { enabled?: boolean } } | null)
       ?.layout_prefs;
     if (!clip) return;
-    // BAWAAN MENYALA: klip tanpa layout_prefs (dibuat sebelum toggle ada, atau
-    // pengguna belum membuka panel) tetap di-split oleh backend, jadi UI harus
-    // menampilkan keadaan yang sama — kalau tidak, toggle terlihat mati
-    // padahal hasil unduhannya ter-split.
-    const aktif = prefs?.enabled ?? true;
+    // SINKRONISASI: nilainya dibaca dari clips.layout_prefs milik KLIP INI,
+    // jadi keluar-masuk editor tidak menghilangkan pilihan pengguna, dan klip
+    // lain di proyek yang sama tidak terpengaruh (bawaan MATI).
+    const aktif = !!prefs?.enabled;
     setLayoutEnabled(aktif);
     // Rentang split dimuat OTOMATIS saat aktif — bukan hanya kalau panel
     // dibuka. Preview memakainya untuk memindahkan caption ke garis batas,
     // jadi tanpa ini preview dan unduhan menaruh caption di tempat berbeda.
     if (aktif) void muatRencanaLayout();
+    else setLayoutPlan(null);
   }, [clip?.id]);
 
   const muatRencanaLayout = useCallback(async () => {
@@ -335,37 +338,77 @@ function EditorPage() {
     [clip?.id, muatRencanaLayout],
   );
 
-  /* --- pemanasan preview server di belakang + polling status --- */
+  /* --- pemanasan preview server + polling status (TAHAN keluar-masuk) ---
+     Keluhan pengguna: "keluar terus masuk lagi hasilnya di editor prosesnya
+     stuck di 8 persen dan gak jalan sama sekali juga di network".
+     Dua sebab nyata, keduanya diperbaiki di sini:
+
+     1. Saat status balas "idle" (server TIDAK sedang memproses, mis. backend
+        baru restart sehingga task-nya hilang), kode lama cuma `return` —
+        tirai tetap tampil di persen terakhir dan tidak ada yang memulai
+        render lagi. Sekarang: render DIMULAI ULANG otomatis (maks 3 kali).
+     2. Batas `i < 200` x 1,5s = 5 menit. Klip panjang butuh lebih lama, dan
+        setelah batas itu polling berhenti diam-diam — persis "gak jalan sama
+        sekali di network". Sekarang batasnya WAKTU (25 menit) dan pollingnya
+        satu loop yang hidup selama komponen terpasang.
+
+     Kalau server MASIH memproses, kita menempel ke proses itu (persen lanjut
+     dari angka server) — tidak pernah memulai ulang, sesuai permintaan
+     "user gak perlu proses ulang, gak perlu loading loading lagi". */
   const warmServerPreview = useCallback(async () => {
-    if (!clip || clip.preview_ready) return;
-    try {
-      const token = await getAccessToken();
-      const res = await fetch("/api/preview-clip", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ project_id: clip.project_id, clip_id: clip.id }),
-      });
-      if (!res.ok) return;
-      const d = await res.json();
-      if (d.url) {
-        setClip((c) => (c ? { ...c, preview_url: d.url, preview_ready: true } : c));
-        return;
+    const c0 = clipRef.current;
+    if (!c0 || c0.preview_ready) return;
+    const clipId = c0.id;
+    const projectId = c0.project_id;
+    const batalRef = { batal: false };
+    pollAbortRef.current?.();
+    pollAbortRef.current = () => {
+      batalRef.batal = true;
+    };
+
+    const mulaiRender = async (): Promise<"jalan" | "siap" | "gagal"> => {
+      try {
+        const token = await getAccessToken();
+        const res = await fetch("/api/preview-clip", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ project_id: projectId, clip_id: clipId }),
+        });
+        if (!res.ok) return "gagal";
+        const d = await res.json();
+        if (d.url) {
+          setClip((c) => (c && c.id === clipId ? { ...c, preview_url: d.url, preview_ready: true } : c));
+          return "siap";
+        }
+        return "jalan";
+      } catch {
+        return "gagal";
       }
-      // Masih diproses di server. Preview instan (sumber + overlay CSS) sudah
-      // jalan, jadi polling ini cuma menaikkan kualitas begitu file siap.
-      // Proses server TIDAK ikut mati kalau user menutup halaman.
-      setPrevStage("Menyiapkan");
-      const clipId = clip.id;
-      for (let i = 0; i < 200; i++) {
-        await new Promise((r) => setTimeout(r, 1500));
+    };
+
+    const hasilAwal = await mulaiRender();
+    if (hasilAwal === "siap" || batalRef.batal) return;
+    if (hasilAwal === "gagal") {
+      setPrevStage("Gagal memulai — coba muat ulang halaman");
+      return;
+    }
+    if (!prevStage) setPrevStage("Menyiapkan");
+
+    const batasWaktu = Date.now() + 25 * 60 * 1000;
+    let restart = 0;
+    while (!batalRef.batal && Date.now() < batasWaktu) {
+      await new Promise((r) => setTimeout(r, 1500));
+      if (batalRef.batal) return;
+      try {
         const t2 = await getAccessToken();
         const st = await fetch(`/api/preview-clip/status/${clipId}`, {
           headers: { Authorization: `Bearer ${t2}` },
         });
-        if (!st.ok) return;
+        if (!st.ok) continue;
         const sd = await st.json();
+        if (batalRef.batal) return;
         // persen & tahap NYATA dari ffmpeg (bukan animasi palsu)
-        if (typeof sd.progress === "number") setPrevPct(sd.progress);
+        if (typeof sd.progress === "number" && sd.progress > 0) setPrevPct(sd.progress);
         if (typeof sd.stage === "string" && sd.stage) setPrevStage(sd.stage);
         setPrevEta(typeof sd.eta_s === "number" ? sd.eta_s : null);
         if (typeof sd.elapsed_s === "number") setPrevElapsed(sd.elapsed_s);
@@ -376,18 +419,34 @@ function EditorPage() {
           return;
         }
         if (sd.status === "idle") {
-          setPrevStage("");
-          return; // gagal / tidak ada task
+          // Server tidak punya task untuk klip ini DAN previewnya belum ada.
+          // Ini keadaan yang dulu membuat UI beku: mulai ulang, jangan diam.
+          if (restart >= 3) {
+            setPrevStage("Render terhenti — tekan muat ulang halaman");
+            return;
+          }
+          restart += 1;
+          setPrevStage("Melanjutkan render…");
+          const ulang = await mulaiRender();
+          if (ulang === "siap" || batalRef.batal) return;
+          if (ulang === "gagal") {
+            setPrevStage("Gagal memulai — coba muat ulang halaman");
+            return;
+          }
         }
+      } catch {
+        /* jaringan sekejap gagal — coba lagi pada iterasi berikutnya */
       }
-    } catch {
-      /* mode instan tetap jalan */
     }
-  }, [clip]);
+  }, [clip?.id, clip?.preview_ready]);
 
   useEffect(() => {
-    const t = setTimeout(() => void warmServerPreview(), 1200);
-    return () => clearTimeout(t);
+    const t = setTimeout(() => void warmServerPreview(), 600);
+    return () => {
+      clearTimeout(t);
+      // hentikan loop lama supaya tidak ada dua polling untuk klip berbeda
+      pollAbortRef.current?.();
+    };
   }, [warmServerPreview]);
 
   const words = useMemo<LiveWord[]>(
@@ -880,7 +939,11 @@ function EditorPage() {
               : null}
 
             {!watermarkRemoved ? (
-              <div className="pointer-events-none absolute left-[6%] top-[5%] flex items-center opacity-65" style={{ gap: Math.max(2, fit.w * 0.012) }}>
+              /* PARITY watermark: backend memakai overlay x = 3,0% lebar,
+                 y = 4,5% tinggi (watermark.py ffmpeg_overlay_args). Angka di
+                 sini WAJIB sama, kalau tidak posisi di preview dan unduhan
+                 berbeda. Pengguna minta digeser ke kiri dari 6% → 3%. */
+              <div className="pointer-events-none absolute left-[3%] top-[4.5%] flex items-center opacity-65" style={{ gap: Math.max(2, fit.w * 0.012) }}>
                 <img src="/watermark-logo.png" alt="" className="shrink-0 object-contain" style={{ width: fit.w * 0.095, height: fit.w * 0.095 }} />
                 <div className="min-w-0 leading-tight">
                   <p className="font-bold text-white" style={{ fontSize: Math.max(7, fit.w * 0.036) }}>CortexClipAI</p>

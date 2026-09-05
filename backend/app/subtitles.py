@@ -12,8 +12,9 @@ KEPUTUSAN DESAIN KUNCI (dari Supoclip, teruji):
 2. Pop = one-shot entrance baris (\fscx92→100, 140ms) hanya di event kata
    pertama tiap chunk — bukan per kata.
 3. PlayRes = ukuran video output asli + font size di-scale dari lebar video
-   (`get_scaled_font_size`: base * width/560, clamp 26..132) → chunky &
-   konsisten di semua resolusi.
+   (`get_em_font_px`: base * 0.42 * width/360 = em, identik dengan fontSize CSS
+   preview), lalu Fontsize ASS = em * faktor font (`get_scaled_font_size`)
+   karena libass menafsirkan Fontsize sebagai winAscent+winDescent, bukan em.
 4. Outline di-scale dengan font (`font_px * stroke/26`) → tepi tebal tetap
    proporsional; shadow = font_px//20.
 5. Word box (pill): \3c box_color \bord (outline+2, min font_px//5).
@@ -90,14 +91,75 @@ def emoji_rendering_supported() -> bool:
 # ---------------------------------------------------------------------------
 # Skala font ala Supoclip
 # ---------------------------------------------------------------------------
-def get_scaled_font_size(base_font_size: int, video_width: int) -> int:
-    """Parity frontend: LiveCaptionOverlay pakai fontSize = base*0.42*(width/360).
+# FAKTOR EM→FONTSIZE per font (kunci parity preview vs unduhan).
+#
+# CSS `font-size: Npx` menyetel ukuran EM = N px. libass `Fontsize: N` TIDAK
+# em — libass menskalakan supaya (usWinAscent + usWinDescent) font itu = N px.
+# Untuk font dengan winAsc+winDesc = 1,36 em (TikTok Sans), angka yang sama
+# menghasilkan huruf 1/1,36 = 74% ukuran browser. Itulah keluhan pengguna:
+# "preview rada besar terus result rada kecil".
+#
+# Angka di bawah DIUKUR dari render nyata (ffmpeg+libass) dibanding raster
+# PIL/FreeType pada em yang sama, teks "HALO Ggjy", em 40/60/90 px:
+#   font              H_pil  H_libass  faktor
+#   TikTok Sans        56      42       1,3528
+#   THE BOLD FONT      44      38       1,1895
+#   Poppins            65      37       1,7556
+#   Anton              64      36       1,7656
+#   Bebas Neue         44      33       1,3069
+#   Bangers            47      27       1,7645
+#   Archivo Black      57      41       1,3847
+#   Oswald             59      35       1,6898
+#   Barlow Condensed   55      42       1,3214
+# Nilainya konsisten di ketiga ukuran (sebaran < 4%) dan cocok dengan
+# (usWinAscent+usWinDescent)/unitsPerEm dari tabel OS/2 masing-masing font.
+EM_KE_FONTSIZE: dict[str, float] = {
+    "TikTok Sans": 1.3528,
+    "THE BOLD FONT": 1.1895,
+    "Poppins": 1.7556,
+    "Anton": 1.7656,
+    "Bebas Neue": 1.3069,
+    "Bangers": 1.7645,
+    # Diukur 1,3847 tapi selisihnya +6,5% pada em 34 px karena pembulatan
+    # Fontsize ke bilangan bulat; 1,3400 menempatkan galat merata di ±3%.
+    "Archivo Black": 1.3400,
+    "Oswald": 1.6898,
+    # Sama: 1,3214 memberi -6,1% pada em 34 px, 1,3650 memerata ke ±3%.
+    "Barlow Condensed": 1.3650,
+}
+# Font sistem yang tidak dibundel: pakai nilai tengah font sans modern.
+EM_KE_FONTSIZE_DEFAULT = 1.35
 
-    Formula lama (base*width/560) menghasilkan font ~53% lebih besar dari
-    preview — penyebab subtitle di RESULT "gede banget sampai ngelebihin ujung".
+
+def faktor_em_ke_fontsize(font_family: str) -> float:
+    """Pengali dari em (ukuran CSS) ke Fontsize ASS untuk font ini."""
+    return EM_KE_FONTSIZE.get(resolve_font(font_family), EM_KE_FONTSIZE_DEFAULT)
+
+
+def get_em_font_px(base_font_size: int, video_width: int) -> int:
+    """Ukuran EM dalam piksel — ANGKA YANG SAMA dengan preview browser.
+
+    Preview: fontSize CSS = base * 0.42 * (containerWidth / 360), dan
+    containerWidth : lebar video = 1 : 1, jadi rasio terhadap lebar video
+    identik di kedua sisi.
+
+    Dipakai untuk apa pun yang harus seukuran huruf: PNG emoji, ikon, tinggi
+    band subtitle. JANGAN dipakai sebagai Fontsize ASS (lihat
+    get_scaled_font_size).
     """
-    scaled = round(base_font_size * 0.42 * (video_width / 360.0))
-    return max(12, min(96, scaled))
+    em = round(base_font_size * 0.42 * (video_width / 360.0))
+    return max(10, min(int(video_width * 0.25), em))
+
+
+def get_scaled_font_size(base_font_size: int, video_width: int,
+                         font_family: str = "TikTok Sans") -> int:
+    """Fontsize untuk baris Style ASS — em dikali faktor font.
+
+    Tanpa faktor ini huruf di unduhan 24-44% lebih kecil daripada preview,
+    tergantung fontnya (Poppins & Bangers paling parah, ~1,76x).
+    """
+    em = get_em_font_px(base_font_size, video_width)
+    return max(12, round(em * faktor_em_ke_fontsize(font_family)))
 
 
 def get_safe_vertical_position(video_height: int, text_height: int, position_y: float) -> int:
@@ -602,7 +664,13 @@ def build_ass(
         template.get("word_box_color") or template.get("highlight_color"), "#00BF49"
     )
 
-    font_px = get_scaled_font_size(effective_font_size, video_width)
+    font_name = resolve_font(effective_font_family)
+    # Fontsize ASS = em * faktor font (lihat EM_KE_FONTSIZE). `em_px` adalah
+    # angka yang IDENTIK dengan fontSize CSS preview — dipakai untuk apa pun
+    # yang harus seukuran huruf (outline, shadow, pill, tinggi band).
+    em_px = get_em_font_px(effective_font_size, video_width)
+    font_px = get_scaled_font_size(effective_font_size, video_width,
+                                   effective_font_family)
     base_stroke = int(template.get("stroke_width", 3) or 0)
     # Parity stroke frontend: strokeWidth px @360 → dikali width/360
     outline_px = (
@@ -610,12 +678,16 @@ def build_ass(
         if (has_outline and base_stroke)
         else 0
     )
-    shadow_px = max(2, font_px // 20) if template.get("shadow") else 0
-    box_bord = max(outline_px + 2, font_px // 5)
-    est_text_height = int(font_px * 1.5)
+    shadow_px = max(2, em_px // 20) if template.get("shadow") else 0
+    box_bord = max(outline_px + 2, em_px // 5)
+    est_text_height = int(em_px * 1.5)
     y_pos = get_safe_vertical_position(video_height, est_text_height, position_y)
-    font_name = resolve_font(effective_font_family)
     border_style = 3 if (template.get("background") and template.get("background_color")) else 1
+    # MARGIN KIRI/KANAN = 6% lebar, sama dengan `px-[6%]` pada preview browser.
+    # Dipasangkan dengan WrapStyle 0 (bungkus otomatis, seimbang) supaya baris
+    # yang lebih panjang dari lebar aman DIBUNGKUS seperti di preview — dulu
+    # WrapStyle 2 melarang pembungkusan, jadi baris panjang bisa keluar layar.
+    margin_lr = max(10, int(video_width * 0.06))
 
     # --- emoji + emphasis annotation ---
     # server_render=True → emoji teks TIDAK disisipkan di ASS (libass tak bisa
@@ -636,12 +708,12 @@ def build_ass(
 ScriptType: v4.00+
 PlayResX: {video_width}
 PlayResY: {video_height}
-WrapStyle: 2
+WrapStyle: 0
 ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font_name},{font_px},{primary},&H000000FF,{outline},{back_color},1,0,0,0,100,100,0,0,{border_style},{outline_px},{shadow_px},5,60,60,60,1
+Style: Default,{font_name},{font_px},{primary},&H000000FF,{outline},{back_color},1,0,0,0,100,100,0,0,{border_style},{outline_px},{shadow_px},5,{margin_lr},{margin_lr},60,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
