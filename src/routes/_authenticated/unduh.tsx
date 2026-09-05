@@ -219,7 +219,7 @@ function DownloadsPage() {
             </Button>
           </div>
         ) : (
-          <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-8 grid items-start gap-3 max-sm:grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
             <AnimatePresence initial={false}>
               {jobs.map((job, i) => {
                 const meta = statusMeta(job.status);

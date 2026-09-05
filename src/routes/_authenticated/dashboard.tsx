@@ -450,7 +450,7 @@ function Dashboard() {
               className="whitespace-nowrap"
             >
               <Crown className="size-4" />
-              {quota?.plan === "premium" ? "Perpanjang Premium" : "Beli Premium"}
+              {quota?.plan === "premium" ? t("dash.perpanjang_premium") : t("dash.beli_premium")}
             </Button>
             <Button variant="outline" asChild className="whitespace-nowrap">
               <Link to="/unduh">
@@ -478,9 +478,9 @@ function Dashboard() {
           <div className="panel overflow-hidden">
             {/* jalur utama: link YouTube */}
             <div className="px-5 py-5 sm:px-7 sm:py-6">
-              <h2 className="font-display text-lg font-bold tracking-tight">Mulai klip baru</h2>
+              <h2 className="font-display text-lg font-bold tracking-tight">{t("dash.mulai_klip_baru")}</h2>
               <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground">
-                Video diunduh di server kami — koneksi kamu tidak dipakai.
+                {t("dash.video_di_server")}
               </p>
               <div className="mt-4 flex flex-col gap-2.5 sm:flex-row">
                 <label className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-border bg-background px-3.5 py-2.5 transition-colors focus-within:border-accent">
@@ -507,7 +507,7 @@ function Dashboard() {
                   ) : (
                     <ArrowUpRight className="size-4" />
                   )}
-                  Proses
+                  {t("dash.proses")}
                 </Button>
               </div>
             </div>
@@ -530,10 +530,10 @@ function Dashboard() {
                 <span className="block text-[14px] font-semibold tracking-tight">
                   {creating && uploadPct !== null
                     ? `Mengunggah ${Math.round(uploadPct * 100)}%`
-                    : "Atau unggah dari perangkat"}
+                    : t("dash.unggah_perangkat")}
                 </span>
                 <span className="mt-0.5 block truncate text-[12px] text-muted-foreground">
-                  MP4, MOV, MKV, atau audio
+                  {t("dash.format_file")}
                 </span>
                 {uploadPct !== null ? (
                   <span className="mt-2.5 block h-1.5 w-full overflow-hidden rounded-full bg-border">
@@ -651,12 +651,12 @@ function Dashboard() {
           ) : terlihat.length === 0 ? (
             <div className="mt-6 rounded-2xl border border-dashed border-border px-6 py-14 text-center">
               <p className="font-display text-base font-bold">
-                {projects.length === 0 ? t("dash.belum_ada_proyek") : t("dash.belum_ada_proyek")}
+                {projects.length === 0 ? t("dash.belum_ada_proyek") : t("dash.tidak_ada_di_tahap")}
               </p>
               <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
                 {projects.length === 0
-                  ? "Tempel link YouTube di atas, atau unggah video dari perangkat untuk membuat klip pertama kamu."
-                  : "Coba tahap lain, atau tampilkan semua proyek."}
+                  ? t("dash.panduan_pertama")
+                  : t("dash.coba_tahap_lain")}
               </p>
               <Button
                 variant={projects.length === 0 ? "accent" : "outline"}
@@ -669,7 +669,7 @@ function Dashboard() {
               </Button>
             </div>
           ) : (
-            <ul className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <ul className="mt-6 grid items-start gap-3 max-sm:grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
               {terlihat.map((p, i) => {
                 const st = statusOf(p);
                 const busy = tahapOf(p) === "jalan";
@@ -679,7 +679,7 @@ function Dashboard() {
                     className="reveal"
                     style={{ ["--i" as string]: Math.min(8, i) }}
                   >
-                    <div className="group relative flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-card transition-all hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-lg hover:shadow-black/5">
+                    <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card transition-all hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-lg hover:shadow-black/5">
                       {/* BAND STATUS ATAS: warna mengikuti tahap — hijau selesai,
                           amber berjalan, merah gagal, netral lainnya */}
                       <span
@@ -700,12 +700,12 @@ function Dashboard() {
                         className="flex min-w-0 flex-1 flex-col px-4 py-4"
                       >
                         <span
-                          className="block truncate font-display text-[15px] font-bold tracking-tight"
+                          className="line-clamp-2 font-display text-[15px] font-bold leading-snug tracking-tight"
                           title={p.title}
                         >
                           {p.title}
                         </span>
-                        <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-muted-foreground">
+                        <span className="mt-1.5 flex items-center gap-x-2 truncate text-[12px] text-muted-foreground">
                           <span className={`inline-flex items-center gap-1 font-medium ${st.tone}`}>
                             {busy ? (
                               <Loader2 className="size-3 animate-spin" />
@@ -747,7 +747,7 @@ function Dashboard() {
                           setMenuAnchor({ top: r.bottom + 6, right: window.innerWidth - r.right });
                           setMenuFor(p.id);
                         }}
-                        className="absolute right-2 top-3 grid size-8 place-items-center rounded-lg text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+                        className="absolute right-2 top-3 grid size-8 place-items-center rounded-lg bg-background/70 text-muted-foreground backdrop-blur transition-colors hover:bg-surface hover:text-foreground"
                         aria-label={`Menu untuk ${p.title}`}
                         aria-expanded={menuFor === p.id}
                       >

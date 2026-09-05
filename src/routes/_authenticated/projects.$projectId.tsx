@@ -581,7 +581,7 @@ function ProjectPage() {
               </div>
             </div>
           ) : (
-            <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="mt-6 grid items-start gap-3 max-sm:grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
               {clips.map((clip, i) => (
                 <div
                   key={clip.id}

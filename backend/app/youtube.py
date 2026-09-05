@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import time
 import asyncio
 import subprocess
@@ -301,6 +302,43 @@ def _ffmpeg_download(url: str, out_path: str, extra: Optional[list[str]] = None)
     subprocess.run(cmd, check=True, capture_output=True, timeout=1800)
 
 
+def _prov_ytdlp_tvembedded(url: str, out_path: str) -> None:
+    """Unduh via yt-dlp dengan player_client=tv_embedded.
+
+    TEMUAN TERUKUR (2026-09-05): player_client bawaan kena "Sign in to confirm
+    you're not a bot" dari IP VPS — SEMUA client (android/ios/mweb/web_embedded/
+    tv). tv_embedded + user-agent Chrome desktop LOLOS tanpa cookies, sampai
+    1080p H.264 (S vcodec:h264 memastikan codec kompatibel klip vertikal).
+    Dipasang sebagai provider UTAMA karena gratis & tidak tergantung kuota API.
+    """
+    cmd = [
+        sys.executable, "-m", "yt_dlp",
+        "--no-warnings", "--no-playlist",
+        "--user-agent",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "--extractor-args", "youtube:player_client=tv_embedded",
+        "-S", "vcodec:h264,res:1080,ext:mp4:m4a",
+        "--merge-output-format", "mp4",
+        "-o", out_path,
+        url,
+    ]
+    # Bot-check YouTube ACAK per permintaan (terukur: video sama lolos di
+    # percobaan lain waktu). Retry 2x dengan jeda — sering lolos percobaan
+    # kedua/ketiga tanpa cookies.
+    terakhir = "gagal"
+    for percobaan in range(3):
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+        if proc.returncode == 0:
+            return
+        terakhir = proc.stderr.strip()[-220:] or "gagal"
+        if "Sign in to confirm" in terakhir and percobaan < 2:
+            time.sleep(4 + percobaan * 4)
+            continue
+        break
+    raise RuntimeError(f"tv_embedded: {terakhir}")
+
+
 def _ffprobe_duration(path: str) -> float:
     try:
         out = subprocess.run(
@@ -334,13 +372,44 @@ async def hydra_download(url: str, out_path: str,
     menaikkan persen fase "Ambil media" (video 600 MB butuh 4-5 menit).
     """
     errors: list[str] = []
+    # Provider UTAMA: yt-dlp tv_embedded (gratis, lolos bot-check dari IP VPS,
+    # 1080p H.264). Gagal → provider API berbayar → yt-dlp standar.
+    base = out_path.rsplit(".", 1)[0]
+    try:
+        await asyncio.to_thread(_prov_ytdlp_tvembedded, url, out_path)
+        if await asyncio.to_thread(_verify, out_path):
+            return {"title": "video", "duration": _ffprobe_duration(out_path),
+                    "provider": "yt-dlp-tvembedded"}
+        errors.append("tv_embedded: file tidak valid")
+    except Exception as exc:
+        errors.append(f"tv_embedded: {str(exc)[:140]}")
+        print(f"[youtube-hydra] tv_embedded gagal: {str(exc)[:140]}")
     for prov in (_prov_autolink, _prov_ytstream, _prov_nexray):
         name = prov.__name__.replace("_prov_", "")
         try:
             info = await prov(url)
             base = out_path.rsplit(".", 1)[0]
-            await asyncio.to_thread(_download_stream, info["url"], out_path, 8, 6,
-                                    on_progress)
+            try:
+                await asyncio.to_thread(_download_stream, info["url"], out_path, 8, 6,
+                                        on_progress)
+            except RuntimeError as exc:
+                # 403 googlevideo = URL terikat IP peminta API & kadang kadaluarsa.
+                # Minta URL BARU (refresh) sampai 2x sebelum menyerah — terukur
+                # provider sukses memberi info, gagal hanya di unduhan.
+                pesan = str(exc)
+                if "403" in pesan or "Forbidden" in pesan:
+                    print(f"[youtube-hydra] {name}: unduh 403 → refresh URL")
+                    segar = False
+                    for _ in range(2):
+                        info = await prov(url)
+                        await asyncio.to_thread(_download_stream, info["url"],
+                                                out_path, 8, 6, on_progress)
+                        segar = True
+                        break
+                    if not segar:
+                        raise
+                else:
+                    raise
             if info.get("needs_merge") and info.get("audio_url"):
                 audio_tmp = base + "_audio.m4a"
                 await asyncio.to_thread(_download_stream, info["audio_url"], audio_tmp)
