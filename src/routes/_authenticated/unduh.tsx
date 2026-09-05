@@ -219,7 +219,7 @@ function DownloadsPage() {
             </Button>
           </div>
         ) : (
-          <div className="mt-8 space-y-3">
+          <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <AnimatePresence initial={false}>
               {jobs.map((job, i) => {
                 const meta = statusMeta(job.status);
@@ -230,9 +230,47 @@ function DownloadsPage() {
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: Math.min(i * 0.03, 0.3) }}
-                    className="flex flex-wrap items-center gap-4 rounded-2xl border border-border bg-card p-4"
+                    className="group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card transition-all hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-lg"
                   >
-                    {selectMode ? (
+                    {/* THUMBNAIL VIDEO 9:16 — frame pertama tampil tanpa unduh
+                        penuh (preload=metadata), klik memutar langsung di
+                        kartu. Untuk job yang belum selesai: band ikon status. */}
+                    <div className="relative aspect-[9/16] w-full bg-surface">
+                      {job.status === "completed" && job.rendered_url ? (
+                        <video
+                          src={`${job.rendered_url}#t=0.5`}
+                          className="absolute inset-0 size-full object-cover"
+                          preload="metadata"
+                          muted
+                          playsInline
+                          controls
+                          aria-label={title}
+                        />
+                      ) : (
+                        <div className="absolute inset-0 grid place-items-center">
+                          <meta.Icon className={`size-8 ${meta.tone} ${meta.spin ? "animate-spin" : ""}`} />
+                        </div>
+                      )}
+                      {selectMode && job.status === "completed" ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = new Set(selected);
+                            if (next.has(job.id)) next.delete(job.id);
+                            else next.add(job.id);
+                            setSelected(next);
+                          }}
+                          className={`absolute left-2 top-2 flex size-6 items-center justify-center rounded-md border-2 bg-background/80 backdrop-blur transition-colors ${
+                            selected.has(job.id) ? "border-accent bg-accent text-accent-foreground" : "border-border"
+                          }`}
+                          aria-label="Pilih untuk dihapus"
+                        >
+                          {selected.has(job.id) ? <CheckCircle2 className="size-4" /> : null}
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="flex items-center gap-3 px-4 py-3">
+                    {selectMode && job.status !== "completed" ? (
                       <button
                         type="button"
                         onClick={() => {
@@ -249,13 +287,13 @@ function DownloadsPage() {
                         {selected.has(job.id) ? <CheckCircle2 className="size-4" /> : null}
                       </button>
                     ) : null}
-                    <div className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${meta.bg}`}>
-                      <meta.Icon className={`size-5 ${meta.tone} ${meta.spin ? "animate-spin" : ""}`} />
-                    </div>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold">{title}</p>
                       <p className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
-                        <span className={meta.tone}>{meta.label}</span>
+                        <span className={`inline-flex items-center gap-1 ${meta.tone}`}>
+                          <meta.Icon className={`size-3.5 ${meta.spin ? "animate-spin" : ""}`} />
+                          {meta.label}
+                        </span>
                         <span>·</span>
                         <span>{timeAgo(job.created_at)}</span>
                       </p>
@@ -267,6 +305,7 @@ function DownloadsPage() {
                       <Button
                         variant="accent"
                         size="sm"
+                        className="w-full"
                         onClick={() => {
                           // Nama file = potongan JUDUL KLIP (tiap klip beda).
                           // Pakai parameter ?download= milik Supabase Storage:
@@ -288,6 +327,7 @@ function DownloadsPage() {
                         Unduh MP4
                       </Button>
                     ) : null}
+                    </div>
                   </motion.div>
                 );
               })}
