@@ -1,3 +1,4 @@
+"use client";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
@@ -49,7 +50,26 @@ export const Route = createFileRoute("/_authenticated/editor/$clipId")({
   component: EditorPage,
 });
 
-/* ---------------------------------------------------------------- toolbar */
+/* ══════════════════════════════════════════════════════════════════════════
+   REDESIGN v2 — "ORBIT"
+   Hallmark · macrostructure: Workbench-hub · tone: utilitarian-editorial
+   · anchor hue: matte amber 60° (palet lama dipertahankan)
+
+   Struktur BARU vs lama (canvas kiri + aside kanan 272px + tab grid):
+   — Canvas 9:16 jadi HUB yang dominan, DI TENGAH, lebih besar.
+   — 4 tool (Subtitle/Transkrip/Deskripsi/Ikon) jadi DOCK CHIP mengambang
+     di BAWAH canvas — bukan tab grid di panel samping.
+   — Panel tool = SHEET mengambang dengan tombol X, overlay DI ATAS canvas
+     (desktop: kanan canvas; mobile: bawah) — bukan kolom yang selalu
+     memakan ruang.
+   — Timeline jadi "PITA WORDS": strip katalah scrubber (ADHD winner
+     "transcript-as-timeline" versi ringan) — tiap kata = segmen klik,
+     panjang proporsional durasi kata; di atasnya bar progres.
+   — Header jadi command-bar tipis ala aplikasi pro: back | judul | skor |
+     aksi.
+   Logika 1:1 dipertahankan: basis waktu turunan, preview gating, anti-gelap,
+   polling preview 25 menit, auto split, ads, render job — jangan disentuh.
+   ══════════════════════════════════════════════════════════════════════════ */
 
 type ToolId = "subtitle" | "info" | "broll" | "teks";
 
@@ -59,13 +79,6 @@ const TOOLS: { id: ToolId; label: string; Icon: typeof Hash }[] = [
   { id: "info", label: "Deskripsi", Icon: Hash },
   { id: "broll", label: "Ikon", Icon: Sticker },
 ];
-
-/** AUTO SPLIT — satu keputusan, resep openshorts. Tidak ada lagi pilihan
- *  tata letak (fill/fit/split/three/four/gameplay/screenshare): terukur,
- *  pilihan itu tidak pernah mengubah video (hanya 3% frame punya 2 wajah dan
- *  syarat rentang berurutan memutus semuanya). Sekarang backend memutuskan
- *  sendiri kapan layar dibagi dua — saat dua orang benar-benar bergiliran
- *  bicara — dan memakai kamera saja di sisanya. */
 
 interface Placement {
   time_start: number;
@@ -79,9 +92,6 @@ interface Placement {
   animation: string;
   broll_url?: string | null;
   genre?: string;
-  /* Tata letak & jadwal dari backend (overlay_layout.py). Semua opsional
-     supaya rencana lama yang belum punya field ini tetap terbaca — nilainya
-     jatuh ke bawaan lewat `??` di tempat pemakaian. */
   icon_cx?: number;
   icon_cy?: number;
   broll_start?: number;
@@ -106,20 +116,12 @@ function EditorPage() {
   // player
   const videoRef = useRef<HTMLVideoElement>(null);
   const fitRef = useRef<HTMLDivElement>(null);
-  // BASIS WAKTU. "source" = video penuh (currentTime absolut, perlu dikurangi
-  // start_time) · "preview" = berkas klip terpotong (currentTime sudah relatif).
-  //
-  // Ini DITURUNKAN dari sumber yang sedang diputar, bukan ref yang ditulis dari
-  // callback async. Versi ref punya lomba: createSignedUrl().then() menulis
-  // "source" setelah video preview sudah terpasang, sehingga rAF menghitung
-  // currentTime - start_time = 0 - 1923 = negatif → dijepit ke 0 → progress bar
-  // BEKU di 0:00, subtitle karaoke mati, ikon/b-roll tidak pernah muncul.
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [fit, setFit] = useState({ w: 216, h: 384 });
 
-  // tools
-  const [activeTool, setActiveTool] = useState<ToolId>("subtitle");
+  // tools — sheet mengambang, null = tertutup
+  const [activeTool, setActiveTool] = useState<ToolId | null>(null);
   const [presetId, setPresetId] = useState(DEFAULT_SUBTITLE_PRESET);
   const [fontScale, setFontScale] = useState(1);
   const [position, setPosition] = useState<number | null>(null);
@@ -130,7 +132,7 @@ function EditorPage() {
   const [livePlacements, setLivePlacements] = useState<Placement[]>([]);
   const [iconListOpen, setIconListOpen] = useState(false);
 
-  // AUTO SPLIT (satu toggle, resep openshorts) — 7 pilihan layout dihapus
+  // AUTO SPLIT
   const [layoutEnabled, setLayoutEnabled] = useState(false);
   const [layoutSaving, setLayoutSaving] = useState(false);
   const [layoutPlan, setLayoutPlan] = useState<
@@ -147,33 +149,20 @@ function EditorPage() {
   const [downloadLocked, setDownloadLocked] = useState(false);
   const [downloadInfo, setDownloadInfo] = useState<string | null>(null);
 
-  // kemajuan preview server (0-100) + tahap, supaya tidak ada layar hitam
-  // tanpa keterangan saat klip panjang sedang diproses
+  // kemajuan preview server
   const [prevPct, setPrevPct] = useState(0);
   const [prevStage, setPrevStage] = useState<string>("");
-  // estimasi sisa detik & waktu berjalan dari backend (laju nyata, bukan tebakan)
   const [prevEta, setPrevEta] = useState<number | null>(null);
   const [prevElapsed, setPrevElapsed] = useState(0);
 
-  // JALUR KAMERA face tracking. Dipakai untuk membingkai video SUMBER langsung
-  // di browser (object-position), jadi preview tidak lagi memotong bagian TENGAH
-  // frame — yang pada podcast dua orang justru ruang kosong di antara mereka.
   const cameraTrack = useCameraTrack(clipId, getAccessToken);
 
   const clipRef = useRef<Clip | null>(null);
   clipRef.current = clip;
-  // Pembatal loop polling preview: dipanggil saat klip berganti / komponen
-  // dilepas, supaya tidak ada dua loop menulis persen ke klip yang berbeda.
   const pollAbortRef = useRef<(() => void) | null>(null);
   const startNum = Number(clip?.start_time ?? 0);
   const duration = clip ? Math.max(0.1, Number(clip.end_time) - Number(clip.start_time)) : 0.1;
 
-  // Framing CSS hanya untuk video SUMBER (16:9 penuh) — dipakai saat preview
-  // hasil render BELUM ada. Kalau preview sudah ada, videonya sudah 9:16 dan
-  // sudah dibingkai server; menggesernya lagi = salah dua kali.
-  // Framing CSS untuk video SUMBER sudah TIDAK PERNAH dipakai lagi: video
-  // sumber tidak lagi diputar di editor (preview hanya tampil setelah 100%).
-  // Dimatikan permanen supaya tidak ada dua sistem framing yang bertengkar.
   useCameraFraming(videoRef, cameraTrack, {
     enabled: false,
     clipStart: startNum,
@@ -282,39 +271,21 @@ function EditorPage() {
     }
   }, [clip]);
 
-  /* --- AUTO SPLIT: muat status tersimpan + rentang split ---
-     FIX "momen split gak ada saat editor dibuka ulang": efek dulu hanya
-     bergantung pada [clip?.id], tapi `clip` sering masih NULL pada render
-     pertama (fetch berjalan belakangan) — efek tidak pernah jalan ulang saat
-     clip datang, jadi toggle tampak mati & daftar momen kosong. Sekarang
-     bergantung pada clip itu sendiri + tanda siapnya data. */
+  /* --- AUTO SPLIT: muat status tersimpan + rentang split --- */
   useEffect(() => {
     if (!clip) return;
     const prefs = (clip as unknown as { layout_prefs?: { enabled?: boolean } } | null)
       ?.layout_prefs;
     const aktif = !!prefs?.enabled;
     setLayoutEnabled(aktif);
-    // Rentang split dimuat OTOMATIS saat aktif — bukan hanya kalau panel
-    // dibuka. Preview memakainya untuk memindahkan caption ke garis batas,
-    // jadi tanpa ini preview dan unduhan menaruh caption di tempat berbeda.
     if (aktif) void muatRencanaLayout();
     else setLayoutPlan(null);
-    // bergantung pada clip, bukan clip?.id: klip yang di-fetch belakangan
-    // tetap memicu muat ulang status & rentang.
   }, [clip, muatRencanaLayout]);
 
-
-
-  /** Simpan status Auto Split. Mengubahnya membatalkan preview lama, jadi
-   *  preview dirender ulang dengan split baru (preview = hasil unduhan). */
+  /** Simpan status Auto Split — state lokal berubah seketika (optimistis). */
   const simpanLayout = useCallback(
     async (enabled: boolean) => {
       if (!clip) return;
-      // TIDAK memblokir tombol. Sebelumnya seluruh panel di-disable sampai PUT
-      // selesai, dan karena mengubahnya memicu render preview ulang,
-      // tombolnya terasa "gak bisa dipencet" — user menyangka aplikasi lemot.
-      // Sekarang state lokal berubah SEKETIKA (optimistis) dan penyimpanan
-      // jalan di belakang; yang tampil hanya penanda kecil "menyimpan".
       setLayoutSaving(true);
       try {
         const token = await getAccessToken();
@@ -329,7 +300,6 @@ function EditorPage() {
         }
         const d = await res.json();
         if (d.preview_direset) {
-          // preview lama sudah tidak sah → kosongkan di state dan minta ulang
           setClip((c) => (c ? { ...c, preview_url: null, preview_ready: false } : c));
           setPrevPct(0);
           setPrevStage("Menyiapkan");
@@ -346,23 +316,7 @@ function EditorPage() {
     [clip?.id, muatRencanaLayout],
   );
 
-  /* --- pemanasan preview server + polling status (TAHAN keluar-masuk) ---
-     Keluhan pengguna: "keluar terus masuk lagi hasilnya di editor prosesnya
-     stuck di 8 persen dan gak jalan sama sekali juga di network".
-     Dua sebab nyata, keduanya diperbaiki di sini:
-
-     1. Saat status balas "idle" (server TIDAK sedang memproses, mis. backend
-        baru restart sehingga task-nya hilang), kode lama cuma `return` —
-        tirai tetap tampil di persen terakhir dan tidak ada yang memulai
-        render lagi. Sekarang: render DIMULAI ULANG otomatis (maks 3 kali).
-     2. Batas `i < 200` x 1,5s = 5 menit. Klip panjang butuh lebih lama, dan
-        setelah batas itu polling berhenti diam-diam — persis "gak jalan sama
-        sekali di network". Sekarang batasnya WAKTU (25 menit) dan pollingnya
-        satu loop yang hidup selama komponen terpasang.
-
-     Kalau server MASIH memproses, kita menempel ke proses itu (persen lanjut
-     dari angka server) — tidak pernah memulai ulang, sesuai permintaan
-     "user gak perlu proses ulang, gak perlu loading loading lagi". */
+  /* --- pemanasan preview server + polling status (TAHAN keluar-masuk) --- */
   const warmServerPreview = useCallback(async () => {
     const c0 = clipRef.current;
     if (!c0 || c0.preview_ready) return;
@@ -415,7 +369,6 @@ function EditorPage() {
         if (!st.ok) continue;
         const sd = await st.json();
         if (batalRef.batal) return;
-        // persen & tahap NYATA dari ffmpeg (bukan animasi palsu)
         if (typeof sd.progress === "number" && sd.progress > 0) setPrevPct(sd.progress);
         if (typeof sd.stage === "string" && sd.stage) setPrevStage(sd.stage);
         setPrevEta(typeof sd.eta_s === "number" ? sd.eta_s : null);
@@ -424,9 +377,6 @@ function EditorPage() {
           setPrevPct(100);
           setPrevEta(0);
           setClip((c) => (c && c.id === clipId ? { ...c, preview_url: sd.url, preview_ready: true } : c));
-          // FIX "auto split gak langsung muncul di preview": preview baru yang
-          // barusan selesai memakai layout BARU — muat ulang rencananya supaya
-          // daftar momen split & caption overlay ikut, tanpa reload halaman.
           if (clipRef.current) {
             const prefs = (clipRef.current as unknown as {
               layout_prefs?: { enabled?: boolean };
@@ -436,18 +386,12 @@ function EditorPage() {
           return;
         }
         if (sd.status === "failed") {
-          // server melaporkan render GAGAL — berhenti mengulang, beri tahu
-          // penyebabnya. Dulu status ini tidak ada: task mati → "idle" →
-          // klien memulai ulang dari nol berkali-kali, dan pengguna hanya
-          // melihat persen naik-turun tanpa akhir.
           setPrevStage(sd.stage || "Render gagal");
           setPrevEta(null);
           toast.error(sd.stage || "Render preview gagal di server");
           return;
         }
         if (sd.status === "idle") {
-          // Server tidak punya task untuk klip ini DAN previewnya belum ada.
-          // Ini keadaan yang dulu membuat UI beku: mulai ulang, jangan diam.
           if (restart >= 3) {
             setPrevStage("Render terhenti — tekan muat ulang halaman");
             return;
@@ -471,7 +415,6 @@ function EditorPage() {
     const t = setTimeout(() => void warmServerPreview(), 600);
     return () => {
       clearTimeout(t);
-      // hentikan loop lama supaya tidak ada dua polling untuk klip berbeda
       pollAbortRef.current?.();
     };
   }, [warmServerPreview]);
@@ -484,7 +427,7 @@ function EditorPage() {
     [clip],
   );
 
-  /* --- fit canvas 9:16 — sisa ruang setelah panel 40dvh, timeline 30px --- */
+  /* --- fit canvas 9:16 ke area hub --- */
   useEffect(() => {
     const el = fitRef.current;
     if (!el) return;
@@ -492,7 +435,7 @@ function EditorPage() {
       const availW = el.clientWidth;
       const availH = el.clientHeight;
       if (availW < 40 || availH < 40) return;
-      const h = Math.min(availH - 34, (availW * 16) / 9);
+      const h = Math.min(availH - 8, (availW * 16) / 9);
       const w = (h * 9) / 16;
       setFit({ w: Math.round(w), h: Math.round(h) });
     };
@@ -502,10 +445,7 @@ function EditorPage() {
     return () => ro.disconnect();
   }, [loading]);
 
-  /* --- WAKTU VIDEO: rAF loop (anti-stuck) — sumber penuh → relatif klip ---
-     Basis waktu DITURUNKAN dari `clip.preview_url`, bukan dari ref yang ditulis
-     callback async. Salah basis = waktu negatif = progress bar beku di 0:00 dan
-     subtitle/ikon/b-roll tidak pernah muncul. */
+  /* --- WAKTU VIDEO: rAF loop (anti-stuck) — basis turunan dari preview_url --- */
   useEffect(() => {
     let raf = 0;
     const tick = () => {
@@ -514,7 +454,6 @@ function EditorPage() {
       if (v && c && !v.paused && v.readyState >= 2) {
         const raw = c.preview_url ? v.currentTime : v.currentTime - Number(c.start_time);
         if (raw >= duration) {
-          // akhir klip → pause + kunci waktu di durasi
           v.pause();
           setPlaying(false);
           setTime(duration);
@@ -528,8 +467,6 @@ function EditorPage() {
     return () => cancelAnimationFrame(raf);
   }, [duration]);
 
-  /* --- video sumber penuh: SEEK ke start_time saat metadata siap ---
-     (inilah akar bug "subtitle stuck di 0:00": video main dari awal file) */
   function handleLoadedMetadata() {
     const v = videoRef.current;
     const c = clipRef.current;
@@ -543,7 +480,7 @@ function EditorPage() {
     }
   }
 
-  // === STOP OTOMATIS di akhir klip (video sumber penuh jangan lanjut) ===
+  // STOP OTOMATIS di akhir klip (video sumber penuh jangan lanjut)
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -558,7 +495,6 @@ function EditorPage() {
         }
       }
     };
-    // cek tiap frame via rAF sudah ada; ini interval cadangan 250ms
     const iv = setInterval(check, 250);
     return () => clearInterval(iv);
   }, [duration]);
@@ -601,7 +537,6 @@ function EditorPage() {
     const v = videoRef.current;
     if (!v) return;
     const clamped = Math.max(0, Math.min(duration - 0.05, t));
-    // basis waktu sama dengan rAF loop: preview_url ada = waktu relatif klip
     v.currentTime = clip?.preview_url
       ? clamped
       : Number(clip?.start_time ?? 0) + clamped;
@@ -709,9 +644,7 @@ function EditorPage() {
     }
   }
 
-  /** Muat placement ikon/b-roll. refresh=true memaksa AI merencanakan ulang;
-   *  tanpa refresh, backend mengembalikan rencana tersimpan supaya preview
-   *  dan hasil unduhan PERSIS sama. */
+  /** Muat placement ikon/b-roll. refresh=true memaksa AI merencanakan ulang. */
   async function loadPlacements(refresh = false) {
     if (!clip) return;
     setBrollSearching(true);
@@ -750,528 +683,558 @@ function EditorPage() {
 
   /* ------------------------------------------------------------- render */
 
-  if (loading || !clip) {
-    return <PageLoading fullscreen label="Memuat editor" />;
-  }
-
-  // PREVIEW HASIL RENDER DIUTAMAKAN atas video sumber.
-  // Sebelumnya urutannya `sourceUrl ?? preview_url`, jadi editor selalu memutar
-  // video SUMBER 16:9 dan membingkainya lewat CSS object-position. Itu cuma bisa
-  // menggeser mendatar dan tidak pernah persis: pada klip yang diukur, berkas
-  // preview menempatkan wajah di 46% lebar sementara yang tampil di editor
-  // memperlihatkan kepala di ~90% lebar (nyaris keluar bingkai).
-  // Berkas preview sudah 9:16, sudah pakai face tracking + deroll yang sama
-  // dengan hasil unduhan, jadi memakainya sekaligus menjamin preview == unduhan.
-  // Video sumber hanya dipakai kalau preview belum ada (sedang dibuat).
-  // PERMINTAAN PENGGUNA: "preview gak akan keliatan kalau belum seratus persen".
-  // Dulu di sini ada `?? sourceUrl` — jadi selama server merender, editor
-  // memutar VIDEO SUMBER 16:9 mentah (tanpa split, tanpa anti-bocor, tanpa
-  // subtitle terbakar). Itu sebabnya di 4% preview sudah terlihat, dan
-  // terlihatnya justru versi yang salah: baju orang kedua masih ada karena
-  // frame itu memang belum melewati auto split sama sekali.
-  // Sekarang: hanya berkas preview hasil render yang boleh tampil.
-  const videoSrc = clip.preview_ready && clip.preview_url ? clip.preview_url : null;
-  // sumber mentah tetap dipakai untuk MENGHITUNG durasi/aspek saja, tidak diputar
-  const sedangDiproses = !clip.preview_ready;
-  // ANTI-GELAP: saat auto split selesai, preview_url GANTI → kalau <video src>
-  // langsung ditukar, frame pertama video baru belum terdecode = layar hitam
-  // beberapa ratus ms (keluhan: "previewnya jadi gelap dulu baru muncul").
-  // Simpan URL lama; tampilkan video LAMA beku sampai video BARU onLoadedData.
+  // ANTI-GELAP: WAJIB di atas early-return `if (loading || !clip)` —
+  // hook harus jalan di setiap render; dulu taruh di bawah → React #310.
+  const videoSrc = clip?.preview_ready && clip.preview_url ? clip.preview_url : null;
   const [urlTampil, setUrlTampil] = useState<string | null>(null);
   const urlBaruRef = useRef<string | null>(null);
   useEffect(() => {
     if (videoSrc && videoSrc !== urlTampil) {
       urlBaruRef.current = videoSrc;
-      if (!urlTampil) setUrlTampil(videoSrc); // pertama kali: langsung
+      if (!urlTampil) setUrlTampil(videoSrc);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoSrc]);
   const videoSiapBaru = () => {
-    // frame video baru sudah terdecode — aman menampilkan
     if (urlBaruRef.current && urlBaruRef.current !== urlTampil) {
       setUrlTampil(urlBaruRef.current);
       urlBaruRef.current = null;
     }
   };
 
+  if (loading || !clip) {
+    return <PageLoading fullscreen label="Memuat editor" />;
+  }
+
+  const sedangDiproses = !clip.preview_ready;
+  const totalWords = words.length;
+  // PITA KATA: total lebar pita dibagi proporsional durasi tiap kata
+  const ribbonPx = Math.max(totalWords * 26, 600);
+
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-background text-foreground">
-      {/* ===== TOP BAR (mobile 48px): Kembali · Hapus watermark coklat · Unduh ===== */}
-      <header className="grid h-12 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-1.5 border-b border-border px-2 sm:h-14 sm:grid-cols-[1fr_auto_1fr] sm:gap-2 sm:px-4">
-        <div className="justify-self-start">
-          <Button variant="ghost" size="sm" onClick={() => navigate({ to: "/projects/$projectId", params: { projectId: clip.project_id } })}>
-            <ArrowLeft className="size-4" /> Kembali
-          </Button>
+      {/* ═══ COMMAND BAR ala aplikasi pro: back | judul + skor | aksi ═══ */}
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-2 sm:h-14 sm:px-4">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="shrink-0"
+          onClick={() => navigate({ to: "/projects/$projectId", params: { projectId: clip.project_id } })}
+        >
+          <ArrowLeft className="size-4" />
+          <span className="hidden sm:inline">Kembali</span>
+        </Button>
+
+        <div className="min-w-0 flex-1 px-1">
+          <p className="truncate text-[13px] font-semibold tracking-tight sm:text-[14px]" title={clip.title}>
+            {clip.title}
+          </p>
+          <p className="hidden items-center gap-1.5 text-[11px] text-muted-foreground sm:flex">
+            <Sparkles className="size-3 text-accent" />
+            skor <span className="stat-figure text-[13px] text-accent">{clip.virality_score}</span>
+            <span className="opacity-40">·</span>
+            <span className="font-mono">{clock(duration)}</span>
+          </p>
         </div>
 
         {watermarkRemoved ? (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-success)]/30 bg-[color-mix(in_oklab,var(--color-success)_10%,transparent)] px-2.5 py-1.5 text-[11px] font-semibold sm:px-3">
-            <span className="max-w-[96px] truncate sm:max-w-none">Tanpa watermark</span>
+          <span className="hidden items-center gap-1.5 rounded-full border border-[var(--color-success)]/30 bg-[color-mix(in_oklab,var(--color-success)_10%,transparent)] px-2.5 py-1.5 text-[11px] font-semibold md:inline-flex">
+            <span className="max-w-[96px] truncate">Tanpa watermark</span>
           </span>
         ) : (
           <button
             type="button"
             onClick={() => setAdPlaying(true)}
             title="Tonton 4 iklan untuk menghapus watermark"
-            className="inline-flex items-center gap-1 rounded-full bg-accent px-2.5 py-1.5 text-[11px] font-semibold text-accent-foreground transition-transform hover:-translate-y-px sm:gap-1.5 sm:px-3.5 sm:text-[12px]"
+            className="inline-flex shrink-0 items-center gap-1 rounded-full bg-accent px-2.5 py-1.5 text-[11px] font-semibold text-accent-foreground transition-transform hover:-translate-y-px sm:gap-1.5 sm:px-3.5 sm:text-[12px]"
           >
             <BadgeX className="size-3.5 shrink-0" />
-            <span className="max-w-[96px] truncate sm:max-w-none">Hapus watermark</span>
+            <span className="hidden max-w-[96px] truncate md:inline">Hapus watermark</span>
             <span className="shrink-0 rounded-full bg-black/15 px-1.5 py-0.5 text-[10px] tabular-nums">{adsWatched}/4</span>
           </button>
         )}
 
-        <div className="justify-self-end">
-          <Button variant="outline" size="sm" onClick={handleDownload} disabled={submitting || downloadLocked} className="px-2.5 sm:px-4">
-            {submitting ? <Loader2 className="size-4 animate-spin" /> : downloadLocked ? <Clock className="size-4" /> : <Download className="size-4" />}
-            {downloadLocked ? "Merender…" : "Unduh"}
-          </Button>
-        </div>
+        <Button
+          variant="accent"
+          size="sm"
+          className="shrink-0 rounded-full px-3.5"
+          onClick={handleDownload}
+          disabled={submitting || downloadLocked}
+        >
+          {submitting ? <Loader2 className="size-4 animate-spin" /> : downloadLocked ? <Clock className="size-4" /> : <Download className="size-4" />}
+          {downloadLocked ? "Merender…" : "Unduh"}
+        </Button>
       </header>
 
-      {/* ===== BODY: canvas besar (flex-1) + panel kecil di kanan/bawah ===== */}
-      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        <div ref={fitRef} className="flex min-w-0 flex-1 flex-col items-center justify-center gap-2 overflow-hidden p-2 lg:p-4">
-          <div
-            className="relative shrink-0 overflow-hidden rounded-2xl border border-border bg-black shadow-lg"
-            style={{ width: fit.w, height: fit.h }}
-          >
-            {urlTampil ? (
-              <>
-                {/* video BARU dirender DI BELAKANG, tersembunyi sampai frame siap */}
-                {videoSrc && videoSrc !== urlTampil ? (
+      {/* ═══ HUB: canvas 9:16 di tengah, tool sheet mengambang ═══ */}
+      <div className="relative flex min-h-0 flex-1 items-stretch justify-center overflow-hidden">
+        {/* area canvas — selalu center */}
+        <div ref={fitRef} className="relative flex min-w-0 flex-1 justify-center overflow-hidden p-2 lg:p-4">
+          <div className="flex flex-col items-center justify-center gap-3">
+            <div
+              className="relative shrink-0 overflow-hidden rounded-[1.4rem] border border-border bg-black shadow-2xl shadow-black/40 ring-1 ring-white/5"
+              style={{ width: fit.w, height: fit.h }}
+            >
+              {urlTampil ? (
+                <>
+                  {videoSrc && videoSrc !== urlTampil ? (
+                    <video
+                      key={videoSrc}
+                      src={videoSrc}
+                      playsInline
+                      preload="auto"
+                      muted
+                      className="absolute inset-0 size-full object-cover opacity-0"
+                      onLoadedData={videoSiapBaru}
+                      aria-hidden
+                    />
+                  ) : null}
                   <video
-                    key={videoSrc}
-                    src={videoSrc}
+                    ref={videoRef}
+                    src={urlTampil}
                     playsInline
                     preload="auto"
-                    muted
-                    className="absolute inset-0 size-full object-cover opacity-0"
-                    onLoadedData={videoSiapBaru}
-                    aria-hidden
+                    className="absolute inset-0 size-full object-cover"
+                    onClick={togglePlay}
+                    onLoadedMetadata={handleLoadedMetadata}
+                    onEnded={() => setPlaying(false)}
+                    onPlay={() => setPlaying(true)}
+                    onPause={() => setPlaying(false)}
                   />
-                ) : null}
-                <video
-                  ref={videoRef}
-                  src={urlTampil}
-                  playsInline
-                  preload="auto"
-                  className="absolute inset-0 size-full object-cover"
-                  onClick={togglePlay}
-                  onLoadedMetadata={handleLoadedMetadata}
-                  onEnded={() => setPlaying(false)}
-                  onPlay={() => setPlaying(true)}
-                  onPause={() => setPlaying(false)}
+                </>
+              ) : (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-4 text-center text-xs text-muted-foreground">
+                  <Loader2 className="size-6 animate-spin" />
+                  Menyiapkan video…
+                </div>
+              )}
+
+              {/* ZONA TAP kiri/kanan: mundur/maju 5 detik */}
+              {videoSrc ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => nudge(-5)}
+                    className="absolute left-0 top-0 z-10 h-full w-[28%] cursor-w-resize bg-transparent active:bg-white/5"
+                    aria-label="Mundur 5 detik"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => nudge(5)}
+                    className="absolute right-0 top-0 z-10 h-full w-[28%] cursor-e-resize bg-transparent active:bg-white/5"
+                    aria-label="Maju 5 detik"
+                  />
+                </>
+              ) : null}
+
+              {/* TIRAI PEMROSESAN */}
+              {sedangDiproses ? (
+                <PreviewLoading
+                  pct={prevPct}
+                  stage={prevStage}
+                  etaS={prevEta}
+                  elapsedS={prevElapsed}
                 />
-              </>
-            ) : (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-4 text-center text-xs text-muted-foreground">
-                <Loader2 className="size-6 animate-spin" />
-                Menyiapkan video…
-              </div>
-            )}
+              ) : null}
 
-            {/* ZONA TAP KIRI/KANAN: mundur/maju 5 detik.
-                Tap tengah tetap play/pause. Lebar 28% tiap sisi supaya tombol
-                play di tengah tidak ketutup. Ditaruh SEBELUM overlay subtitle
-                agar tidak menutupi teks, tapi di ATAS <video> supaya klik
-                kena zona ini, bukan onClick video. */}
-            {videoSrc ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => nudge(-5)}
-                  onDoubleClick={() => nudge(-5)}
-                  className="absolute left-0 top-0 z-10 h-full w-[28%] cursor-w-resize bg-transparent active:bg-white/5"
-                  aria-label="Mundur 5 detik"
+              {!sedangDiproses ? (
+                <LiveCaptionOverlay
+                  words={words}
+                  time={time}
+                  style={liveStyle}
+                  containerWidth={fit.w}
+                  showEmoji={emojiEnabled}
+                  {...(layoutEnabled && layoutPlan ? { splitRanges: layoutPlan } : {})}
                 />
-                <button
-                  type="button"
-                  onClick={() => nudge(5)}
-                  onDoubleClick={() => nudge(5)}
-                  className="absolute right-0 top-0 z-10 h-full w-[28%] cursor-e-resize bg-transparent active:bg-white/5"
-                  aria-label="Maju 5 detik"
-                />
-              </>
-            ) : null}
+              ) : null}
 
-            {/* TIRAI PEMROSESAN — hitam 80%, tahap, persen 1-100, hitung mundur.
-                TAMPIL SELAMA preview belum siap, TANPA syarat prevStage: dulu
-                syaratnya `prevStage` non-kosong, jadi pada detik-detik pertama
-                (sebelum polling pertama menjawab) tirai tidak ada dan video
-                sumber sempat terlihat. Sekarang tirai muncul lebih dulu. */}
-            {sedangDiproses ? (
-              <PreviewLoading
-                pct={prevPct}
-                stage={prevStage}
-                etaS={prevEta}
-                elapsedS={prevElapsed}
-              />
-            ) : null}
+              {/* B-ROLL PiP — parity dengan render unduhan */}
+              {brollEnabled
+                ? livePlacements
+                    .filter((p) => !!p.broll_url)
+                    .map((p, idx) => {
+                      const b0 = p.broll_start ?? p.time_start;
+                      const b1 = p.broll_end ?? p.time_end;
+                      const active = time >= b0 && time <= b1;
+                      const sk = p.broll_scale ?? 1;
+                      const w = fit.w * 0.74 * sk;
+                      const hgt = w * (9 / 16);
+                      const cy = p.broll_cy ?? 0.44;
+                      return (
+                        <BrollPip
+                          key={`broll-${b0}-${idx}`}
+                          url={p.broll_url as string}
+                          active={active}
+                          localTime={Math.max(0, time - b0)}
+                          width={w}
+                          top={fit.h * cy - hgt / 2}
+                        />
+                      );
+                    })
+                : null}
 
-            {!sedangDiproses ? (
-              <LiveCaptionOverlay
-                words={words}
-                time={time}
-                style={liveStyle}
-                containerWidth={fit.w}
-                showEmoji={emojiEnabled}
-                {...(layoutEnabled && layoutPlan ? { splitRanges: layoutPlan } : {})}
-              />
-            ) : null}
-
-            {/* B-ROLL VIDEO PiP — parity dengan render unduhan (ffmpeg overlay).
-                Waktu & posisi dibaca dari overlay_plan yang DISIMPAN backend
-                (broll_start/broll_cx/broll_cy/broll_scale), bukan angka tetap:
-                dulu di sini `time_start` dan 0.74/0.44 hardcoded, jadi b-roll
-                muncul bersamaan dengan ikon dan bisa menutupi wajah. */}
-            {brollEnabled
-              ? livePlacements
-                  .filter((p) => !!p.broll_url)
-                  .map((p, idx) => {
-                    const b0 = p.broll_start ?? p.time_start;
-                    const b1 = p.broll_end ?? p.time_end;
-                    const active = time >= b0 && time <= b1;
-                    const sk = p.broll_scale ?? 1;
-                    const w = fit.w * 0.74 * sk;
-                    const hgt = w * (9 / 16);
-                    const cy = p.broll_cy ?? 0.44;
+              {/* Ikon & b-roll live */}
+              {brollEnabled && livePlacements.length > 0
+                ? livePlacements.map((p, idx) => {
+                    const active = time >= p.time_start && time <= p.time_end;
+                    const dist = fit.w * 0.7;
+                    let hidden = "translate(-50%, -50%) ";
+                    switch (p.animation) {
+                      case "slide-right": hidden += `translateX(${-dist}px)`; break;
+                      case "slide-up": hidden += `translateY(${dist}px)`; break;
+                      case "slide-down": hidden += `translateY(${-dist}px)`; break;
+                      case "zoom-in": hidden += "scale(0) rotate(-90deg)"; break;
+                      case "pop-bounce": hidden += "scale(0)"; break;
+                      case "flip-in": hidden += "perspective(600px) rotateY(90deg)"; break;
+                      case "drop-in": hidden += `translateY(${-fit.h * 0.5}px) rotate(-20deg)`; break;
+                      case "swing-in": hidden += `translateX(${dist}px) rotate(25deg)`; break;
+                      case "rotate-in": hidden += "scale(0) rotate(270deg)"; break;
+                      default: hidden += `translateX(${dist}px)`;
+                    }
                     return (
-                      <BrollPip
-                        key={`broll-${b0}-${idx}`}
-                        url={p.broll_url as string}
-                        active={active}
-                        localTime={Math.max(0, time - b0)}
-                        width={w}
-                        top={fit.h * cy - hgt / 2}
-                      />
+                      <div
+                        key={`${p.time_start}-${idx}`}
+                        className="pointer-events-none absolute flex items-center justify-center transition-[transform,opacity] duration-500 ease-out"
+                        style={{
+                          left: `${(p.icon_cx ?? (p.side === "left" ? 0.2 : p.side === "center" ? 0.5 : 0.8)) * 100}%`,
+                          top: `${(p.icon_cy ?? 0.26) * 100}%`,
+                          transform: active ? "translate(-50%, -50%)" : hidden,
+                          opacity: active ? 1 : 0,
+                        }}
+                      >
+                        <div style={{ width: fit.w * 0.24, height: fit.w * 0.24 }}>
+                          {p.icon_id ? (
+                            <img
+                              src={`/api/icons/${p.icon_id}`}
+                              alt=""
+                              className="size-full object-contain"
+                              style={{ filter: "drop-shadow(0 3px 4px rgba(0,0,0,0.45))" }}
+                            />
+                          ) : (
+                            <ColoredIcon category={p.category} icon={p.icon ?? null} />
+                          )}
+                        </div>
+                      </div>
                     );
                   })
-              : null}
+                : null}
 
-            {/* Ikon & b-roll live */}
-            {brollEnabled && livePlacements.length > 0
-              ? livePlacements.map((p, idx) => {
-                  const active = time >= p.time_start && time <= p.time_end;
-                  const dist = fit.w * 0.7;
-                  let hidden = "translate(-50%, -50%) ";
-                  switch (p.animation) {
-                    case "slide-right": hidden += `translateX(${-dist}px)`; break;
-                    case "slide-up": hidden += `translateY(${dist}px)`; break;
-                    case "slide-down": hidden += `translateY(${-dist}px)`; break;
-                    case "zoom-in": hidden += "scale(0) rotate(-90deg)"; break;
-                    case "pop-bounce": hidden += "scale(0)"; break;
-                    case "flip-in": hidden += "perspective(600px) rotateY(90deg)"; break;
-                    case "drop-in": hidden += `translateY(${-fit.h * 0.5}px) rotate(-20deg)`; break;
-                    case "swing-in": hidden += `translateX(${dist}px) rotate(25deg)`; break;
-                    case "rotate-in": hidden += "scale(0) rotate(270deg)"; break;
-                    default: hidden += `translateX(${dist}px)`;
-                  }
-                  return (
-                    <div
-                      key={`${p.time_start}-${idx}`}
-                      className="pointer-events-none absolute flex items-center justify-center transition-[transform,opacity] duration-500 ease-out"
-                      style={{
-                        /* Posisi dari backend (icon_cx/icon_cy) — sudah dihitung
-                           supaya tidak menutupi wajah maupun band subtitle.
-                           `side` lama dipakai hanya kalau rencana belum punya
-                           koordinat (klip lama). */
-                        left: `${(p.icon_cx ?? (p.side === "left" ? 0.2 : p.side === "center" ? 0.5 : 0.8)) * 100}%`,
-                        top: `${(p.icon_cy ?? 0.26) * 100}%`,
-                        transform: active ? "translate(-50%, -50%)" : hidden,
-                        opacity: active ? 1 : 0,
-                      }}
-                    >
-                      <div style={{ width: fit.w * 0.24, height: fit.w * 0.24 }}>
-                        {p.icon_id ? (
-                          /* PARITY: PNG dari backend = berkas yang dibakar ffmpeg */
-                          <img
-                            src={`/api/icons/${p.icon_id}`}
-                            alt=""
-                            className="size-full object-contain"
-                            style={{ filter: "drop-shadow(0 3px 4px rgba(0,0,0,0.45))" }}
-                          />
-                        ) : (
-                          <ColoredIcon category={p.category} icon={p.icon ?? null} />
-                        )}
-                      </div>
-                    </div>
-                  );
-                })
-              : null}
-
-            {!watermarkRemoved ? (
-              /* PARITY watermark: backend memakai overlay x = 3,0% lebar,
-                 y = 4,5% tinggi (watermark.py ffmpeg_overlay_args). Angka di
-                 sini WAJIB sama, kalau tidak posisi di preview dan unduhan
-                 berbeda. Pengguna minta digeser ke kiri dari 6% → 3%. */
-              <div className="pointer-events-none absolute left-[3%] top-[4.5%] flex items-center opacity-65" style={{ gap: Math.max(2, fit.w * 0.012) }}>
-                <img src="/watermark-logo.png" alt="" className="shrink-0 object-contain" style={{ width: fit.w * 0.095, height: fit.w * 0.095 }} />
-                <div className="min-w-0 leading-tight">
-                  <p className="font-bold text-white" style={{ fontSize: Math.max(7, fit.w * 0.036) }}>CortexClipAI</p>
-                  <p className="text-white/90" style={{ fontSize: Math.max(4, fit.w * 0.017) }}>AI that can help many people, made in Indonesia</p>
+              {/* PARITY watermark: x=3%, y=4.5% — WAJIB sama dgn ffmpeg */}
+              {!watermarkRemoved ? (
+                <div className="pointer-events-none absolute left-[3%] top-[4.5%] flex items-center opacity-65" style={{ gap: Math.max(2, fit.w * 0.012) }}>
+                  <img src="/watermark-logo.png" alt="" className="shrink-0 object-contain" style={{ width: fit.w * 0.095, height: fit.w * 0.095 }} />
+                  <div className="min-w-0 leading-tight">
+                    <p className="font-bold text-white" style={{ fontSize: Math.max(7, fit.w * 0.036) }}>CortexClipAI</p>
+                    <p className="text-white/90" style={{ fontSize: Math.max(4, fit.w * 0.017) }}>AI that can help many people, made in Indonesia</p>
+                  </div>
                 </div>
+              ) : null}
+
+              <button
+                type="button"
+                onClick={togglePlay}
+                className={`absolute left-1/2 top-1/2 z-20 flex size-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 backdrop-blur transition-all duration-200 hover:scale-105 hover:bg-black/60 ${playing ? "opacity-0 focus-visible:opacity-100" : "opacity-100"}`}
+                aria-label={playing ? "Jeda" : "Putar"}
+              >
+                {playing ? <Pause className="size-6 text-white" /> : <Play className="size-6 translate-x-0.5 text-white" />}
+              </button>
+            </div>
+
+            {/* ═══ PITA KATA: transcript-as-timeline — kata = scrubber ═══ */}
+            <div className="w-full max-w-[520px] px-1" data-editor-scroll>
+              {/* bar waktu tipis di atas pita */}
+              <div className="mb-1.5 flex items-center justify-between text-[10px] tabular-nums text-muted-foreground">
+                <span>{clock(time)}</span>
+                <span className={playing ? "inline-block size-1.5 animate-pulse rounded-full bg-accent" : "text-muted-foreground/70"}>{playing ? "" : "jeda"}</span>
+                <span>{clock(duration)}</span>
               </div>
-            ) : null}
+              <div className="relative h-1.5 overflow-hidden rounded-full bg-border">
+                <div
+                  className="h-full rounded-full bg-accent transition-[width] duration-150"
+                  style={{ width: `${(time / duration) * 100}%` }}
+                />
+              </div>
+              {totalWords > 0 ? (
+                <div className="mt-2 flex gap-[3px] overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  {words.map((w, wi) => {
+                    const aktif = time >= w.start && time < w.end;
+                    const lewat = time >= w.end;
+                    return (
+                      <button
+                        key={wi}
+                        type="button"
+                        onClick={() => seek(w.start + 0.01)}
+                        title={`${w.word} · ${clock(w.start)}`}
+                        aria-label={`Lompat ke ${w.word}`}
+                        className={`shrink-0 rounded-[4px] px-1.5 py-1 text-[11px] font-medium leading-none transition-all duration-150 ${
+                          aktif
+                            ? "scale-110 bg-accent text-accent-foreground shadow"
+                            : lewat
+                              ? "bg-accent/15 text-foreground/50 hover:bg-accent/25"
+                              : "bg-surface text-foreground/80 hover:bg-accent/20 hover:text-foreground"
+                        }`}
+                      >
+                        {w.word}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
 
-            <button
-              type="button"
-              onClick={togglePlay}
-              className="absolute left-1/2 top-1/2 z-20 flex size-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 backdrop-blur transition-opacity hover:bg-black/60"
-              aria-label={playing ? "Jeda" : "Putar"}
-            >
-              {playing ? <Pause className="size-6 text-white" /> : <Play className="size-6 translate-x-0.5 text-white" />}
-            </button>
-          </div>
-
-          {/* timeline — tipis */}
-          <div className="flex w-full max-w-[420px] items-center gap-2 px-1">
-            <span className="w-9 text-right text-[11px] tabular-nums text-muted-foreground">{clock(time)}</span>
-            <input
-              type="range"
-              min={0}
-              max={duration}
-              step={0.05}
-              value={Math.min(time, duration)}
-              onChange={(e) => seek(Number(e.target.value))}
-              className="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-border accent-[var(--color-accent)]"
-              aria-label="Garis waktu klip"
-            />
-            <span className="w-9 text-[11px] tabular-nums text-muted-foreground">{clock(duration)}</span>
+            {/* ═══ DOCK: 4 chip tool mengambang di bawah ═══ */}
+            <div className="flex w-full max-w-[520px] items-center justify-center gap-1.5 px-1">
+              {TOOLS.map((t) => {
+                const aktif = activeTool === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={aktif}
+                    onClick={() => setActiveTool(aktif ? null : t.id)}
+                    className={`group flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11.5px] font-medium transition-all duration-200 sm:px-3.5 sm:text-[12.5px] ${
+                      aktif
+                        ? "border-accent bg-accent text-accent-foreground shadow-md shadow-accent/20"
+                        : "border-border bg-card text-muted-foreground hover:border-accent/50 hover:text-foreground"
+                    }`}
+                  >
+                    <t.Icon className="size-3.5" />
+                    <span>{t.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
-        {/* ===== PANEL TOOL — mobile 40% tinggi (mudah dipencet & scroll), desktop 272px ===== */}
-        <aside className="flex h-[40dvh] w-full shrink-0 flex-col border-t border-border bg-card md:h-auto md:w-[272px] md:border-l md:border-t-0">
-          <div className="grid shrink-0 grid-cols-4 border-b border-border" role="tablist">
-            {TOOLS.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                role="tab"
-                aria-selected={activeTool === t.id}
-                onClick={() => setActiveTool(t.id)}
-                className={`flex items-center justify-center gap-1.5 px-1 py-2.5 text-[12px] font-medium transition-colors ${
-                  activeTool === t.id
-                    ? "bg-accent/10 text-accent"
-                    : "text-muted-foreground hover:bg-surface hover:text-foreground"
-                }`}
-              >
-                <t.Icon className="size-3.5" />
-                <span className="truncate">{t.label}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* satu-satunya area yang scroll — halaman & canvas tidak bergeser */}
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3" data-editor-scroll>
-            <AnimatePresence mode="wait">
-              {activeTool === "info" ? (
-                <ToolPane key="info">
-                  <FieldLabel>Deskripsi</FieldLabel>
-                  <textarea
-                    value={clip.description ?? ""}
-                    onChange={(e) => setClip({ ...clip, description: e.target.value })}
-                    onBlur={() => void supabase.from("clips").update({ description: clip.description }).eq("id", clip.id)}
-                    rows={4}
-                    className="w-full rounded-lg border border-border bg-background p-2.5 text-[13px] outline-none transition-colors focus:border-accent"
-                  />
-                  <FieldLabel>Hashtag</FieldLabel>
-                  <input
-                    value={(clip.hashtags ?? []).join(" ")}
-                    onChange={(e) => setClip({ ...clip, hashtags: e.target.value.split(/\s+/).filter(Boolean) })}
-                    onBlur={() => void supabase.from("clips").update({ hashtags: clip.hashtags }).eq("id", clip.id)}
-                    className="w-full rounded-lg border border-border bg-background p-2.5 text-[13px] outline-none transition-colors focus:border-accent"
-                  />
-                </ToolPane>
-              ) : activeTool === "subtitle" ? (
-                <ToolPane key="subtitle">
-                  <FieldLabel>Gaya subtitle</FieldLabel>
-                  <SubtitleStylePicker value={presetId} onChange={setPresetId} />
-                  <div className="mt-3 space-y-3">
-                    <SliderRow label={`Ukuran · ${Math.round(fontScale * 100)}%`} min={0.6} max={1.8} step={0.05} value={fontScale} onChange={setFontScale} />
-                    <SliderRow label={`Posisi · ${effPosition}%`} min={20} max={80} step={1} value={effPosition} onChange={(v) => setPosition(Math.round(v))} />
-                    <SliderRow label={`Transparansi · ${Math.round(opacity * 100)}%`} min={0.1} max={1} step={0.05} value={opacity} onChange={setOpacity} />
-                  </div>
-                </ToolPane>
-              ) : activeTool === "teks" ? (
-                <ToolPane key="teks">
-                  {/* TRANSKRIP INTERAKTIF ala OpusClip: tiap kata <span>,
-                      kata aktif disorot real-time, klik kata = lompat ke
-                      waktunya. Sumber data: caption_words (sama dgn overlay). */}
-                  {words.length === 0 ? (
-                    <p className="text-[12px] leading-relaxed text-muted-foreground">
-                      Transkrip belum tersedia untuk klip ini.
-                    </p>
-                  ) : (
-                    <p className="flex flex-wrap gap-x-1 gap-y-1.5 text-[14px] leading-relaxed">
-                      {words.map((w, wi) => {
-                        const aktif = time >= w.start && time < w.end;
-                        const lewat = time >= w.end;
-                        return (
-                          <button
-                            key={wi}
-                            type="button"
-                            onClick={() => seek(w.start + 0.01)}
-                            className={`rounded px-0.5 transition-colors ${
-                              aktif
-                                ? "bg-accent text-accent-foreground"
-                                : lewat
-                                  ? "text-foreground/60 hover:text-foreground"
-                                  : "text-foreground/90 hover:text-accent"
-                            }`}
-                            aria-label={`Putar dari kata ${w.word}`}
-                          >
-                            {w.word}
-                          </button>
-                        );
-                      })}
-                    </p>
-                  )}
-                  <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
-                    Ketuk kata untuk melompat ke momennya. Sorotan mengikuti video
-                    secara real-time.
-                  </p>
-                </ToolPane>
-              ) : (
-                <ToolPane key="broll">
-                  <ToggleRow
-                    label="Ikon & B-Roll"
-                    desc="AI menyisipkan ikon animasi di momen tepat."
-                    enabled={brollEnabled}
-                    onChange={(v) => void toggleBroll(v)}
-                  />
-                  {brollSearching ? (
-                    <div className="mt-1.5 flex items-center gap-2 rounded-md border border-accent/30 bg-accent/5 px-2 py-1 text-[10px] text-accent">
-                      <Loader2 className="size-3 animate-spin" /> Mencari momen ikon…
-                    </div>
-                  ) : null}
-                  {brollEnabled && !brollSearching && livePlacements.length > 0 ? (
-                    <>
-                      {/* Daftar ikon bisa DITUTUP: pada klip panjang daftarnya
-                          belasan baris dan menenggelamkan tombol di bawahnya. */}
-                      <div className="mt-1.5 flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => setIconListOpen((v) => !v)}
-                          aria-expanded={iconListOpen}
-                          className="flex flex-1 items-center justify-between gap-2 rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium transition-colors hover:text-foreground"
-                        >
-                          <span>Momen ikon ({livePlacements.length})</span>
-                          <ChevronDown
-                            className={`size-3 shrink-0 transition-transform ${iconListOpen ? "rotate-180" : ""}`}
-                          />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void refreshPlacements()}
-                          title="Cari ikon & b-roll lain"
-                          className="rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-                        >
-                          Cari lain
-                        </button>
+        {/* ═══ SHEET TOOL mengambang (desktop: dock kanan; mobile: sheet bawah) ═══ */}
+        <AnimatePresence>
+          {activeTool ? (
+            <motion.aside
+              initial={{ opacity: 0, x: 24 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 24 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              className="absolute inset-x-0 bottom-0 z-30 max-h-[52dvh] overflow-hidden rounded-t-3xl border border-border bg-card shadow-2xl shadow-black/25 md:inset-x-auto md:bottom-4 md:right-4 md:top-4 md:max-h-none md:w-[300px] md:rounded-3xl md:border"
+            >
+              <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                <p className="text-[13px] font-semibold tracking-tight">
+                  {TOOLS.find((t) => t.id === activeTool)?.label}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setActiveTool(null)}
+                  className="grid size-7 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-surface hover:text-foreground"
+                  aria-label="Tutup panel"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+              <div className="min-h-0 overflow-y-auto overscroll-contain p-4" data-editor-scroll>
+                <AnimatePresence mode="wait">
+                  {activeTool === "info" ? (
+                    <ToolPane key="info">
+                      <FieldLabel>Deskripsi</FieldLabel>
+                      <textarea
+                        value={clip.description ?? ""}
+                        onChange={(e) => setClip({ ...clip, description: e.target.value })}
+                        onBlur={() => void supabase.from("clips").update({ description: clip.description }).eq("id", clip.id)}
+                        rows={4}
+                        className="w-full rounded-xl border border-border bg-background p-2.5 text-[13px] outline-none transition-colors focus:border-accent"
+                      />
+                      <FieldLabel>Hashtag</FieldLabel>
+                      <input
+                        value={(clip.hashtags ?? []).join(" ")}
+                        onChange={(e) => setClip({ ...clip, hashtags: e.target.value.split(/\s+/).filter(Boolean) })}
+                        onBlur={() => void supabase.from("clips").update({ hashtags: clip.hashtags }).eq("id", clip.id)}
+                        className="w-full rounded-xl border border-border bg-background p-2.5 text-[13px] outline-none transition-colors focus:border-accent"
+                      />
+                    </ToolPane>
+                  ) : activeTool === "subtitle" ? (
+                    <ToolPane key="subtitle">
+                      <FieldLabel>Gaya subtitle</FieldLabel>
+                      <SubtitleStylePicker value={presetId} onChange={setPresetId} />
+                      <div className="mt-3 space-y-3">
+                        <SliderRow label={`Ukuran · ${Math.round(fontScale * 100)}%`} min={0.6} max={1.8} step={0.05} value={fontScale} onChange={setFontScale} />
+                        <SliderRow label={`Posisi · ${effPosition}%`} min={20} max={80} step={1} value={effPosition} onChange={(v) => setPosition(Math.round(v))} />
+                        <SliderRow label={`Transparansi · ${Math.round(opacity * 100)}%`} min={0.1} max={1} step={0.05} value={opacity} onChange={setOpacity} />
                       </div>
-                      {iconListOpen ? (
-                        <ul className="mt-1 space-y-0.5">
-                          {livePlacements.map((p, i) => (
-                            <li key={i} className="flex items-center justify-between gap-2 rounded-md border border-border bg-background px-2 py-1 text-[10px]">
-                              <span className="min-w-0 truncate capitalize">{p.category}</span>
-                              <button type="button" onClick={() => seek(Math.max(0, p.time_start - 1))} className="shrink-0 font-mono text-accent">
-                                {clock(p.time_start)}
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null}
-                    </>
-                  ) : null}
-                  <div className="mt-1.5">
-                    <ToggleRow
-                      label="Emoji pada subtitle"
-                      desc="Emoji di beberapa kata kunci."
-                      enabled={emojiEnabled}
-                      onChange={setEmojiEnabled}
-                    />
-                  </div>
-
-                  {/* ================= AUTO SPLIT ================= */}
-                  <div className="mt-1.5">
-                    <ToggleRow
-                      label="Auto Split"
-                      desc="Layar dibagi dua saat dua orang bergiliran bicara."
-                      enabled={layoutEnabled}
-                      onChange={(v) => {
-                        setLayoutEnabled(v);
-                        void simpanLayout(v);
-                      }}
-                    />
-
-                    {layoutEnabled ? (
-                      <>
-                        <p className="mt-1.5 flex items-center gap-1.5 text-[10px] leading-tight text-muted-foreground">
-                          {layoutSaving ? (
-                            <>
-                              <Loader2 className="size-3 shrink-0 animate-spin text-accent" />
-                              Menyimpan &amp; menyiapkan preview…
-                            </>
-                          ) : (
-                            "Sistem memilih sendiri momennya — subtitle ikut pindah ke tengah."
-                          )}
+                    </ToolPane>
+                  ) : activeTool === "teks" ? (
+                    <ToolPane key="teks">
+                      {words.length === 0 ? (
+                        <p className="text-[12px] leading-relaxed text-muted-foreground">
+                          Transkrip belum tersedia untuk klip ini.
                         </p>
-
-                        {layoutPlan && layoutPlan.length > 0 ? (
-                          <>
+                      ) : (
+                        <p className="flex flex-wrap gap-x-1 gap-y-1.5 text-[14px] leading-relaxed">
+                          {words.map((w, wi) => {
+                            const aktif = time >= w.start && time < w.end;
+                            const lewat = time >= w.end;
+                            return (
+                              <button
+                                key={wi}
+                                type="button"
+                                onClick={() => seek(w.start + 0.01)}
+                                className={`rounded px-0.5 transition-colors ${
+                                  aktif
+                                    ? "bg-accent text-accent-foreground"
+                                    : lewat
+                                      ? "text-foreground/60 hover:text-foreground"
+                                      : "text-foreground/90 hover:text-accent"
+                                }`}
+                                aria-label={`Putar dari kata ${w.word}`}
+                              >
+                                {w.word}
+                              </button>
+                            );
+                          })}
+                        </p>
+                      )}
+                      <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
+                        Ketuk kata untuk melompat ke momennya. Sorotan mengikuti video secara real-time.
+                      </p>
+                    </ToolPane>
+                  ) : (
+                    <ToolPane key="broll">
+                      <ToggleRow
+                        label="Ikon & B-Roll"
+                        desc="AI menyisipkan ikon animasi di momen tepat."
+                        enabled={brollEnabled}
+                        onChange={(v) => void toggleBroll(v)}
+                      />
+                      {brollSearching ? (
+                        <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-accent/30 bg-accent/5 px-2 py-1 text-[10px] text-accent">
+                          <Loader2 className="size-3 animate-spin" /> Mencari momen ikon…
+                        </div>
+                      ) : null}
+                      {brollEnabled && !brollSearching && livePlacements.length > 0 ? (
+                        <>
+                          <div className="mt-1.5 flex items-center gap-1">
                             <button
                               type="button"
-                              onClick={() => setLayoutListOpen((v) => !v)}
-                              aria-expanded={layoutListOpen}
-                              className="mt-1.5 flex w-full items-center justify-between gap-2 rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium transition-colors hover:text-foreground"
+                              onClick={() => setIconListOpen((v) => !v)}
+                              aria-expanded={iconListOpen}
+                              className="flex flex-1 items-center justify-between gap-2 rounded-lg border border-border bg-background px-2 py-1 text-[10px] font-medium transition-colors hover:text-foreground"
                             >
-                              <span>Momen split ({layoutPlan.length})</span>
+                              <span>Momen ikon ({livePlacements.length})</span>
                               <ChevronDown
-                                className={`size-3 shrink-0 transition-transform ${layoutListOpen ? "rotate-180" : ""}`}
+                                className={`size-3 shrink-0 transition-transform ${iconListOpen ? "rotate-180" : ""}`}
                               />
                             </button>
-                            {layoutListOpen ? (
-                              <ul className="mt-1 space-y-0.5">
-                                {layoutPlan.map((s, i) => (
-                                  <li
-                                    key={i}
-                                    className="flex items-center justify-between gap-2 rounded-md border border-border bg-background px-2 py-1 text-[10px]"
-                                  >
-                                    <span className="min-w-0 truncate">
-                                      {(s.end - s.start).toFixed(1)}s dua orang
-                                    </span>
-                                    <button
-                                      type="button"
-                                      onClick={() => seek(Math.max(0, s.start))}
-                                      className="shrink-0 font-mono text-accent"
-                                    >
-                                      {clock(s.start)}
-                                    </button>
-                                  </li>
-                                ))}
-                              </ul>
-                            ) : null}
+                            <button
+                              type="button"
+                              onClick={() => void refreshPlacements()}
+                              title="Cari ikon & b-roll lain"
+                              className="rounded-lg border border-border bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                            >
+                              Cari lain
+                            </button>
+                          </div>
+                          {iconListOpen ? (
+                            <ul className="mt-1 space-y-0.5">
+                              {livePlacements.map((p, i) => (
+                                <li key={i} className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-2 py-1 text-[10px]">
+                                  <span className="min-w-0 truncate capitalize">{p.category}</span>
+                                  <button type="button" onClick={() => seek(Math.max(0, p.time_start - 1))} className="shrink-0 font-mono text-accent">
+                                    {clock(p.time_start)}
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </>
+                      ) : null}
+                      <div className="mt-1.5">
+                        <ToggleRow
+                          label="Emoji pada subtitle"
+                          desc="Emoji di beberapa kata kunci."
+                          enabled={emojiEnabled}
+                          onChange={setEmojiEnabled}
+                        />
+                      </div>
+
+                      {/* AUTO SPLIT */}
+                      <div className="mt-1.5">
+                        <ToggleRow
+                          label="Auto Split"
+                          desc="Layar dibagi dua saat dua orang bergiliran bicara."
+                          enabled={layoutEnabled}
+                          onChange={(v) => {
+                            setLayoutEnabled(v);
+                            void simpanLayout(v);
+                          }}
+                        />
+
+                        {layoutEnabled ? (
+                          <>
+                            <p className="mt-1.5 flex items-center gap-1.5 text-[10px] leading-tight text-muted-foreground">
+                              {layoutSaving ? (
+                                <>
+                                  <Loader2 className="size-3 shrink-0 animate-spin text-accent" />
+                                  Menyimpan &amp; menyiapkan preview…
+                                </>
+                              ) : (
+                                "Sistem memilih sendiri momennya — subtitle ikut pindah ke tengah."
+                              )}
+                            </p>
+
+                            {layoutPlan && layoutPlan.length > 0 ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => setLayoutListOpen((v) => !v)}
+                                  aria-expanded={layoutListOpen}
+                                  className="mt-1.5 flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-background px-2 py-1 text-[10px] font-medium transition-colors hover:text-foreground"
+                                >
+                                  <span>Momen split ({layoutPlan.length})</span>
+                                  <ChevronDown
+                                    className={`size-3 shrink-0 transition-transform ${layoutListOpen ? "rotate-180" : ""}`}
+                                  />
+                                </button>
+                                {layoutListOpen ? (
+                                  <ul className="mt-1 space-y-0.5">
+                                    {layoutPlan.map((s, i) => (
+                                      <li
+                                        key={i}
+                                        className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-2 py-1 text-[10px]"
+                                      >
+                                        <span className="min-w-0 truncate">
+                                          {(s.end - s.start).toFixed(1)}s dua orang
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => seek(Math.max(0, s.start))}
+                                          className="shrink-0 font-mono text-accent"
+                                        >
+                                          {clock(s.start)}
+                                        </button>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : null}
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={layoutSaving}
+                                onClick={() => void muatRencanaLayout()}
+                                className="mt-1.5 w-full rounded-lg border border-border bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                              >
+                                Lihat momen split
+                              </button>
+                            )}
                           </>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={layoutSaving}
-                            onClick={() => void muatRencanaLayout()}
-                            className="mt-1.5 w-full rounded-md border border-border bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
-                          >
-                            Lihat momen split
-                          </button>
-                        )}
-                      </>
-                    ) : null}
-                  </div>
-                </ToolPane>
-              )}
-            </AnimatePresence>
-          </div>
-        </aside>
+                        ) : null}
+                      </div>
+                    </ToolPane>
+                  )}
+                </AnimatePresence>
+              </div>
+            </motion.aside>
+          ) : null}
+        </AnimatePresence>
       </div>
 
       {/* ===== modal konfirmasi unduh ===== */}
@@ -1299,14 +1262,14 @@ function EditorPage() {
                 ? `Sedang mengantri untuk merender video.${downloadInfo}`
                 : "Merender video agar siap diunduh — proses berjalan di cloud meski kamu keluar dari halaman ini."}
             </p>
-            <Button variant="accent" size="sm" className="mt-5 w-full" onClick={() => setDownloadInfo(null)}>
+            <Button variant="accent" size="sm" className="mt-5 w-full rounded-full" onClick={() => setDownloadInfo(null)}>
               Mengerti
             </Button>
           </Overlay>
         ) : null}
       </AnimatePresence>
 
-      {/* ===== popup iklan full-screen (AdSense) untuk hapus watermark ===== */}
+      {/* ===== popup iklan full-screen (AdSense) ===== */}
       {adPlaying ? (
         <AdFullscreen
           client="ca-pub-6841543975898069"
@@ -1371,7 +1334,7 @@ function ToggleRow({ label, desc, enabled, onChange }: {
   onChange: (v: boolean) => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-2.5 py-2">
+    <div className="flex items-center justify-between gap-2 rounded-xl border border-border bg-background px-2.5 py-2">
       <div className="min-w-0">
         <p className="text-[12px] font-medium leading-tight">{label}</p>
         <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">{desc}</p>
@@ -1406,7 +1369,7 @@ function Overlay({ children, onClose }: { children: React.ReactNode; onClose: ()
         animate={{ y: 0, opacity: 1, scale: 1 }}
         exit={{ y: 16, opacity: 0 }}
         transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
-        className="relative w-full max-w-md rounded-2xl border border-border bg-background p-6 shadow-lg"
+        className="relative w-full max-w-md rounded-3xl border border-border bg-background p-6 shadow-lg"
       >
         {children}
       </motion.div>

@@ -1,11 +1,11 @@
+"use client";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowLeft,
   CheckCircle2,
   Clapperboard,
-  Clock,
   Download,
   Flame,
   Link2,
@@ -28,9 +28,6 @@ import { useAccountStatus } from "@/hooks/use-account-status";
 import type { Database } from "@/integrations/supabase/types";
 
 type Project = Database["public"]["Tables"]["projects"]["Row"] & {
-  /** kolom `progress` (smallint 0-100) ada di DB tapi belum ikut di types.ts
-   *  hasil generate — ditambahkan di sini supaya persen bisa naik di dalam
-   *  satu fase (lihat persenTampil). */
   progress?: number | null;
 };
 type ClipBase = Database["public"]["Tables"]["clips"]["Row"];
@@ -57,7 +54,23 @@ export const Route = createFileRoute("/_authenticated/projects/$projectId")({
   component: ProjectPage,
 });
 
-/* ---------------------------------------------------------------- tahapan */
+/* ══════════════════════════════════════════════════════════════════════════
+   REDESIGN v2 — "KLIP DECK"
+   Hallmark · macrostructure: Catalogue-card · tone: utilitarian-editorial
+   · anchor hue: matte amber 60° (palet lama dipertahankan)
+
+   Perubahan STRUKTURAL vs halaman lama:
+   — Klip terkuat jadi POSTER DEPAN besar 9:16 (hero kiri), bukan dua panel
+     kecil berdampingan.
+   — Daftar klip jadi DECK: baris poster 9:16 scroll horizontal dengan ring
+     skor viral besar di tiap kartu — bukan grid 3 kolom datar.
+   — Progres pipeline jadi "jam peron" vertikal di samping judul, bukan panel
+     terpisah di bawah.
+   — Animasi baru: kartu deck muncul stagger + hover poster zoom + ring skor
+     terisi saat mount.
+   Prinsip ADHD: SHOW THE AI'S HAND — skor virality jadi elemen visual utama
+   di SEMUA tingkat (hero, deck, tombol).
+   ══════════════════════════════════════════════════════════════════════════ */
 
 const PHASES = [
   { key: "downloading", labelKey: "proyek.tahap_ambil", label: "Ambil media", pct: 12 },
@@ -66,15 +79,6 @@ const PHASES = [
   { key: "completed", labelKey: "proyek.tahap_selesai", label: "Selesai", pct: 100 },
 ] as const;
 
-/** Persen yang DITAMPILKAN: batas bawah fase + kemajuan di dalam fase itu.
- *
- *  Keluhan pengguna: "mana gak nambah nambah lagi persen dan estimasi gak
- *  turun turun". Sebabnya `pct` dulu diambil dari tabel PHASES saja, jadi
- *  seluruh fase t("proyek.tahap_pilih_momen") — 4 menit untuk video 43 menit — membeku di
- *  angka 78 yang sama. Sekarang kolom `projects.progress` (0-100 di dalam
- *  fase) dipetakan ke jarak menuju fase berikutnya, sehingga angkanya naik
- *  terus selama server bekerja.
- */
 function persenTampil(status: string | undefined, progress: number | null | undefined): number {
   const i = PHASES.findIndex((p) => p.key === status);
   if (i < 0) return 0;
@@ -95,7 +99,6 @@ const STATUS_LABEL: Record<string, string> = {
   failed: "Gagal",
 };
 
-/** Sisa waktu ramah-baca untuk estimasi proses AI. */
 function sisaWaktu(sec: number): string {
   if (sec >= 3600) {
     const j = Math.floor(sec / 3600);
@@ -214,15 +217,7 @@ function ProjectPage() {
 
   const pct = persenTampil(project?.status, project?.progress);
 
-  /* --- ESTIMASI SELESAI (permintaan pengguna: "proses ai itu lama banget,
-     harus ngambil video, cari momen, dll jadi kamu bikin estimasi selesai
-     nya juga").
-
-     Dihitung dari LAJU NYATA, bukan angka karangan: setiap kali persen
-     bergerak, laju = Δpersen / Δwaktu, lalu sisa = (100 - persen) / laju.
-     Laju dihaluskan (EMA 0,3) supaya angkanya tidak melompat ketika satu fase
-     kebetulan cepat. Sebelum ada dua sampel, UI bilang "menghitung estimasi"
-     — lebih jujur daripada menebak. --- */
+  /* --- ESTIMASI SELESAI: dari LAJU NYATA (EMA 0.3), bukan karangan --- */
   const lajuRef = useRef<number | null>(null);
   const sampelRef = useRef<{ pct: number; t: number } | null>(null);
   const [etaS, setEtaS] = useState<number | null>(null);
@@ -251,9 +246,7 @@ function ProjectPage() {
     sampelRef.current = { pct, t: now };
   }, [busy, pct]);
 
-  /* --- WATCHDOG: status proses tanpa perubahan >10 menit = macet.
-     (Jejak pipeline browser lama / task server crash tanpa update.)
-     Tandai failed supaya tombol Proses Ulang bisa dipakai lagi. --- */
+  /* --- WATCHDOG: macet >10 menit = failed supaya bisa proses ulang --- */
   useEffect(() => {
     if (!project || !busy) return;
     const started = new Date(project.updated_at).getTime();
@@ -274,9 +267,6 @@ function ProjectPage() {
     setRunning(true);
     try {
       setProgress("Memulai proses di server…");
-      // PROSES ULANG via SERVER — bukan lagi pipeline browser.
-      // Dulu: pipeline jalan di tab browser; tab ditutup → project nyangkut
-      // "transcribing" selamanya. Sekarang server yang mengerjakan semuanya.
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -377,9 +367,10 @@ function ProjectPage() {
         }
       />
 
-      <main className="mx-auto max-w-[1180px] px-4 pb-28 pt-9 sm:px-6 sm:pt-12">
-        {/* ==== Kepala proyek: judul besar kiri, metrik kanan bawah ==== */}
-        <header className="reveal" style={{ ["--i" as string]: 0 }}>
+      <main className="mx-auto max-w-[1240px] px-4 pb-28 pt-9 sm:px-6 sm:pt-12">
+        {/* ==== Kepala proyek: "tiket peron" — judul menumpuk di atas info
+             rute, bukan dua kolom seragam ==== */}
+        <header>
           <Link
             to="/dashboard"
             className="inline-flex items-center gap-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
@@ -387,9 +378,9 @@ function ProjectPage() {
             <ArrowLeft className="size-3.5" /> Semua proyek
           </Link>
 
-          <div className="mt-5 grid gap-6 lg:grid-cols-[1.5fr_1fr] lg:items-end">
+          <div className="mt-5 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0">
-              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-accent">
                 {project.source_type === "youtube" ? (
                   <Link2 className="size-3" />
                 ) : (
@@ -398,165 +389,199 @@ function ProjectPage() {
                 {project.source_type === "youtube" ? "Sumber YouTube" : "Unggahan"}
               </p>
               <h1
-                className="mt-3 font-display text-[26px] leading-[1.08] font-bold tracking-tight sm:text-[40px]"
+                className="mt-2.5 font-display text-[28px] leading-[1.06] font-bold tracking-tight sm:text-[44px]"
                 style={{ overflowWrap: "anywhere", minWidth: 0 }}
               >
                 {project.title}
               </h1>
-            </div>
-
-            <div className="grid grid-cols-3 gap-px overflow-hidden rounded-2xl bg-border">
-              {[
-                ["Durasi", project.duration_seconds ? formatClock(project.duration_seconds) : "—"],
-                ["Klip", String(clips.length)],
-                ["Skor rerata", clips.length ? String(avgScore) : "—"],
-              ].map(([k, v]) => (
-                <div key={k} className="bg-card px-3.5 py-4">
-                  <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                    {k}
-                  </p>
-                  <p className="stat-figure mt-2 text-2xl">{v}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </header>
-
-        {/* ==== Progres pipeline: rel bertahap, bukan bar polos ==== */}
-        {busy || running ? (
-          <section className="reveal mt-8 panel px-5 py-5" style={{ ["--i" as string]: 1 }}>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <Loader2 className="size-4 animate-spin text-accent" />
-              <p className="text-sm font-semibold">
-                {running ? progress || "Memproses…" : (STATUS_LABEL[project.status] ?? "Memproses…")}
+              <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted-foreground">
+                <span className="font-mono">
+                  {project.duration_seconds ? formatClock(project.duration_seconds) : "—"} durasi
+                </span>
+                <span className="opacity-40">·</span>
+                <span>{clips.length} klip</span>
+                {clips.length > 0 ? (
+                  <>
+                    <span className="opacity-40">·</span>
+                    <span className="font-semibold text-foreground">skor rerata {avgScore}</span>
+                  </>
+                ) : null}
               </p>
-              <p className="ml-auto stat-figure text-lg text-accent">{running ? "" : `${pct}%`}</p>
             </div>
 
-            <ol className="mt-5 grid gap-2 sm:grid-cols-4">
-              {PHASES.map((ph) => {
+            {(busy || running) && (
+              /* JAM PERON: ring besar + fase — menempel di kepala */
+              <div className="flex shrink-0 items-center gap-4 rounded-2xl border border-accent/30 bg-accent/5 px-5 py-4">
+                <div className="relative grid size-14 place-items-center">
+                  <svg viewBox="0 0 56 56" className="absolute inset-0 -rotate-90" aria-hidden>
+                    <circle cx="28" cy="28" r="24" fill="none" strokeWidth="4" className="stroke-border" />
+                    <circle
+                      cx="28"
+                      cy="28"
+                      r="24"
+                      fill="none"
+                      strokeWidth="4"
+                      strokeLinecap="round"
+                      className="stroke-accent"
+                      strokeDasharray={2 * Math.PI * 24}
+                      strokeDashoffset={2 * Math.PI * 24 * (1 - pct / 100)}
+                      style={{ transition: "stroke-dashoffset 0.8s cubic-bezier(0.16,1,0.3,1)" }}
+                    />
+                  </svg>
+                  <span className="font-display text-[15px] font-bold leading-none">{pct}%</span>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[13px] font-semibold">
+                    {running ? progress || "Memproses…" : (STATUS_LABEL[project.status] ?? "Memproses…")}
+                  </p>
+                  <p className="mt-1 text-[12px] text-muted-foreground">
+                    {etaS !== null ? (
+                      <span className="font-medium text-foreground">~{sisaWaktu(etaS)} lagi</span>
+                    ) : (
+                      "menghitung estimasi…"
+                    )}
+                  </p>
+                  <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                    berjalan di server — halaman boleh ditutup
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* REL FASE mini di bawah judul (hanya saat proses) */}
+          {(busy || running) && (
+            <ol className="mt-5 flex items-center gap-2">
+              {PHASES.map((ph, i) => {
                 const done = pct > ph.pct;
                 const current = project.status === ph.key;
                 return (
-                  <li key={ph.key} className="min-w-0">
-                    <div
-                      className={`h-1 rounded-full transition-colors ${
-                        done || current ? "bg-accent" : "bg-border"
-                      }`}
-                    />
-                    <p
-                      className={`mt-2 truncate text-[12px] ${
-                        current
-                          ? "font-semibold text-foreground"
-                          : done
-                            ? "text-muted-foreground"
-                            : "text-muted-foreground/60"
+                  <li key={ph.key} className="flex min-w-0 items-center gap-2">
+                    <span
+                      className={`flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider ${
+                        current ? "text-accent" : done ? "text-muted-foreground" : "text-muted-foreground/50"
                       }`}
                     >
-                      {ph.label}
-                    </p>
+                      <span
+                        className={`size-1.5 rounded-full ${
+                          current ? "animate-pulse bg-accent" : done ? "bg-accent/60" : "bg-border"
+                        }`}
+                      />
+                      <span className="truncate">{ph.label}</span>
+                    </span>
+                    {i < PHASES.length - 1 ? (
+                      <span className={`h-px w-6 sm:w-10 ${done ? "bg-accent/50" : "bg-border"}`} />
+                    ) : null}
                   </li>
                 );
               })}
             </ol>
-
-            {/* ESTIMASI SELESAI — dihitung dari laju nyata (lihat useEffect etaS).
-                Ditampilkan sebagai teks, bukan angka mentah, supaya pengguna tahu
-                harus menunggu berapa lama. Sebelum ada dua sampel persen kita jujur
-                bilang "menghitung" alih-alih menebak. */}
-            <div className="mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12px] leading-relaxed">
-              {etaS !== null ? (
-                <span className="font-semibold text-foreground">
-                  Estimasi selesai ~{sisaWaktu(etaS)} lagi
-                </span>
-              ) : (
-                <span className="text-muted-foreground">Menghitung estimasi…</span>
-              )}
-              <span className="text-muted-foreground">
-                Proses berjalan di server — halaman boleh ditutup, klip muncul
-                otomatis saat selesai.
-              </span>
-            </div>
-          </section>
-        ) : null}
+          )}
+        </header>
 
         {/* ==== Notifikasi render selesai ==== */}
-        {renderDoneCount > 0 ? (
-          <div className="reveal mt-4 flex flex-wrap items-center gap-2 rounded-2xl border border-accent/30 bg-accent/6 px-4 py-3.5 text-sm">
-            <CheckCircle2 className="size-4 shrink-0 text-accent" />
-            <span className="min-w-0">
-              {renderDoneCount > 1 ? `${renderDoneCount} klip` : "Satu klip"} selesai dirender.
-            </span>
-            <Link
-              to="/unduh"
-              className="font-semibold text-accent underline-offset-2 hover:underline"
+        <AnimatePresence>
+          {renderDoneCount > 0 ? (
+            <motion.div
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="mt-5 flex flex-wrap items-center gap-2 rounded-2xl border border-accent/30 bg-accent/6 px-4 py-3.5 text-sm"
             >
-              Buka halaman unduhan
-            </Link>
-          </div>
-        ) : null}
+              <CheckCircle2 className="size-4 shrink-0 text-accent" />
+              <span className="min-w-0">
+                {renderDoneCount > 1 ? `${renderDoneCount} klip` : "Satu klip"} selesai dirender.
+              </span>
+              <Link
+                to="/unduh"
+                className="font-semibold text-accent underline-offset-2 hover:underline"
+              >
+                Buka halaman unduhan
+              </Link>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
 
         {project.status === "failed" && project.error_message ? (
-          <div className="reveal mt-4 rounded-2xl border border-destructive/30 bg-destructive/6 px-4 py-3.5 text-sm text-destructive">
+          <div className="mt-4 rounded-2xl border border-destructive/30 bg-destructive/6 px-4 py-3.5 text-sm text-destructive">
             {project.error_message}
           </div>
         ) : null}
 
-        {/* ==== Sorotan klip terbaik + aksi proses ==== */}
+        {/* ==== KLIP TERKUAT: POSTER DEPAN besar 9:16 ==== */}
         {clips.length > 0 && best ? (
-          <section
-            className="reveal mt-10 grid gap-3 lg:grid-cols-[1fr_1.4fr]"
-            style={{ ["--i" as string]: 2 }}
-          >
-            <div className="panel px-5 py-5">
-              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                <Flame className="size-3.5 text-accent" /> Klip terkuat
-              </p>
-              <p className="stat-figure mt-4 text-[44px] text-accent">{best.virality_score}</p>
-              <p className="mt-2 line-clamp-2 text-sm font-medium">{best.title}</p>
-              <p className="mt-1 font-mono text-[12px] text-muted-foreground">
-                {formatClock(best.start_time)} – {formatClock(best.end_time)}
-              </p>
-            </div>
+          <section className="mt-10" aria-label="Klip terkuat">
+            <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              <Flame className="size-3.5 text-accent" /> Momen terkuat menurut AI
+            </p>
+            <div className="mt-4 grid gap-6 lg:grid-cols-[300px_1fr] lg:items-center">
+              {/* poster 9:16 dengan skor raksasa */}
+              <motion.div
+                initial={{ opacity: 0, scale: 0.94, rotate: -1 }}
+                animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                className="relative mx-auto w-full max-w-[300px] overflow-hidden rounded-3xl border border-accent/30 bg-card shadow-xl shadow-black/10"
+                style={{ aspectRatio: "9/16" }}
+              >
+                <div className="absolute inset-0 bg-gradient-to-br from-accent/12 via-transparent to-accent/6" />
+                <div className="absolute inset-x-0 top-6 flex flex-col items-center">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-accent">
+                    skor viral
+                  </span>
+                  <span className="stat-figure mt-1 text-[84px] leading-none text-accent">
+                    {best.virality_score}
+                  </span>
+                </div>
+                <div className="absolute inset-x-0 bottom-0 space-y-2 bg-gradient-to-t from-background/95 via-background/70 to-transparent px-5 pb-5 pt-16">
+                  <p className="line-clamp-3 font-display text-[15px] font-bold leading-snug tracking-tight">
+                    {best.title}
+                  </p>
+                  <p className="font-mono text-[12px] text-muted-foreground">
+                    {formatClock(best.start_time)} – {formatClock(best.end_time)} ·{" "}
+                    {(best.end_time - best.start_time).toFixed(0)} detik
+                  </p>
+                </div>
+              </motion.div>
 
-            <div className="panel flex flex-col justify-between px-5 py-5">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Langkah berikutnya
-                </p>
-                <p className="mt-3 max-w-prose text-sm leading-relaxed text-muted-foreground">
+              <div className="min-w-0">
+                <p className="max-w-prose text-[14px] leading-relaxed text-muted-foreground">
                   Buka satu klip untuk menyetel gaya subtitle, ukuran, dan posisi. Preview memakai
                   pipeline yang sama dengan hasil unduhan, jadi apa yang kamu lihat itulah hasilnya.
                 </p>
-              </div>
-              <div className="mt-5 flex flex-wrap gap-2">
-                <Button variant="accent" onClick={runPipeline} disabled={running}>
-                  {running ? <Loader2 className="size-4 animate-spin" /> : <Wand2 className="size-4" />}
-                  Proses ulang
-                </Button>
-                <Button variant="outline" asChild>
-                  <Link to="/unduh">
-                    <Download className="size-4" /> Riwayat unduhan
-                  </Link>
-                </Button>
+                <div className="mt-5 flex flex-wrap gap-2">
+                  <Button variant="accent" className="rounded-full" asChild>
+                    <Link to="/editor/$clipId" params={{ clipId: best.id }}>
+                      <Clapperboard className="size-4" /> Edit klip terkuat
+                    </Link>
+                  </Button>
+                  <Button variant="outline" className="rounded-full" onClick={runPipeline} disabled={running}>
+                    {running ? <Loader2 className="size-4 animate-spin" /> : <Wand2 className="size-4" />}
+                    Proses ulang
+                  </Button>
+                  <Button variant="outline" className="rounded-full" asChild>
+                    <Link to="/unduh">
+                      <Download className="size-4" /> Riwayat unduhan
+                    </Link>
+                  </Button>
+                </div>
               </div>
             </div>
           </section>
         ) : null}
 
-        {/* ==== Daftar klip ==== */}
-        <section className="reveal mt-12" style={{ ["--i" as string]: 3 }}>
+        {/* ==== DECK KLIP: baris poster 9:16 scroll horizontal ==== */}
+        <section className="mt-12" aria-label={t("proyek.klip_terdeteksi")}>
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">
-              Klip terdeteksi
+              {t("proyek.klip_terdeteksi")}
             </h2>
             <span className="text-[13px] text-muted-foreground">
-              {clips.length > 0 ? "diurutkan dari skor tertinggi" : "belum ada"}
+              {clips.length > 0 ? "diurutkan dari skor tertinggi" : t("proyek.belum_ada")}
             </span>
           </div>
 
           {clips.length === 0 ? (
-            <div className="mt-6 rounded-2xl border border-dashed border-border px-6 py-16 text-center">
+            <div className="mt-6 rounded-3xl border border-dashed border-border px-6 py-16 text-center">
               <Sparkles className="mx-auto size-8 text-muted-foreground/50" />
               <p className="mt-4 font-display text-base font-bold">Belum ada klip</p>
               <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
@@ -564,11 +589,11 @@ function ProjectPage() {
                 deskripsi, hashtag, dan skor viralitas untuk tiap klip.
               </p>
               <div className="mt-6 flex flex-wrap justify-center gap-2">
-                <Button variant="accent" onClick={runPipeline} disabled={running}>
+                <Button variant="accent" className="rounded-full" onClick={runPipeline} disabled={running}>
                   {running ? <Loader2 className="size-4 animate-spin" /> : <Wand2 className="size-4" />}
                   Mulai proses AI
                 </Button>
-                <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-medium transition-colors hover:border-accent/50">
+                <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium transition-colors hover:border-accent/50">
                   <Upload className="size-4" />
                   {localFile ? localFile.name.slice(0, 22) : "Pilih file lokal"}
                   <input
@@ -581,17 +606,11 @@ function ProjectPage() {
               </div>
             </div>
           ) : (
-            <div className="mt-6 grid items-start gap-3 max-sm:grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+            <ul className="mt-6 flex snap-x gap-5 overflow-x-auto pb-5 [scrollbar-width:thin]">
               {clips.map((clip, i) => (
-                <div
-                  key={clip.id}
-                  className="reveal"
-                  style={{ ["--i" as string]: Math.min(8, i) }}
-                >
-                  <ClipRow clip={clip} onSave={saveClip} />
-                </div>
+                <DeckCard key={clip.id} clip={clip} onSave={saveClip} index={i} />
               ))}
-            </div>
+            </ul>
           )}
         </section>
       </main>
@@ -599,101 +618,85 @@ function ProjectPage() {
   );
 }
 
-/* --------------------------------------------------------------- ClipRow */
+/* ------------------------------- DECK CARD: poster 9:16 + ring skor */
 
-function ClipRow({
+function DeckCard({
   clip,
   onSave,
+  index,
 }: {
   clip: Clip;
   onSave: (clip: Clip, patch: Partial<Clip>) => void;
+  index: number;
 }) {
   const duration = clip.end_time - clip.start_time;
   const hot = clip.virality_score >= 85;
 
   return (
-    <article
-      className={`flex h-full flex-col overflow-hidden rounded-2xl border bg-card transition-all hover:-translate-y-0.5 hover:shadow-lg ${
-        hot ? "border-accent/40" : "border-border hover:border-accent/30"
-      }`}
+    <motion.li
+      initial={{ opacity: 0, y: 24 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, delay: Math.min(index * 0.05, 0.45), ease: [0.16, 1, 0.3, 1] }}
+      className="group w-[190px] shrink-0 snap-start sm:w-[210px]"
     >
-      {/* HEADER KARTU: ring skor viral — emas kalau hot */}
       <div
-        className={`flex items-center gap-3 px-4 py-3.5 ${
-          hot ? "bg-accent/8" : "bg-surface/50"
+        className={`relative flex h-full flex-col overflow-hidden rounded-3xl border bg-card transition-[transform,border-color,box-shadow] duration-300 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-black/10 ${
+          hot ? "border-accent/40 hover:border-accent/70" : "border-border hover:border-accent/40"
         }`}
       >
-        <div
-          className={`grid size-12 shrink-0 place-items-center rounded-full border-2 ${
-            hot ? "border-accent text-accent" : "border-border text-muted-foreground"
-          }`}
+        {/* poster 9:16 dengan angka skor besar */}
+        <Link
+          to="/editor/$clipId"
+          params={{ clipId: clip.id }}
+          className="relative block overflow-hidden"
+          style={{ aspectRatio: "9/16" }}
+          aria-label={`Buka editor ${clip.title}`}
         >
-          <span className="stat-figure text-base leading-none">{clip.virality_score}</span>
-        </div>
-        <input
-          value={clip.title}
-          onChange={(e) => onSave(clip, { title: e.target.value })}
-          aria-label="Judul klip"
-          className="min-w-0 flex-1 bg-transparent text-[14px] font-semibold leading-snug tracking-tight outline-none transition-colors focus:text-accent"
-        />
-        {hot ? (
-          <span className="shrink-0 rounded-full bg-accent px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-accent-foreground">
-            hot
+          <span className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-background/85" />
+          <span
+            className={`stat-figure absolute left-1/2 top-[38%] -translate-x-1/2 -translate-y-1/2 text-[44px] leading-none transition-transform duration-300 group-hover:scale-110 ${
+              hot ? "text-accent" : "text-foreground/80"
+            }`}
+          >
+            {clip.virality_score}
           </span>
-        ) : null}
-      </div>
-
-      <div className="flex flex-1 flex-col px-4 pb-4 pt-3">
-        <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-muted-foreground">
-          <span className="font-mono">
-            {formatClock(clip.start_time)} – {formatClock(clip.end_time)}
-          </span>
-          <span className="opacity-40">·</span>
-          <span>{duration.toFixed(0)} detik</span>
-          {clip.hook_type ? (
-            <Badge variant="secondary" className="ml-0.5 text-[10px]">
-              {clip.hook_type}
-            </Badge>
+          {hot ? (
+            <span className="absolute left-3 top-3 rounded-full bg-accent px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-accent-foreground">
+              hot
+            </span>
           ) : null}
-        </p>
+          <span className="absolute inset-x-0 bottom-0 px-3.5 pb-3.5 pt-10">
+            <span className="flex items-center gap-1.5 font-mono text-[11.5px] text-muted-foreground">
+              {formatClock(clip.start_time)} – {formatClock(clip.end_time)}
+              <span className="opacity-40">·</span>
+              {duration.toFixed(0)}s
+            </span>
+            {clip.hook_type ? (
+              <Badge variant="secondary" className="mt-2 text-[10px]">
+                {clip.hook_type}
+              </Badge>
+            ) : null}
+          </span>
+          {/* tombol play mengambang saat hover */}
+          <span className="absolute left-1/2 top-1/2 grid size-12 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-border bg-background/85 text-foreground opacity-0 backdrop-blur transition-all duration-300 group-hover:scale-110 group-hover:opacity-100">
+            <Clapperboard className="size-5" />
+          </span>
+        </Link>
 
-        <Button variant="outline" size="sm" asChild className="mt-4 w-full">
-          <Link to="/editor/$clipId" params={{ clipId: clip.id }}>
-            <Clapperboard className="size-4" /> Buka editor
-          </Link>
-        </Button>
+        <div className="flex flex-1 flex-col px-3.5 pb-3.5 pt-3">
+          <input
+            value={clip.title}
+            onChange={(e) => onSave(clip, { title: e.target.value })}
+            aria-label="Judul klip"
+            className="min-w-0 bg-transparent text-[13px] font-semibold leading-snug tracking-tight outline-none transition-colors focus:text-accent"
+          />
+          <Button variant="outline" size="sm" asChild className="mt-3 w-full rounded-full">
+            <Link to="/editor/$clipId" params={{ clipId: clip.id }}>
+              <Clapperboard className="size-4" /> Buka editor
+            </Link>
+          </Button>
+        </div>
       </div>
-    </article>
-  );
-}
-
-function Slider({
-  label,
-  min,
-  max,
-  step,
-  value,
-  onChange,
-}: {
-  label: string;
-  min: number;
-  max: number;
-  step: number;
-  value: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <label className="block min-w-0">
-      <span className="block truncate text-[11px] text-muted-foreground">{label}</span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="mt-2 w-full accent-[var(--color-accent)]"
-      />
-    </label>
+    </motion.li>
   );
 }

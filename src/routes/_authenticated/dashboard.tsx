@@ -1,3 +1,4 @@
+"use client";
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -5,15 +6,14 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowUpRight,
   CheckCircle2,
+  Clapperboard,
   Crown,
   Download,
-  FileVideo,
-  Film,
   Loader2,
   MoreVertical,
   Pencil,
-  Play,
   Share2,
+  Sparkles,
   Trash2,
   TriangleAlert,
   Upload,
@@ -22,7 +22,6 @@ import {
 
 import { PremiumDialog } from "@/components/premium-dialog";
 import { AppNav } from "@/components/app-nav";
-import { PageLoading } from "@/components/page-loading";
 import { supabase } from "@/integrations/supabase/client";
 import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
@@ -51,13 +50,36 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
   component: Dashboard,
 });
 
-/* ------------------------------------------------------------------ utils */
+/* ══════════════════════════════════════════════════════════════════════════
+   REDESIGN v2 — "STUDIO DESK"
+   Hallmark · macrostructure: Workbench · tone: utilitarian-editorial
+   · anchor hue: matte amber 60° (palet lama dipertahankan)
+
+   Prinsip ADHD pemenang yang diterapkan:
+   1. HUB-AND-SPOKE      — meja kerja = hub; setiap zona (mulai, rel proses,
+                           kartu proyek) adalah spoke yang jarak klik-nya
+                           satu gerakan dari pusat.
+   2. SHOW THE AI'S HAND — setiap kartu proyek menampilkan BAGIAN data yang
+                           benar-benar ada (status pipeline + waktu), bukan
+                           metrik karangan.
+   3. ONE CLOCK          — tidak ada state waktu paralel di dashboard; semua
+                           berasal dari `projects` (sumber tunggal).
+
+   Struktur BARU vs lama (grid kartu 3 kolom):
+   — Rail vertikal tahap (kiri, desktop) yang menyaring daftar — bukan
+     tiga kartu metrik berjejer.
+   — Kartu proyek jadi FILM STRIP: baris scroll horizontal dengan poster
+     mini 16:9 + marquee status, BUKAN grid 3 kolom seragam.
+   — Zona "Mulai" jadi dock di atas strip, selalu terlihat, satu panel.
+   — Animasi baru: strip scroll stagger reveal, ticker status berjalan,
+     skeleton strip; hover kartu = tilt 3D ringan + poster zoom.
+   ══════════════════════════════════════════════════════════════════════════ */
 
 function timeAgo(iso: string): string {
   const s = Math.max(1, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
   if (s < 60) return "baru saja";
   const m = Math.floor(s / 60);
-  if (m < 60) return `${m} menit lalu`;
+  if (m < 60) return `${m} mnt lalu`;
   const h = Math.floor(m / 60);
   if (h < 24) return `${h} jam lalu`;
   return `${Math.floor(h / 24)} hari lalu`;
@@ -77,19 +99,16 @@ function statusOf(p: Project) {
   return STATUS[p.status as string] ?? { label: String(p.status), tone: "text-muted-foreground" };
 }
 
-/** Tahap pipeline tempat sebuah proyek berada saat ini. */
 type Tahap = "jalan" | "selesai" | "gagal";
-
 function tahapOf(p: Project): Tahap {
   const s = String(p.status);
   if (s === "completed") return "selesai";
   if (s === "failed") return "gagal";
   return "jalan";
 }
-
 type Filter = "semua" | Tahap;
 
-/* ------------------------------------------------------------------- page */
+const FASE_IKON = { jalan: Loader2, selesai: CheckCircle2, gagal: TriangleAlert } as const;
 
 function Dashboard() {
   const { user } = Route.useRouteContext();
@@ -104,10 +123,6 @@ function Dashboard() {
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [menuFor, setMenuFor] = useState<string | null>(null);
-  // Posisi menu titik-tiga dalam koordinat VIEWPORT. Menunya dirender lewat
-  // portal ke <body>, jadi tidak bisa lagi terpotong `overflow-hidden` pada
-  // <ul> daftar proyek atau tertimpa kartu proyek berikutnya (baris lain punya
-  // stacking context sendiri karena animasi .reveal memakai transform).
   const [menuAnchor, setMenuAnchor] = useState<{ top: number; right: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Project | null>(null);
   const [renameTarget, setRenameTarget] = useState<Project | null>(null);
@@ -349,36 +364,10 @@ function Dashboard() {
     [projects, filter],
   );
 
-  /* Rel pipeline: tahap NYATA yang dilalui setiap proyek. Angkanya dihitung
-     dari data, bukan ditulis tangan — tidak ada metrik yang dikarang. */
-  const rel = [
-    {
-      id: "jalan" as const,
-      urut: "01",
-      nama: "Sedang diproses",
-      nilai: hitung.jalan,
-      ket: "transkripsi → analisis → render",
-      ikon: Loader2,
-      putar: hitung.jalan > 0,
-    },
-    {
-      id: "selesai" as const,
-      urut: "02",
-      nama: "Siap dipakai",
-      nilai: hitung.selesai,
-      ket: "klip sudah bisa diedit & diunduh",
-      ikon: CheckCircle2,
-      putar: false,
-    },
-    {
-      id: "gagal" as const,
-      urut: "03",
-      nama: "Perlu diulang",
-      nilai: hitung.gagal,
-      ket: "gagal di tengah jalan",
-      ikon: TriangleAlert,
-      putar: false,
-    },
+  const railFase: { id: Filter; label: string; ket: string }[] = [
+    { id: "jalan", label: "Diproses AI", ket: "transkripsi → analisis → render" },
+    { id: "selesai", label: "Siap dipakai", ket: "bisa diedit & diunduh" },
+    { id: "gagal", label: "Perlu diulang", ket: "gagal di tengah" },
   ];
 
   return (
@@ -392,151 +381,130 @@ function Dashboard() {
         themeToggle
       />
 
-      <main className="mx-auto max-w-[1180px] px-4 pb-28 pt-8 sm:px-6 sm:pt-10">
-        {/* ═══ KEPALA: satu band hairline. Sapaan kiri, kuota kanan — tidak ada
-             kartu besar, tidak ada hero setinggi layar. ═══ */}
-        <section
-          className="reveal border-b border-border pb-7"
-          style={{ ["--i" as string]: 0 }}
-        >
-          <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
-            <div className="min-w-0">
-              <h1 className="font-display text-[27px] font-bold leading-[1.08] tracking-tight sm:text-[38px]">
-                Halo, <span className="text-accent">{displayName}</span>
-              </h1>
-              <p className="mt-2.5 max-w-[46ch] text-[14px] leading-relaxed text-muted-foreground">
-                Tempel satu link atau unggah video panjang. Transkripsi, pemilihan momen,
-                subtitle karaoke, dan framing wajah dikerjakan di server.
-              </p>
-            </div>
+      <main className="mx-auto w-full max-w-[1240px] px-4 pb-28 pt-8 sm:px-6 sm:pt-10">
+        {/* ═══ BARIS PEMBUKA: sapaan + jam kuota — tipografi besar, tanpa kartu ═══ */}
+        <header className="flex flex-col gap-6 border-b border-border pb-8 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-accent">
+              <Sparkles className="size-3.5" /> Studio
+            </p>
+            <h1 className="mt-2 font-display text-[30px] font-bold leading-[1.05] tracking-tight sm:text-[42px]">
+              Meja kerja <span className="text-accent">{displayName}</span>
+            </h1>
+            <p className="mt-3 max-w-[52ch] text-[14px] leading-relaxed text-muted-foreground">
+              Tempel link atau unggah video panjang — sisanya AI yang kerjakan di server.
+            </p>
+          </div>
 
-            {/* Meteran kuota: angka besar + bar, tanpa panel — menempel pada band */}
-            <div className="w-full shrink-0 sm:w-[248px]">
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  {quota?.plan === "premium" ? "Premium" : "Paket gratis"}
-                </span>
+          {/* Kuota sebagai "jam dinding studio": lingkaran progres SVG */}
+          <div className="flex shrink-0 items-center gap-4 lg:flex-col lg:items-end lg:gap-2">
+            <div className="relative grid size-[74px] place-items-center">
+              <svg viewBox="0 0 74 74" className="absolute inset-0 -rotate-90" aria-hidden>
+                <circle cx="37" cy="37" r="33" fill="none" strokeWidth="5" className="stroke-border" />
+                <circle
+                  cx="37"
+                  cy="37"
+                  r="33"
+                  fill="none"
+                  strokeWidth="5"
+                  strokeLinecap="round"
+                  className="stroke-accent transition-[stroke-dashoffset] duration-700"
+                  strokeDasharray={2 * Math.PI * 33}
+                  strokeDashoffset={2 * Math.PI * 33 * (1 - quotaPct / 100)}
+                />
+              </svg>
+              <span className="font-display text-[19px] font-bold leading-none">{sisa ?? "—"}</span>
+            </div>
+            <div className="text-left lg:text-right">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {quota?.plan === "premium" ? "Premium" : "Kuota harian"}
+              </p>
+              <p className="mt-0.5 text-[12px] text-muted-foreground">
+                {quota ? `${quota.used}/${quota.limit} terpakai` : "memuat…"}
                 {quota?.plan === "premium" ? (
-                  <span className="inline-flex items-center gap-1 whitespace-nowrap text-[11px] font-semibold text-accent">
+                  <span className="ml-1.5 inline-flex items-center gap-1 font-semibold text-accent">
                     <Crown className="size-3" /> aktif
                   </span>
                 ) : null}
-              </div>
-              <p className="stat-figure mt-2 text-[34px] leading-none">
-                {sisa ?? "—"}
-                <span className="ml-2 font-sans text-[13px] font-medium tracking-normal text-muted-foreground">
-                  video tersisa hari ini
-                </span>
-              </p>
-              <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-border">
-                <div
-                  className="h-full rounded-full bg-accent transition-[width] duration-500"
-                  style={{ width: `${quotaPct}%` }}
-                />
-              </div>
-              <p className="mt-2 text-[12px] text-muted-foreground">
-                {quota
-                  ? `${quota.used}/${quota.limit} terpakai · maks ${quota.clips_per_video} klip per video`
-                  : "Memuat kuota…"}
               </p>
             </div>
           </div>
+        </header>
 
-          {/* Tiga tindakan sejajar, lebar tidak sama — Premium paling berat */}
-          <div className="mt-6 flex flex-wrap gap-2.5">
-            <Button
-              variant={quota?.plan === "premium" ? "outline" : "accent"}
-              onClick={() => setPremiumOpen(true)}
-              className="whitespace-nowrap"
-            >
-              <Crown className="size-4" />
-              {quota?.plan === "premium" ? t("dash.perpanjang_premium") : t("dash.beli_premium")}
-            </Button>
-            <Button variant="outline" asChild className="whitespace-nowrap">
-              <Link to="/unduh">
-                <Download className="size-4" /> Unduhan
-              </Link>
-            </Button>
-          </div>
-        </section>
+        {/* ═══ DOCK "MULAI": SATU panel dua jalur — seperti mixing console ═══ */}
+        <input
+          ref={fileInput}
+          type="file"
+          accept="video/*,audio/*"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void createFromFile(f);
+            e.target.value = "";
+          }}
+        />
 
-        {/* ═══ MULAI: satu panel, dua jalur bertumpuk (link dominan, unggah
-             sekunder) — bukan dua kartu kembar bersebelahan. ═══ */}
-        <section className="reveal mt-10" style={{ ["--i" as string]: 1 }}>
-          <input
-            ref={fileInput}
-            type="file"
-            accept="video/*,audio/*"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) void createFromFile(f);
-              e.target.value = "";
-            }}
-          />
-
-          <div className="panel overflow-hidden">
-            {/* jalur utama: link YouTube */}
+        <section
+          aria-label={t("dash.mulai_klip_baru")}
+          className="mt-8 overflow-hidden rounded-3xl border border-border bg-gradient-to-br from-card via-card to-surface"
+        >
+          <div className="grid lg:grid-cols-[1fr_auto]">
+            {/* jalur 1: YouTube */}
             <div className="px-5 py-5 sm:px-7 sm:py-6">
-              <h2 className="font-display text-lg font-bold tracking-tight">{t("dash.mulai_klip_baru")}</h2>
-              <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground">
-                {t("dash.video_di_server")}
-              </p>
-              <div className="mt-4 flex flex-col gap-2.5 sm:flex-row">
-                <label className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-border bg-background px-3.5 py-2.5 transition-colors focus-within:border-accent">
-                  <Youtube className="size-4 shrink-0 text-accent" />
-                  <span className="sr-only">Link YouTube</span>
-                  <input
-                    value={youtubeUrl}
-                    onChange={(e) => setYoutubeUrl(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") void createFromYoutube();
-                    }}
-                    placeholder="https://youtu.be/…"
-                    className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                  />
-                </label>
+              <div className="flex items-center gap-2">
+                <Youtube className="size-4 text-accent" />
+                <h2 className="font-display text-[15px] font-bold tracking-tight">
+                  {t("dash.mulai_klip_baru")}
+                </h2>
+              </div>
+              <div className="mt-3.5 flex flex-col gap-2.5 sm:flex-row">
+                <input
+                  value={youtubeUrl}
+                  onChange={(e) => setYoutubeUrl(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void createFromYoutube();
+                  }}
+                  placeholder="https://youtu.be/…"
+                  className="min-w-0 flex-1 rounded-full border border-border bg-background px-4.5 py-2.5 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-accent"
+                />
                 <Button
                   variant="accent"
                   disabled={creating}
                   onClick={() => void createFromYoutube()}
-                  className="shrink-0 whitespace-nowrap"
+                  className="shrink-0 whitespace-nowrap rounded-full"
                 >
-                  {creating ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <ArrowUpRight className="size-4" />
-                  )}
+                  {creating ? <Loader2 className="size-4 animate-spin" /> : <ArrowUpRight className="size-4" />}
                   {t("dash.proses")}
                 </Button>
               </div>
+              <p className="mt-2.5 text-[12px] leading-relaxed text-muted-foreground">
+                {t("dash.video_di_server")}
+              </p>
             </div>
 
-            {/* jalur sekunder: unggah file — baris di dalam panel yang sama */}
+            {/* jalur 2: unggah file — tombol besar bergaya kaset */}
             <button
               type="button"
               disabled={creating}
               onClick={() => fileInput.current?.click()}
-              className="flex w-full items-center gap-3.5 border-t border-border bg-surface/40 px-5 py-4 text-left transition-colors hover:bg-surface/70 disabled:opacity-60 sm:px-7"
+              className="group flex items-center gap-3.5 border-t border-border px-5 py-4 text-left transition-colors hover:bg-surface/70 disabled:opacity-60 lg:border-l lg:border-t-0 lg:px-6"
             >
-              <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-background text-accent">
+              <span className="grid size-11 shrink-0 place-items-center rounded-2xl border border-border bg-background text-accent transition-transform group-active:scale-95">
                 {creating && uploadPct !== null ? (
-                  <Loader2 className="size-4 animate-spin" />
+                  <Loader2 className="size-5 animate-spin" />
                 ) : (
-                  <Upload className="size-4" />
+                  <Upload className="size-5" />
                 )}
               </span>
-              <span className="min-w-0 flex-1">
+              <span className="min-w-0">
                 <span className="block text-[14px] font-semibold tracking-tight">
-                  {creating && uploadPct !== null
-                    ? `Mengunggah ${Math.round(uploadPct * 100)}%`
-                    : t("dash.unggah_perangkat")}
+                  {creating && uploadPct !== null ? `Mengunggah ${Math.round(uploadPct * 100)}%` : t("dash.unggah_perangkat")}
                 </span>
                 <span className="mt-0.5 block truncate text-[12px] text-muted-foreground">
                   {t("dash.format_file")}
                 </span>
                 {uploadPct !== null ? (
-                  <span className="mt-2.5 block h-1.5 w-full overflow-hidden rounded-full bg-border">
+                  <span className="mt-2 block h-1.5 w-40 overflow-hidden rounded-full bg-border">
                     <span
                       className="block h-full rounded-full bg-accent transition-[width]"
                       style={{ width: `${Math.round(uploadPct * 100)}%` }}
@@ -555,214 +523,214 @@ function Dashboard() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter") uploadRef.current?.abort();
                   }}
-                  className="shrink-0 whitespace-nowrap text-[12px] font-medium text-muted-foreground underline decoration-border underline-offset-2"
+                  className="ml-auto shrink-0 text-[12px] font-medium text-muted-foreground underline decoration-border underline-offset-2"
                 >
-                  Batalkan
+                  Batal
                 </span>
-              ) : (
-                <FileVideo className="size-4 shrink-0 text-muted-foreground" />
-              )}
+              ) : null}
             </button>
           </div>
         </section>
 
-        {/* ═══ REL PIPELINE: tahap nyata, angkanya dari data. Menekan satu tahap
-             menyaring daftar di bawah — jadi angka ini bukan hiasan. ═══ */}
-        <section className="reveal mt-10" style={{ ["--i" as string]: 2 }}>
-          <div className="grid gap-px overflow-hidden rounded-2xl bg-border sm:grid-cols-3">
-            {rel.map((t) => {
-              const aktif = filter === t.id;
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  aria-pressed={aktif}
-                  onClick={() => setFilter(aktif ? "semua" : t.id)}
-                  className={`bg-card px-4 py-4 text-left transition-colors hover:bg-surface/60 sm:px-5 sm:py-5 ${
-                    aktif ? "bg-surface" : ""
-                  }`}
-                >
-                  <span className="flex items-center gap-2">
-                    <t.ikon
-                      className={`size-3.5 shrink-0 ${
-                        t.id === "gagal" ? "text-destructive" : "text-accent"
-                      } ${t.putar ? "animate-spin" : ""}`}
-                    />
-                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      {t.nama}
-                    </span>
-                  </span>
-                  <span className="stat-figure mt-2.5 block text-[27px] leading-none">
-                    {t.nilai}
-                  </span>
-                  <span className="mt-1.5 block text-[12px] leading-snug text-muted-foreground">
-                    {t.ket}
-                  </span>
-                  <span
-                    className={`mt-2.5 block h-0.5 rounded-full transition-all ${
-                      aktif ? "w-10 bg-accent" : "w-0 bg-transparent"
-                    }`}
+        {/* ═══ RAIL FASE + FILM STRIP PROYEK ═══ */}
+        <div className="mt-10 grid gap-8 lg:grid-cols-[220px_1fr] lg:items-start">
+          {/* RAIL: tombol fase vertikal — mobile jadi chips horizontal */}
+          <nav aria-label="Filter tahap" className="lg:sticky lg:top-6">
+            <ul className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
+              <li>
+                <FaseTab
+                  aktif={filter === "semua"}
+                  label="Semua"
+                  nilai={projects.length}
+                  onClick={() => setFilter("semua")}
+                />
+              </li>
+              {railFase.map((f) => (
+                <li key={f.id}>
+                  <FaseTab
+                    aktif={filter === f.id}
+                    label={f.label}
+                    ket={f.ket}
+                    nilai={hitung[f.id as Tahap]}
+                    ikon={FASE_IKON[f.id as Tahap]}
+                    jalan={f.id === "jalan"}
+                    gagal={f.id === "gagal"}
+                    onClick={() => setFilter(filter === f.id ? "semua" : f.id)}
                   />
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* ═══ DAFTAR PROYEK ═══ */}
-        <section className="reveal mt-12" style={{ ["--i" as string]: 3 }}>
-          <div className="flex flex-wrap items-baseline justify-between gap-3">
-            <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">
-              Proyek kamu
-            </h2>
-            <span className="text-[13px] text-muted-foreground">
-              {filter === "semua" ? (
-                `${projects.length} total`
-              ) : (
-                <>
-                  {terlihat.length} ditampilkan ·{" "}
-                  <button
-                    type="button"
-                    onClick={() => setFilter("semua")}
-                    className="font-semibold text-accent underline-offset-2 hover:underline"
-                  >
-                    tampilkan semua
-                  </button>
-                </>
-              )}
-            </span>
-          </div>
-
-          {loading ? (
-            /* SKELETON SHIMMER ala OpusClip: enam kartu berdenyut mengikuti
-               grid akhir — bukan spinner. Struktur terlihat sejak awal. */
-            <ul className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true" aria-label={t("umum.memuat")}>
-              {[0, 1, 2, 3, 4, 5].map((k) => (
-                <li key={k} className="overflow-hidden rounded-2xl border border-border bg-card">
-                  <span className="block h-1 w-full animate-pulse bg-border" />
-                  <div className="space-y-3 px-4 py-4">
-                    <span className="block h-4 w-3/4 animate-pulse rounded bg-border" />
-                    <span className="block h-3 w-1/2 animate-pulse rounded bg-border" style={{ animationDelay: "120ms" }} />
-                    <span className="block h-3 w-2/5 animate-pulse rounded bg-border" style={{ animationDelay: "240ms" }} />
-                  </div>
                 </li>
               ))}
             </ul>
-          ) : terlihat.length === 0 ? (
-            <div className="mt-6 rounded-2xl border border-dashed border-border px-6 py-14 text-center">
-              <p className="font-display text-base font-bold">
-                {projects.length === 0 ? t("dash.belum_ada_proyek") : t("dash.tidak_ada_di_tahap")}
-              </p>
-              <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
-                {projects.length === 0
-                  ? t("dash.panduan_pertama")
-                  : t("dash.coba_tahap_lain")}
-              </p>
-              <Button
-                variant={projects.length === 0 ? "accent" : "outline"}
-                className="mt-6 whitespace-nowrap"
-                onClick={() =>
-                  projects.length === 0 ? fileInput.current?.click() : setFilter("semua")
-                }
-              >
-                {projects.length === 0 ? t("dash.buat_baru") : t("dash.lihat_semua")}
-              </Button>
+          </nav>
+
+          {/* STRIP: baris kartu scroll horizontal ala gulungan film */}
+          <section aria-label="Proyek kamu" className="min-w-0">
+            <div className="flex items-baseline justify-between gap-3">
+              <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">
+                {t("dash.proyek_terbaru")}
+              </h2>
+              <span className="shrink-0 text-[13px] text-muted-foreground">
+                {filter === "semua" ? (
+                  `${projects.length} total`
+                ) : (
+                  <>
+                    {terlihat.length} dari {projects.length} ·{" "}
+                    <button
+                      type="button"
+                      onClick={() => setFilter("semua")}
+                      className="font-semibold text-accent underline-offset-2 hover:underline"
+                    >
+                      reset
+                    </button>
+                  </>
+                )}
+              </span>
             </div>
-          ) : (
-            <ul className="mt-6 grid items-start gap-3 max-sm:grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-              {terlihat.map((p, i) => {
-                const st = statusOf(p);
-                const busy = tahapOf(p) === "jalan";
-                return (
+
+            {loading ? (
+              /* SKELETON berbentuk strip — meniru struktur akhir */
+              <ul className="mt-5 flex snap-x gap-4 overflow-x-auto pb-4" aria-busy="true">
+                {[0, 1, 2, 3, 4].map((k) => (
                   <li
-                    key={p.id}
-                    className="reveal"
-                    style={{ ["--i" as string]: Math.min(8, i) }}
+                    key={k}
+                    className="w-[248px] shrink-0 snap-start overflow-hidden rounded-2xl border border-border bg-card"
                   >
-                    <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card transition-all hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-lg hover:shadow-black/5">
-                      {/* BAND STATUS ATAS: warna mengikuti tahap — hijau selesai,
-                          amber berjalan, merah gagal, netral lainnya */}
-                      <span
-                        aria-hidden
-                        className={`h-1 w-full ${
-                          tahapOf(p) === "selesai"
-                            ? "bg-emerald-500/80"
-                            : tahapOf(p) === "gagal"
-                              ? "bg-destructive/80"
-                              : busy
-                                ? "animate-pulse bg-accent"
-                                : "bg-border"
-                        }`}
-                      />
-                      <Link
-                        to="/projects/$projectId"
-                        params={{ projectId: p.id }}
-                        className="flex min-w-0 flex-1 flex-col px-4 py-4"
-                      >
-                        <span
-                          className="line-clamp-2 font-display text-[15px] font-bold leading-snug tracking-tight"
-                          title={p.title}
-                        >
-                          {p.title}
-                        </span>
-                        <span className="mt-1.5 flex items-center gap-x-2 truncate text-[12px] text-muted-foreground">
-                          <span className={`inline-flex items-center gap-1 font-medium ${st.tone}`}>
-                            {busy ? (
-                              <Loader2 className="size-3 animate-spin" />
-                            ) : null}
-                            {st.label}
-                          </span>
-                          <span className="opacity-40">·</span>
-                          <span>{p.source_type === "youtube" ? "YouTube" : "Unggahan"}</span>
-                        </span>
-                        <span className="mt-auto flex items-center justify-between pt-4 text-[12px] text-muted-foreground">
-                          <span className="inline-flex items-center gap-1.5">
-                            {p.source_type === "youtube" ? (
-                              <Youtube className="size-3.5" />
-                            ) : (
-                              <Film className="size-3.5" />
-                            )}
-                            {timeAgo(p.created_at)}
-                          </span>
-                          {busy ? (
-                            <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent">
-                              <span className="size-1.5 animate-pulse rounded-full bg-accent" />
-                              proses
-                            </span>
-                          ) : (
-                            <ArrowUpRight className="size-4 text-muted-foreground/50 transition-colors group-hover:text-accent" />
-                          )}
-                        </span>
-                      </Link>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          if (menuFor === p.id) {
-                            setMenuFor(null);
-                            return;
-                          }
-                          // Posisi menu dihitung dari tombolnya lalu menu
-                          // dirender lewat PORTAL ke <body> (lihat di bawah).
-                          const r = e.currentTarget.getBoundingClientRect();
-                          setMenuAnchor({ top: r.bottom + 6, right: window.innerWidth - r.right });
-                          setMenuFor(p.id);
-                        }}
-                        className="absolute right-2 top-3 grid size-8 place-items-center rounded-lg bg-background/70 text-muted-foreground backdrop-blur transition-colors hover:bg-surface hover:text-foreground"
-                        aria-label={`Menu untuk ${p.title}`}
-                        aria-expanded={menuFor === p.id}
-                      >
-                        <MoreVertical className="size-4" />
-                      </button>
+                    <div className="relative h-[140px] bg-surface">
+                      <span className="absolute left-1/2 top-1/2 size-8 -translate-x-1/2 -translate-y-1/2 animate-pulse rounded-xl bg-border" />
+                      <span className="absolute inset-x-0 bottom-0 h-1 animate-pulse bg-border" />
+                    </div>
+                    <div className="space-y-2.5 px-3.5 py-3.5">
+                      <span className="block h-4 w-4/5 animate-pulse rounded bg-border" />
+                      <span className="block h-3 w-2/5 animate-pulse rounded bg-border" />
                     </div>
                   </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
+                ))}
+              </ul>
+            ) : terlihat.length === 0 ? (
+              <div className="mt-5 rounded-3xl border border-dashed border-border px-6 py-16 text-center">
+                <Clapperboard className="mx-auto size-10 text-muted-foreground/40" />
+                <p className="mt-4 font-display text-base font-bold">
+                  {projects.length === 0 ? t("dash.belum_ada_proyek") : t("dash.tidak_ada_di_tahap")}
+                </p>
+                <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
+                  {projects.length === 0 ? t("dash.panduan_pertama") : t("dash.coba_tahap_lain")}
+                </p>
+                <Button
+                  variant={projects.length === 0 ? "accent" : "outline"}
+                  className="mt-6 rounded-full whitespace-nowrap"
+                  onClick={() =>
+                    projects.length === 0 ? fileInput.current?.click() : setFilter("semua")
+                  }
+                >
+                  {projects.length === 0 ? t("dash.buat_baru") : t("dash.lihat_semua")}
+                </Button>
+              </div>
+            ) : (
+              <ul className="mt-5 flex snap-x snap-mandatory gap-4 overflow-x-auto pb-4 [scrollbar-width:thin]">
+                {terlihat.map((p, i) => {
+                  const st = statusOf(p);
+                  const fase = tahapOf(p);
+                  const Ikon = FASE_IKON[fase];
+                  return (
+                    <motion.li
+                      key={p.id}
+                      initial={{ opacity: 0, x: 28, rotate: 1.5 }}
+                      animate={{ opacity: 1, x: 0, rotate: 0 }}
+                      transition={{ duration: 0.45, delay: Math.min(i * 0.06, 0.5), ease: [0.16, 1, 0.3, 1] }}
+                      className="group relative w-[248px] shrink-0 snap-start"
+                    >
+                      <div className="relative flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-card transition-[transform,box-shadow] duration-300 hover:-translate-y-1 hover:border-accent/40 hover:shadow-xl hover:shadow-black/10 active:translate-y-0">
+                        {/* Poster 16:9 dengan pola sprocket film */}
+                        <Link
+                          to="/projects/$projectId"
+                          params={{ projectId: p.id }}
+                          className="block"
+                          aria-label={`Buka ${p.title}`}
+                        >
+                          <span className="relative flex h-[140px] items-center justify-center overflow-hidden bg-surface">
+                            {/* lubang sprocket di atas & bawah — motif film */}
+                            <span aria-hidden className="absolute inset-x-0 top-0 flex h-3 justify-around">
+                              {Array.from({ length: 9 }).map((_, k) => (
+                                <span key={k} className="mt-1 size-1.5 rounded-[2px] bg-border" />
+                              ))}
+                            </span>
+                            <span aria-hidden className="absolute inset-x-0 bottom-0 flex h-3 justify-around">
+                              {Array.from({ length: 9 }).map((_, k) => (
+                                <span key={k} className="mb-1 size-1.5 rounded-[2px] bg-border" />
+                              ))}
+                            </span>
+                            <span className="grid size-12 place-items-center rounded-2xl border border-border bg-background text-accent transition-transform duration-300 group-hover:scale-110">
+                              {p.source_type === "youtube" ? (
+                                <Youtube className="size-5" />
+                              ) : (
+                                <Clapperboard className="size-5" />
+                              )}
+                            </span>
+                            {/* band status bawah poster */}
+                            <span
+                              aria-hidden
+                              className={`absolute inset-x-0 bottom-0 h-1 ${
+                                fase === "selesai"
+                                  ? "bg-emerald-500/80"
+                                  : fase === "gagal"
+                                    ? "bg-destructive/80"
+                                    : "animate-pulse bg-accent"
+                              }`}
+                            />
+                          </span>
+                        </Link>
 
-        {/* ═══ PENUTUP: satu paragraf, bukan footer empat kolom ═══ */}
-        <p className="mt-12 max-w-prose border-t border-border pt-6 text-[13px] leading-relaxed text-muted-foreground">
+                        {/* badan kartu */}
+                        <Link
+                          to="/projects/$projectId"
+                          params={{ projectId: p.id }}
+                          className="flex min-w-0 flex-1 flex-col px-3.5 py-3.5"
+                        >
+                          <span
+                            className="line-clamp-2 font-display text-[14.5px] font-bold leading-snug tracking-tight"
+                            title={p.title}
+                          >
+                            {p.title}
+                          </span>
+                          <span className="mt-2 flex items-center gap-1.5 text-[12px]">
+                            <Ikon
+                              className={`size-3.5 shrink-0 ${
+                                fase === "gagal" ? "text-destructive" : fase === "selesai" ? "text-accent" : "text-muted-foreground"
+                              } ${fase === "jalan" ? "animate-spin" : ""}`}
+                            />
+                            <span className={`truncate font-medium ${st.tone}`}>{st.label}</span>
+                          </span>
+                          <span className="mt-1 text-[11.5px] text-muted-foreground">
+                            {timeAgo(p.created_at)}
+                          </span>
+                        </Link>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            if (menuFor === p.id) {
+                              setMenuFor(null);
+                              return;
+                            }
+                            const r = e.currentTarget.getBoundingClientRect();
+                            setMenuAnchor({ top: r.bottom + 6, right: window.innerWidth - r.right });
+                            setMenuFor(p.id);
+                          }}
+                          className="absolute right-2 top-2 z-10 grid size-8 place-items-center rounded-lg border border-border bg-background/80 text-muted-foreground backdrop-blur transition-colors hover:bg-surface hover:text-foreground"
+                          aria-label={`Menu untuk ${p.title}`}
+                          aria-expanded={menuFor === p.id}
+                        >
+                          <MoreVertical className="size-4" />
+                        </button>
+                      </div>
+                    </motion.li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+        </div>
+
+        <p className="mt-14 max-w-prose border-t border-border pt-6 text-[13px] leading-relaxed text-muted-foreground">
           Semua pemrosesan berjalan di server — kamu boleh menutup halaman ini dan pekerjaannya
           tetap lanjut. Hasilnya menunggu di{" "}
           <Link to="/unduh" className="font-semibold text-accent underline-offset-2 hover:underline">
@@ -772,17 +740,7 @@ function Dashboard() {
         </p>
       </main>
 
-      {/* ===== Menu titik-tiga (PORTAL ke <body>) =====
-           Dulu menu ini anak dari <li>, yang ada di dalam
-           <ul class="overflow-hidden rounded-2xl">. Dua akibatnya persis
-           seperti keluhan pengguna "tak terlihat kayak terpotong atau kena
-           timpa sama project lain":
-             1. overflow-hidden pada <ul> MEMOTONG menu baris terakhir;
-             2. tiap <li> memakai animasi .reveal (transform), dan transform
-                membuat stacking context baru — z-index menu tidak bisa
-                mengalahkan baris <li> setelahnya, jadi menu tertimpa.
-           Portal ke <body> + koordinat viewport (menuAnchor) menghilangkan
-           kedua sebab itu sekaligus. */}
+      {/* ===== Menu titik-tiga (portal ke <body>) ===== */}
       {typeof document !== "undefined" && menuFor && menuAnchor
         ? createPortal(
             <AnimatePresence>
@@ -907,10 +865,10 @@ function Dashboard() {
           bisa dibatalkan.
         </p>
         <div className="mt-6 flex gap-2.5">
-          <Button variant="outline" className="flex-1" onClick={() => setConfirmDelete(null)}>
+          <Button variant="outline" className="flex-1 rounded-full" onClick={() => setConfirmDelete(null)}>
             Batalkan
           </Button>
-          <Button variant="destructive" className="flex-1" onClick={() => void handleDelete()}>
+          <Button variant="destructive" className="flex-1 rounded-full" onClick={() => void handleDelete()}>
             Hapus permanen
           </Button>
         </div>
@@ -926,13 +884,13 @@ function Dashboard() {
           }}
           autoFocus
           placeholder="Judul proyek"
-          className="w-full rounded-xl border border-border bg-surface px-3.5 py-2.5 text-sm outline-none transition-colors focus:border-accent"
+          className="w-full rounded-full border border-border bg-surface px-3.5 py-2.5 text-sm outline-none transition-colors focus:border-accent"
         />
         <div className="mt-5 flex gap-2.5">
-          <Button variant="outline" className="flex-1" onClick={() => setRenameTarget(null)}>
+          <Button variant="outline" className="flex-1 rounded-full" onClick={() => setRenameTarget(null)}>
             Batalkan
           </Button>
-          <Button variant="accent" className="flex-1" onClick={() => void handleRename()}>
+          <Button variant="accent" className="flex-1 rounded-full" onClick={() => void handleRename()}>
             Simpan
           </Button>
         </div>
@@ -950,7 +908,57 @@ function Dashboard() {
   );
 }
 
-/* --------------------------------------------------------------- komponen */
+/* ------------------------------------------------- komponen lokal (baru) */
+
+function FaseTab({
+  aktif,
+  label,
+  ket,
+  nilai,
+  ikon: Ikon,
+  jalan,
+  gagal,
+  onClick,
+}: {
+  aktif: boolean;
+  label: string;
+  ket?: string;
+  nilai: number;
+  ikon?: typeof Loader2;
+  jalan?: boolean;
+  gagal?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={aktif}
+      onClick={onClick}
+      className={`flex w-full shrink-0 items-center gap-3 rounded-2xl border px-4 py-3 text-left transition-all lg:rounded-2xl ${
+        aktif
+          ? "border-accent/60 bg-accent/10 shadow-sm"
+          : "border-border bg-card hover:border-accent/30 hover:bg-surface/60"
+      }`}
+    >
+      {Ikon ? (
+        <Ikon
+          className={`size-4 shrink-0 ${gagal ? "text-destructive" : aktif ? "text-accent" : "text-muted-foreground"} ${jalan && nilai > 0 ? "animate-spin" : ""}`}
+        />
+      ) : null}
+      <span className="min-w-0 flex-1">
+        <span className={`block truncate text-[13px] font-semibold tracking-tight ${aktif ? "text-foreground" : ""}`}>
+          {label}
+        </span>
+        {ket ? <span className="mt-0.5 hidden truncate text-[11px] text-muted-foreground lg:block">{ket}</span> : null}
+      </span>
+      <span
+        className={`stat-figure shrink-0 text-[20px] leading-none ${aktif ? "text-accent" : "text-muted-foreground"}`}
+      >
+        {nilai}
+      </span>
+    </button>
+  );
+}
 
 function Modal({
   open,
@@ -979,16 +987,14 @@ function Modal({
             className="absolute inset-0 cursor-default bg-foreground/25 backdrop-blur-[2px]"
           />
           <motion.div
-            initial={{ opacity: 0, scale: 0.97, y: 8 }}
+            initial={{ opacity: 0, scale: 0.96, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.98, y: 4 }}
+            exit={{ opacity: 0, scale: 0.97, y: 6 }}
             transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-            className="relative w-full max-w-md rounded-2xl border border-border bg-background p-6 shadow-lg"
+            className="relative w-full max-w-md rounded-3xl border border-border bg-background p-6 shadow-lg"
           >
             <h3
-              className={`font-display text-lg font-bold tracking-tight ${
-                tone === "danger" ? "text-destructive" : ""
-              }`}
+              className={`font-display text-lg font-bold tracking-tight ${tone === "danger" ? "text-destructive" : ""}`}
             >
               {title}
             </h3>

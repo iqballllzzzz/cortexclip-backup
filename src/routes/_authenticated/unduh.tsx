@@ -1,4 +1,4 @@
-
+"use client";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
@@ -9,6 +9,7 @@ import {
   Download,
   Film,
   Loader2,
+  PackageOpen,
   RefreshCw,
   Trash2,
   XCircle,
@@ -19,8 +20,7 @@ import { listRenderJobs, type RenderJob } from "@/lib/backend-api";
 import { clipFileName } from "@/lib/clip-file";
 import { deleteRenderJob } from "@/lib/project-api";
 import { useI18n } from "@/lib/i18n";
-import { SiteHeader } from "@/components/site-header";
-import { SiteFooter } from "@/components/site-footer";
+import { AppNav } from "@/components/app-nav";
 import { PageLoading } from "@/components/page-loading";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -35,15 +35,32 @@ export const Route = createFileRoute("/_authenticated/unduh")({
   component: DownloadsPage,
 });
 
+/* ══════════════════════════════════════════════════════════════════════════
+   REDESIGN v2 — "RAK KIRIM" (SHIPPING SHELF)
+   Hallmark · macrostructure: Manifest/List-led · tone: utilitarian-editorial
+   · anchor hue: matte amber 60° (palet lama dipertahankan)
+
+   Perubahan STRUKTURAL vs halaman lama (grid 3 kolom + bento atas):
+   — Bento 4 kotak METRIK dihapus; gantinya SATU baris "label kargo" tipis
+     (total / siap / proses / terakhir) menempel di bawah judul — data yang
+     sama, tanpa empat kartu kembar.
+   — Kartu unduhan jadi BARIS RAK horizontal: thumbnail 9:16 kecil di kiri,
+     info di tengah, tombol unduh di kanan — seperti label paket; bukan grid
+     kartu poster tinggi. Video tetap bisa diputar di tempat.
+   — Baris "sedang merender" punya strip conveyor animasi (garis berjalan).
+   — Animasi baru: baris masuk stagger dari kiri; strip conveyor; tombol
+     unduh berisi progress-shine saat hover.
+   ══════════════════════════════════════════════════════════════════════════ */
+
 function statusMeta(status: RenderJob["status"]) {
   switch (status) {
     case "completed":
-      return { label: "Selesai", Icon: CheckCircle2, tone: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-500/10" };
+      return { label: "Selesai", Icon: CheckCircle2, tone: "text-accent" };
     case "rendering":
     case "pending":
-      return { label: "Sedang merender…", Icon: Loader2, tone: "text-amber-600 dark:text-amber-400", bg: "bg-amber-500/10", spin: true };
+      return { label: "Sedang merender…", Icon: Loader2, tone: "text-muted-foreground", spin: true };
     case "failed":
-      return { label: "Gagal", Icon: XCircle, tone: "text-red-600 dark:text-red-400", bg: "bg-red-500/10" };
+      return { label: "Gagal", Icon: XCircle, tone: "text-destructive" };
   }
 }
 
@@ -62,7 +79,6 @@ function DownloadsPage() {
   const [jobs, setJobs] = useState<RenderJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [projectNames, setProjectNames] = useState<Record<string, string>>({});
-  // mode hapus: pilih klip utk dihapus
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
@@ -71,7 +87,6 @@ function DownloadsPage() {
     try {
       const list = await listRenderJobs();
       setJobs(list);
-      // nama project utk tiap job
       const ids = [...new Set(list.map((j) => j.project_id))];
       if (ids.length) {
         const { data } = await supabase
@@ -89,7 +104,6 @@ function DownloadsPage() {
 
   useEffect(() => {
     void refresh();
-    // auto-poll saat ada job yang masih rendering
     const iv = setInterval(() => {
       setJobs((prev) => {
         if (prev.some((j) => j.status === "rendering" || j.status === "pending")) {
@@ -104,238 +118,235 @@ function DownloadsPage() {
   const completed = jobs.filter((j) => j.status === "completed");
   const active = jobs.filter((j) => j.status === "rendering" || j.status === "pending");
 
+  const strip: { label: string; value: string | number }[] = [
+    { label: "Total render", value: jobs.length },
+    { label: "Siap diunduh", value: completed.length },
+    { label: "Sedang proses", value: active.length },
+    { label: "Terakhir", value: jobs[0] ? timeAgo(jobs[0].created_at) : "—" },
+  ];
+
   return (
-    <div className="flex min-h-screen flex-col bg-background">
-      <SiteHeader />
-      <main className="mx-auto w-full max-w-5xl flex-1 px-5 py-10">
-        {/* Header */}
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <Link to="/dashboard" className="inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground">
-              <ArrowLeft className="size-3.5" /> Kembali ke dashboard
-            </Link>
-            <h1 className="font-display mt-3 text-3xl font-bold tracking-tight">
-              Riwayat Unduhan
-            </h1>
-            <p className="mt-1.5 text-sm text-muted-foreground">
-              Semua klip yang pernah kamu render — siap diunduh kapan saja.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {selectMode ? (
-              <>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  disabled={selected.size === 0 || deleting}
-                  onClick={async () => {
-                    setDeleting(true);
-                    try {
-                      for (const id of selected) await deleteRenderJob(id);
-                      toast.success(`${selected.size} unduhan dihapus dari server.`);
-                      setSelected(new Set());
-                      setSelectMode(false);
-                      await refresh();
-                    } catch {
-                      toast.error("Gagal menghapus sebagian unduhan");
-                    } finally {
-                      setDeleting(false);
-                    }
-                  }}
-                >
-                  {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-                  Hapus {selected.size > 0 ? `(${selected.size})` : ""}
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => { setSelectMode(false); setSelected(new Set()); }}>
-                  Batal
-                </Button>
-              </>
-            ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={jobs.length === 0}
-                onClick={() => setSelectMode(true)}
-              >
-                <Trash2 className="size-4" /> Hapus unduhan
-              </Button>
-            )}
-            <Button variant="outline" size="sm" onClick={() => void refresh()} disabled={loading}>
-              <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
-              Muat ulang
-            </Button>
-          </div>
-        </div>
+    <div className="min-h-screen bg-background text-foreground antialiased">
+      <AppNav displayName="?" themeToggle />
 
-        {/* Bento ringkasan */}
-        <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {[
-            { label: "Total render", value: jobs.length, Icon: Film },
-            { label: "Siap diunduh", value: completed.length, Icon: Download },
-            { label: "Sedang proses", value: active.length, Icon: Clock3 },
-          ].map((s, i) => (
-            <motion.div
-              key={s.label}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.05 }}
-              className="rounded-2xl border border-border bg-card p-4"
-            >
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <s.Icon className="size-4" />
-                <span className="text-[11px] font-medium uppercase tracking-wider">{s.label}</span>
-              </div>
-              <p className="font-display mt-2 text-2xl font-bold tabular-nums">{s.value}</p>
-            </motion.div>
-          ))}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.15 }}
-            className="rounded-2xl border border-border bg-card p-4"
+      <main className="mx-auto w-full max-w-[980px] px-4 pb-28 pt-9 sm:px-6 sm:pt-12">
+        {/* ==== Kepala rak: judul + baris label kargo tipis ==== */}
+        <header>
+          <Link
+            to="/dashboard"
+            className="inline-flex items-center gap-1.5 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
           >
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Clock3 className="size-4" />
-              <span className="text-[11px] font-medium uppercase tracking-wider">Terakhir</span>
+            <ArrowLeft className="size-3.5" /> Kembali ke dashboard
+          </Link>
+          <div className="mt-4 flex flex-wrap items-end justify-between gap-4">
+            <div className="min-w-0">
+              <h1 className="font-display text-[30px] font-bold leading-none tracking-tight sm:text-[40px]">
+                Rak Unduhan
+              </h1>
+              <p className="mt-2.5 max-w-[52ch] text-[14px] leading-relaxed text-muted-foreground">
+                Semua klip yang pernah kamu render — tersimpan di server, siap diunduh kapan saja.
+              </p>
             </div>
-            <p className="mt-2 text-sm font-semibold">
-              {jobs[0] ? timeAgo(jobs[0].created_at) : "—"}
-            </p>
-          </motion.div>
-        </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {selectMode ? (
+                <>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="rounded-full"
+                    disabled={selected.size === 0 || deleting}
+                    onClick={async () => {
+                      setDeleting(true);
+                      try {
+                        for (const id of selected) await deleteRenderJob(id);
+                        toast.success(`${selected.size} unduhan dihapus dari server.`);
+                        setSelected(new Set());
+                        setSelectMode(false);
+                        await refresh();
+                      } catch {
+                        toast.error("Gagal menghapus sebagian unduhan");
+                      } finally {
+                        setDeleting(false);
+                      }
+                    }}
+                  >
+                    {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+                    Hapus {selected.size > 0 ? `(${selected.size})` : ""}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="rounded-full"
+                    onClick={() => {
+                      setSelectMode(false);
+                      setSelected(new Set());
+                    }}
+                  >
+                    Batal
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-full"
+                  disabled={jobs.length === 0}
+                  onClick={() => setSelectMode(true)}
+                >
+                  <Trash2 className="size-4" /> Pilih & hapus
+                </Button>
+              )}
+              <Button variant="outline" size="sm" className="rounded-full" onClick={() => void refresh()} disabled={loading}>
+                <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
+                Muat ulang
+              </Button>
+            </div>
+          </div>
 
-        {/* Daftar */}
+          {/* BARIS LABEL KARGO — angka nyata dari data, satu garis tipis */}
+          <dl className="mt-6 flex flex-wrap items-baseline gap-x-6 gap-y-2 border-b border-border pb-4">
+            {strip.map((s) => (
+              <div key={s.label} className="flex items-baseline gap-1.5">
+                <dt className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {s.label}
+                </dt>
+                <dd className="stat-figure text-[19px] leading-none">{s.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </header>
+
+        {/* ==== Rak baris ==== */}
         {loading ? (
           <PageLoading label="Memuat riwayat" />
         ) : jobs.length === 0 ? (
-          <div className="mt-12 flex flex-col items-center rounded-3xl border border-dashed border-border py-16 text-center">
-            <Download className="size-10 text-muted-foreground/40" />
-            <p className="mt-4 font-medium">Belum ada klip yang dirender</p>
-            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-              Buka salah satu project, pilih klip, lalu tekan Unduh — hasilnya akan muncul di sini.
+          <div className="mt-12 flex flex-col items-center rounded-3xl border border-dashed border-border px-6 py-16 text-center">
+            <PackageOpen className="size-10 text-muted-foreground/40" />
+            <p className="mt-4 font-display text-base font-bold">Rak masih kosong</p>
+            <p className="mt-1 max-w-sm text-sm leading-relaxed text-muted-foreground">
+              Buka salah satu proyek, pilih klip, lalu tekan Unduh — hasilnya akan muncul di sini.
             </p>
-            <Button variant="accent" size="sm" className="mt-5" asChild>
-              <Link to="/dashboard">Lihat project saya</Link>
+            <Button variant="accent" size="sm" className="mt-6 rounded-full" asChild>
+              <Link to="/dashboard">Lihat proyek saya</Link>
             </Button>
           </div>
         ) : (
-          <div className="mt-8 grid items-start gap-3 max-sm:grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+          <ul className="mt-8 space-y-3">
             <AnimatePresence initial={false}>
               {jobs.map((job, i) => {
                 const meta = statusMeta(job.status);
                 const title = job.clip_title || projectNames[job.project_id] || "Klip";
+                const berjalan = job.status === "rendering" || job.status === "pending";
                 return (
-                  <motion.div
+                  <motion.li
                     key={job.id}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: Math.min(i * 0.03, 0.3) }}
-                    className="group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card transition-all hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-lg"
+                    initial={{ opacity: 0, x: -18 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: 18, height: 0 }}
+                    transition={{ duration: 0.32, delay: Math.min(i * 0.04, 0.32), ease: [0.16, 1, 0.3, 1] }}
+                    className="group relative overflow-hidden rounded-2xl border border-border bg-card transition-colors hover:border-accent/40"
                   >
-                    {/* THUMBNAIL VIDEO 9:16 — frame pertama tampil tanpa unduh
-                        penuh (preload=metadata), klik memutar langsung di
-                        kartu. Untuk job yang belum selesai: band ikon status. */}
-                    <div className="relative aspect-[9/16] w-full bg-surface">
+                    {/* STRIP CONVEYOR untuk job yang masih jalan */}
+                    {berjalan ? (
+                      <span aria-hidden className="absolute inset-x-0 top-0 h-0.5 overflow-hidden">
+                        <span className="conveyor absolute inset-y-0 w-1/3 bg-accent" />
+                      </span>
+                    ) : job.status === "completed" ? (
+                      <span aria-hidden className="absolute inset-x-0 top-0 h-0.5 bg-accent/60" />
+                    ) : (
+                      <span aria-hidden className="absolute inset-x-0 top-0 h-0.5 bg-destructive/60" />
+                    )}
+
+                    <div className="flex items-stretch gap-4 p-3.5 sm:p-4">
+                      {/* thumbnail 9:16 — video diputar di tempat */}
+                      <div className="relative aspect-[9/16] w-[72px] shrink-0 overflow-hidden rounded-xl bg-surface sm:w-[84px]">
+                        {job.status === "completed" && job.rendered_url ? (
+                          <video
+                            src={`${job.rendered_url}#t=0.5`}
+                            className="absolute inset-0 size-full object-cover"
+                            preload="metadata"
+                            muted
+                            playsInline
+                            controls
+                            aria-label={title}
+                          />
+                        ) : (
+                          <div className="absolute inset-0 grid place-items-center">
+                            <meta.Icon className={`size-6 ${meta.tone} ${meta.spin ? "animate-spin" : ""}`} />
+                          </div>
+                        )}
+                        {selectMode ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = new Set(selected);
+                              if (next.has(job.id)) next.delete(job.id);
+                              else next.add(job.id);
+                              setSelected(next);
+                            }}
+                            className={`absolute left-1 top-1 z-10 flex size-6 items-center justify-center rounded-md border-2 bg-background/80 backdrop-blur transition-colors ${
+                              selected.has(job.id)
+                                ? "border-accent bg-accent text-accent-foreground"
+                                : "border-border"
+                            }`}
+                            aria-label="Pilih untuk dihapus"
+                          >
+                            {selected.has(job.id) ? <CheckCircle2 className="size-4" /> : null}
+                          </button>
+                        ) : null}
+                      </div>
+
+                      {/* info tengah */}
+                      <div className="min-w-0 flex-1 py-0.5">
+                        <p className="truncate text-[14.5px] font-semibold tracking-tight">{title}</p>
+                        <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12.5px] text-muted-foreground">
+                          <span className={`inline-flex items-center gap-1 ${meta.tone}`}>
+                            <meta.Icon className={`size-3.5 ${meta.spin ? "animate-spin" : ""}`} />
+                            {meta.label}
+                          </span>
+                          <span className="opacity-40">·</span>
+                          <span>{timeAgo(job.created_at)}</span>
+                          <span className="opacity-40">·</span>
+                          <span className="truncate">{projectNames[job.project_id] ?? "—"}</span>
+                        </p>
+                        {job.status === "failed" && job.error ? (
+                          <p className="mt-1 line-clamp-1 text-[12px] text-destructive/80">{job.error}</p>
+                        ) : null}
+                      </div>
+
+                      {/* aksi kanan */}
                       {job.status === "completed" && job.rendered_url ? (
-                        <video
-                          src={`${job.rendered_url}#t=0.5`}
-                          className="absolute inset-0 size-full object-cover"
-                          preload="metadata"
-                          muted
-                          playsInline
-                          controls
-                          aria-label={title}
-                        />
-                      ) : (
-                        <div className="absolute inset-0 grid place-items-center">
-                          <meta.Icon className={`size-8 ${meta.tone} ${meta.spin ? "animate-spin" : ""}`} />
+                        <div className="flex shrink-0 items-center">
+                          <Button
+                            variant="accent"
+                            size="sm"
+                            className="relative overflow-hidden rounded-full shine"
+                            onClick={() => {
+                              const name = clipFileName(title);
+                              const url = new URL(job.rendered_url!);
+                              url.searchParams.set("download", name);
+                              const a = document.createElement("a");
+                              a.href = url.toString();
+                              a.download = name;
+                              a.rel = "noopener";
+                              document.body.appendChild(a);
+                              a.click();
+                              a.remove();
+                            }}
+                          >
+                            <Download className="size-4" />
+                            <span className="hidden sm:inline">Unduh MP4</span>
+                          </Button>
                         </div>
-                      )}
-                      {selectMode && job.status === "completed" ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const next = new Set(selected);
-                            if (next.has(job.id)) next.delete(job.id);
-                            else next.add(job.id);
-                            setSelected(next);
-                          }}
-                          className={`absolute left-2 top-2 flex size-6 items-center justify-center rounded-md border-2 bg-background/80 backdrop-blur transition-colors ${
-                            selected.has(job.id) ? "border-accent bg-accent text-accent-foreground" : "border-border"
-                          }`}
-                          aria-label="Pilih untuk dihapus"
-                        >
-                          {selected.has(job.id) ? <CheckCircle2 className="size-4" /> : null}
-                        </button>
                       ) : null}
                     </div>
-                    <div className="flex items-center gap-3 px-4 py-3">
-                    {selectMode && job.status !== "completed" ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const next = new Set(selected);
-                          if (next.has(job.id)) next.delete(job.id);
-                          else next.add(job.id);
-                          setSelected(next);
-                        }}
-                        className={`flex size-6 shrink-0 items-center justify-center rounded-md border-2 transition-colors ${
-                          selected.has(job.id) ? "border-accent bg-accent text-accent-foreground" : "border-border"
-                        }`}
-                        aria-label="Pilih untuk dihapus"
-                      >
-                        {selected.has(job.id) ? <CheckCircle2 className="size-4" /> : null}
-                      </button>
-                    ) : null}
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold">{title}</p>
-                      <p className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
-                        <span className={`inline-flex items-center gap-1 ${meta.tone}`}>
-                          <meta.Icon className={`size-3.5 ${meta.spin ? "animate-spin" : ""}`} />
-                          {meta.label}
-                        </span>
-                        <span>·</span>
-                        <span>{timeAgo(job.created_at)}</span>
-                      </p>
-                      {job.status === "failed" && job.error ? (
-                        <p className="mt-1 line-clamp-1 text-xs text-red-500/80">{job.error}</p>
-                      ) : null}
-                    </div>
-                    {job.status === "completed" && job.rendered_url ? (
-                      <Button
-                        variant="accent"
-                        size="sm"
-                        className="w-full"
-                        onClick={() => {
-                          // Nama file = potongan JUDUL KLIP (tiap klip beda).
-                          // Pakai parameter ?download= milik Supabase Storage:
-                          // server yang mengirim Content-Disposition, jadi nama
-                          // file tetap benar walau URL beda origin.
-                          const name = clipFileName(title);
-                          const url = new URL(job.rendered_url!);
-                          url.searchParams.set("download", name);
-                          const a = document.createElement("a");
-                          a.href = url.toString();
-                          a.download = name;
-                          a.rel = "noopener";
-                          document.body.appendChild(a);
-                          a.click();
-                          a.remove();
-                        }}
-                      >
-                        <Download className="size-4" />
-                        Unduh MP4
-                      </Button>
-                    ) : null}
-                    </div>
-                  </motion.div>
+                  </motion.li>
                 );
               })}
             </AnimatePresence>
-          </div>
+          </ul>
         )}
       </main>
-      <SiteFooter />
     </div>
   );
 }

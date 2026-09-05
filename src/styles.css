@@ -335,3 +335,35 @@
     transform: none;
   }
 }
+
+/* ═══ REDESIGN v2 — utilitas animasi baru (Hallmark · anti-slop: gerakan
+   halus, transform/opacity saja, hormati prefers-reduced-motion) ═══ */
+
+/* Strip conveyor: garis kecil "berjalan" di atas kartu yang sedang diproses */
+.conveyor {
+  animation: conveyor-geser 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+@keyframes conveyor-geser {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(400%); }
+}
+
+/* Kilau tombol unduh saat hover — seperti cahaya lewat kemasan */
+.shine::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 40%, oklch(1 0 0 / 22%) 50%, transparent 60%);
+  transform: translateX(-120%);
+  transition: transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+}
+.shine:hover::after,
+.shine:focus-visible::after {
+  transform: translateX(120%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conveyor { animation: none; opacity: 0.5; }
+  .shine::after { display: none; }
+}
