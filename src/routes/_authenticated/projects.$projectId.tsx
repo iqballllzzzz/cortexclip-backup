@@ -581,12 +581,12 @@ function ProjectPage() {
               </div>
             </div>
           ) : (
-            <div className="mt-6 space-y-3">
+            <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {clips.map((clip, i) => (
                 <div
                   key={clip.id}
                   className="reveal"
-                  style={{ ["--i" as string]: Math.min(8, 4 + i) }}
+                  style={{ ["--i" as string]: Math.min(8, i) }}
                 >
                   <ClipRow clip={clip} onSave={saveClip} />
                 </div>
@@ -613,49 +613,55 @@ function ClipRow({
 
   return (
     <article
-      className="overflow-hidden rounded-2xl border border-border bg-card transition-colors hover:border-accent/25"
+      className={`flex h-full flex-col overflow-hidden rounded-2xl border bg-card transition-all hover:-translate-y-0.5 hover:shadow-lg ${
+        hot ? "border-accent/40" : "border-border hover:border-accent/30"
+      }`}
     >
-      {/* baris ringkas */}
-      <div className="flex flex-wrap items-center gap-3 px-4 py-4 sm:flex-nowrap sm:gap-4 sm:px-5">
+      {/* HEADER KARTU: ring skor viral — emas kalau hot */}
+      <div
+        className={`flex items-center gap-3 px-4 py-3.5 ${
+          hot ? "bg-accent/8" : "bg-surface/50"
+        }`}
+      >
         <div
-          className={`grid size-14 shrink-0 place-items-center rounded-xl border transition-colors ${
-            hot ? "border-accent/40 bg-accent/10" : "border-border bg-surface"
+          className={`grid size-12 shrink-0 place-items-center rounded-full border-2 ${
+            hot ? "border-accent text-accent" : "border-border text-muted-foreground"
           }`}
         >
-          <span className="stat-figure text-xl text-accent">{clip.virality_score}</span>
-          <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
-            viral
+          <span className="stat-figure text-base leading-none">{clip.virality_score}</span>
+        </div>
+        <input
+          value={clip.title}
+          onChange={(e) => onSave(clip, { title: e.target.value })}
+          aria-label="Judul klip"
+          className="min-w-0 flex-1 bg-transparent text-[14px] font-semibold leading-snug tracking-tight outline-none transition-colors focus:text-accent"
+        />
+        {hot ? (
+          <span className="shrink-0 rounded-full bg-accent px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-accent-foreground">
+            hot
           </span>
-        </div>
+        ) : null}
+      </div>
 
-        <div className="min-w-0 flex-1">
-          <input
-            value={clip.title}
-            onChange={(e) => onSave(clip, { title: e.target.value })}
-            aria-label="Judul klip"
-            className="w-full bg-transparent text-[15px] font-semibold tracking-tight outline-none transition-colors focus:text-accent"
-          />
-          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-muted-foreground">
-            <span className="font-mono">
-              {formatClock(clip.start_time)} – {formatClock(clip.end_time)}
-            </span>
-            <span className="opacity-40">·</span>
-            <span>{duration.toFixed(0)} detik</span>
-            {clip.hook_type ? (
-              <Badge variant="secondary" className="ml-0.5 text-[10px]">
-                {clip.hook_type}
-              </Badge>
-            ) : null}
-          </p>
-        </div>
+      <div className="flex flex-1 flex-col px-4 pb-4 pt-3">
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-muted-foreground">
+          <span className="font-mono">
+            {formatClock(clip.start_time)} – {formatClock(clip.end_time)}
+          </span>
+          <span className="opacity-40">·</span>
+          <span>{duration.toFixed(0)} detik</span>
+          {clip.hook_type ? (
+            <Badge variant="secondary" className="ml-0.5 text-[10px]">
+              {clip.hook_type}
+            </Badge>
+          ) : null}
+        </p>
 
-        <div className="flex w-full shrink-0 gap-2 sm:w-auto">
-          <Button variant="outline" size="sm" asChild className="flex-1 sm:flex-none">
-            <Link to="/editor/$clipId" params={{ clipId: clip.id }}>
-              <Clapperboard className="size-4" /> Buka editor
-            </Link>
-          </Button>
-        </div>
+        <Button variant="outline" size="sm" asChild className="mt-4 w-full">
+          <Link to="/editor/$clipId" params={{ clipId: clip.id }}>
+            <Clapperboard className="size-4" /> Buka editor
+          </Link>
+        </Button>
       </div>
     </article>
   );
