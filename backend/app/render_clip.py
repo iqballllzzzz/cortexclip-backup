@@ -919,7 +919,31 @@ async def render_preview_clip(
             f"?v={style_hash}"
         )
 
+        # PENJAGA HASIL USANG (keluhan: "matiin-nyalain auto split, 50% balik ke
+        # 5%"): kalau pengguna mengubah auto split SAAT render ini jalan, hasil
+        # render ini sudah salah layout — jangan ditulis. Ditandai dengan
+        # mencocokkan layout_prefs saat ini vs saat render dimulai.
+        _prefs_awal = (clip.get("layout_prefs") or {})
         async with httpx.AsyncClient(timeout=30) as client:
+            _cek = await client.get(
+                f"{SUPABASE_URL}/rest/v1/clips?id=eq.{clip_id}"
+                "&select=layout_prefs",
+                headers=_user_headers(token))
+            _rows = _cek.json() if _cek.status_code == 200 else []
+            _prefs_kini = (_rows[0].get("layout_prefs") or {}) if _rows else {}
+            if bool(_prefs_kini.get("enabled")) != bool(_prefs_awal.get("enabled")):
+                print(f"[preview] {clip_id[:8]}: layout berubah saat render — "
+                      "hasil dibuang (akan dirender ulang)")
+                import shutil as _sh
+                _sh.rmtree(workdir, ignore_errors=True)
+                from .preview_progress import clear_progress as _cp
+                _cp(clip_id)
+                return {
+                    "file": out_name,
+                    "storage_path": None,
+                    "url": None,
+                    "usang": True,
+                }
             await client.patch(
                 f"{SUPABASE_URL}/rest/v1/clips?id=eq.{clip_id}",
                 headers=_user_headers(token),

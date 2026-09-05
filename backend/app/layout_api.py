@@ -83,6 +83,30 @@ async def simpan_prefs(clip_id: str, user_id: str,
         # preview lama memakai layout lama → harus dibuat ulang
         patch.update({"preview_url": None, "preview_ready": False})
     await _sb("PATCH", f"clips?id=eq.{clip_id}", json=patch)
+
+    if berubah:
+        # ===== BATALKAN TASK RENDER YANG MASIH JALAN =====
+        # Keluhan pengguna: "matiin terus nyalain lagi auto split, udah 50
+        # persen, tiba-tiba balik lagi ke 5 persen." Sebabnya: PUT lama hanya
+        # mengosongkan preview di DB, tapi task render LAMA tetap jalan dan
+        # tetap melapor progress. Task baru TIDAK boleh mulai (key masih
+        # dipegang task lama), jadi UI bergoyang antara progress task lama
+        # (50%) dan task baru (5%) — dan hasil akhirnya bisa SALAH LAYOUT.
+        # Sekarang task lama dibatalkan + progressnya dihapus, lalu klien
+        # (yang mem-poll) otomatis memicu render baru yang benar.
+        try:
+            from .background import _berkunci
+            from .preview_progress import clear_progress
+
+            tugas = _berkunci.get(f"preview:{clip_id}")
+            if tugas is not None and not tugas.done():
+                tugas.cancel()
+                print(f"[layout] task preview {clip_id[:8]} dibatalkan "
+                      "(layout berubah)")
+            clear_progress(clip_id)
+        except Exception as exc:
+            print(f"[layout] gagal membatalkan task preview (lanjut): {exc}")
+
     return {"ok": True, "layout_prefs": prefs, "preview_direset": berubah}
 
 
