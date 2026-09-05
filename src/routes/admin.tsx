@@ -293,7 +293,7 @@ function AdminPage() {
               <Panel
                 i={11}
                 title="Model paling andal"
-                hint="diurutkan dari request sukses terbanyak"
+                hint="model yang gagal ikut ditampilkan"
               >
                 {stats.top_models.length === 0 ? (
                   <EmptyHint text="Belum ada request AI yang tercatat. Jalankan satu proyek untuk mengisi grafik ini." />
@@ -301,29 +301,46 @@ function AdminPage() {
                   <>
                     <ModelBars data={stats.top_models} />
                     <ul className="mt-4 divide-y divide-border overflow-hidden rounded-xl border border-border">
-                      {stats.top_models.slice(0, 5).map((m) => (
-                        <li
-                          key={m.model}
-                          className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-card px-3.5 py-2.5"
-                        >
-                          <Cpu className="size-3.5 shrink-0 text-muted-foreground" />
-                          <span className="min-w-0 flex-1 truncate font-mono text-[12px]">
-                            {m.model}
-                          </span>
-                          <span className="text-[12px] text-muted-foreground">
-                            {num(m.success)} sukses · {num(m.error)} error
-                          </span>
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                              m.reliability >= 95
-                                ? "bg-accent/12 text-accent"
-                                : "bg-muted text-muted-foreground"
-                            }`}
-                          >
-                            {m.reliability}%
-                          </span>
-                        </li>
-                      ))}
+                      {stats.top_models.slice(0, 6).map((m) => {
+                        // 0 sukses = model ini SELALU gagal. Ini keadaan yang
+                        // paling perlu terlihat admin, jadi diberi warna
+                        // destruktif + pesan error terakhirnya.
+                        const mati = m.success === 0 && m.error > 0;
+                        return (
+                          <li key={m.model} className="bg-card px-3.5 py-2.5">
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                              <Cpu
+                                className={`size-3.5 shrink-0 ${
+                                  mati ? "text-destructive" : "text-muted-foreground"
+                                }`}
+                              />
+                              <span className="min-w-0 flex-1 truncate font-mono text-[12px]">
+                                {m.model}
+                              </span>
+                              <span className="text-[12px] text-muted-foreground">
+                                {num(m.success)} sukses · {num(m.error)} error
+                              </span>
+                              <span
+                                className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                  mati
+                                    ? "bg-destructive/12 text-destructive"
+                                    : m.reliability >= 95
+                                      ? "bg-accent/12 text-accent"
+                                      : "bg-muted text-muted-foreground"
+                                }`}
+                              >
+                                {mati ? "GAGAL TOTAL" : `${m.reliability}%`}
+                              </span>
+                            </div>
+                            {m.last_error?.pesan ? (
+                              <p className="mt-1.5 break-words pl-6 font-mono text-[11px] leading-snug text-destructive/85">
+                                {m.last_error.kind ? `[${m.last_error.kind}] ` : ""}
+                                {m.last_error.pesan}
+                              </p>
+                            ) : null}
+                          </li>
+                        );
+                      })}
                     </ul>
                   </>
                 )}

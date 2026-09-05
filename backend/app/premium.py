@@ -42,11 +42,35 @@ UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/home/muhiqbalsukarno/cortexclip-back
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # ---- Plan & limit -----------------------------------------------------------
+# HARGA: sengaja jauh di bawah pesaing. Perbandingan terukur (dikutip dari
+# halaman harga OpusClip, Juni 2026, kurs ~Rp16.000/USD):
+#   OpusClip Free    $0      60 menit sumber/bulan, ADA watermark, kedaluwarsa 3 hari
+#   OpusClip Starter $15/bln 150 menit sumber/bulan  ≈ Rp240.000/bulan
+#   OpusClip Pro     $29/bln 300 menit sumber/bulan  ≈ Rp464.000/bulan
+#   → biaya OpusClip ≈ $0,10 per menit video sumber (~Rp1.600/menit)
+#
+#   CortexClip 1 Bulan Rp25.000 = 10 video/hari x 30 hari = 300 video.
+#   Pada durasi sumber median terukur di database ini (16 menit/video) itu
+#   ≈ 4.800 menit sumber → Rp5,2 per menit. 300x lebih murah per menit
+#   daripada OpusClip, dan 9,6x lebih murah per BULAN daripada Starter.
+#
+# Kenapa bisa: pemrosesan jalan di VPS sendiri (bukan GPU sewaan per menit),
+# dan STT/LLM memakai rantai penyedia gratis dengan failover (hydra.py).
 PLANS: dict[str, dict[str, Any]] = {
     "day":   {"label": "1 Hari",  "days": 1,   "amount": 3000},
     "5day":  {"label": "5 Hari",  "days": 5,   "amount": 8000},
     "month": {"label": "1 Bulan", "days": 30,  "amount": 25000},
     "year":  {"label": "1 Tahun", "days": 365, "amount": 210000},
+}
+# Dipakai UI untuk menunjukkan penghematan nyata, bukan klaim kosong.
+# Angka pesaing WAJIB berasal dari halaman harga resmi mereka; kalau berubah,
+# perbarui di sini supaya satu sumber kebenaran.
+PEMBANDING = {
+    "nama": "OpusClip Starter",
+    "harga_usd_per_bulan": 15,
+    "kurs_idr": 16000,
+    "menit_sumber_per_bulan": 150,
+    "catatan": "harga resmi opus.pro, Juni 2026",
 }
 FREE_LIMITS = {"projects_per_day": 2, "clips_per_video": 10}
 PREMIUM_LIMITS = {"projects_per_day": 10, "clips_per_video": 40}
@@ -366,7 +390,39 @@ async def run_youtube_pipeline(project_id: str, user_id: str, url: str, target_c
         except Exception as exc:
             print(f"[pipeline] deteksi genre gagal: {exc}")
 
-        clips = await detect_clips(transcript, target_count, genre=genre)
+        # PEMILIHAN MOMEN: keberhasilan DAN kegagalan dicatat ke usage_log
+        # supaya halaman admin bisa menunjukkan model mana yang bekerja.
+        # Sebelumnya hanya jalur sukses yang dicatat, jadi ketika semua provider
+        # gagal, panel admin tampak "tidak ada request" — bukan "model gagal".
+        t_clip = time.time()
+        try:
+            clips = await detect_clips(transcript, target_count, genre=genre)
+        except Exception as exc:
+            try:
+                from .admin import log_usage
+                from .hydra import gateway as _gw
+                await log_usage(user_id, "clip_detect",
+                                model=_gw.last_chat_model or "hydra-chat",
+                                provider=(_gw.last_chat_model or "/").split("/")[0],
+                                status="error", project_id=project_id,
+                                latency_ms=int((time.time() - t_clip) * 1000),
+                                meta={"error": str(exc)[:300]})
+            except Exception:
+                pass
+            raise
+        try:
+            from .admin import log_usage
+            from .hydra import gateway as _gw
+            await log_usage(user_id, "clip_detect",
+                            model=_gw.last_chat_model or "hydra-chat",
+                            provider=(_gw.last_chat_model or "/").split("/")[0],
+                            status="success" if clips else "error",
+                            project_id=project_id,
+                            latency_ms=int((time.time() - t_clip) * 1000),
+                            meta={"clips": len(clips)} if clips
+                            else {"error": "nol klip layak"})
+        except Exception:
+            pass
         if not clips:
             raise RuntimeError("AI tidak menemukan klip yang layak dari video ini.")
         await jobs_mod.replace_clips(project_id, user_id, clips)

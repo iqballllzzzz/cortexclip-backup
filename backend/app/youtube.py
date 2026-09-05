@@ -468,18 +468,39 @@ async def run_media_pipeline(project_id: str, user_id: str, src_path: str, targe
         except Exception as exc:
             print(f"[pipeline] deteksi genre gagal: {exc}")
 
-        clips = await detect_clips(transcript, target_count, genre=genre)
-        if not clips:
-            raise RuntimeError("AI tidak menemukan klip yang layak dari video ini.")
+        # PEMILIHAN MOMEN: sukses DAN gagal dicatat (lihat premium.py — panel
+        # admin harus bisa membedakan "belum ada request" dari "model gagal").
+        t_clip = time.time()
+        try:
+            clips = await detect_clips(transcript, target_count, genre=genre)
+        except Exception as exc:
+            try:
+                from .admin import log_usage
+                from .hydra import gateway as _gw
+                await log_usage(user_id, "clip_detect",
+                                model=_gw.last_chat_model or "hydra-chat",
+                                provider=(_gw.last_chat_model or "/").split("/")[0],
+                                status="error", project_id=project_id,
+                                latency_ms=int((time.time() - t_clip) * 1000),
+                                meta={"error": str(exc)[:300]})
+            except Exception:
+                pass
+            raise
         try:
             from .admin import log_usage
             from .hydra import gateway as _gw
             await log_usage(user_id, "clip_detect",
                             model=_gw.last_chat_model or "hydra-chat",
                             provider=(_gw.last_chat_model or "/").split("/")[0],
-                            project_id=project_id, meta={"clips": len(clips)})
+                            status="success" if clips else "error",
+                            project_id=project_id,
+                            latency_ms=int((time.time() - t_clip) * 1000),
+                            meta={"clips": len(clips)} if clips
+                            else {"error": "nol klip layak"})
         except Exception:
             pass
+        if not clips:
+            raise RuntimeError("AI tidak menemukan klip yang layak dari video ini.")
         await jobs_mod.replace_clips(project_id, user_id, clips)
         await jobs_mod.update_project(project_id, status="completed")
         # Preview semua klip dirender SEKARANG di belakang, supaya editor tidak

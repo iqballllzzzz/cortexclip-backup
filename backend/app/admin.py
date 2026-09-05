@@ -293,7 +293,7 @@ async def overview() -> dict[str, Any]:
     since_iso = _iso(since.replace(hour=0, minute=0, second=0, microsecond=0))
     proj_rows = await sb("GET", f"projects?select=created_at,status&created_at=gte.{since_iso}"
                                 "&order=created_at.asc&limit=5000") or []
-    usage_rows = await sb("GET", f"usage_log?select=created_at,model,provider,kind,status"
+    usage_rows = await sb("GET", f"usage_log?select=created_at,model,provider,kind,status,meta"
                                  f"&created_at=gte.{since_iso}&order=created_at.asc&limit=20000") or []
     login_rows = await sb("GET", f"login_events?select=created_at&created_at=gte.{since_iso}"
                                  "&order=created_at.asc&limit=20000") or []
@@ -325,22 +325,39 @@ async def overview() -> dict[str, Any]:
     model_ok: dict[str, int] = {}
     model_err: dict[str, int] = {}
     kind_count: dict[str, int] = {}
+    # kegagalan TERBARU per model: dipakai panel admin supaya "gagal" tidak
+    # cuma jadi angka — admin bisa melihat pesan errornya langsung.
+    err_terakhir: dict[str, dict[str, Any]] = {}
     for r in usage_rows:
         m = (r.get("model") or r.get("provider") or "tak-diketahui")
         if r.get("status") == "error":
             model_err[m] = model_err.get(m, 0) + 1
+            meta = r.get("meta") or {}
+            err_terakhir[m] = {
+                "waktu": r.get("created_at"),
+                "kind": r.get("kind"),
+                "pesan": str(meta.get("error") or "")[:180],
+            }
         else:
             model_ok[m] = model_ok.get(m, 0) + 1
             k = r.get("kind") or "lain"
             kind_count[k] = kind_count.get(k, 0) + 1
 
     top_models = []
-    for m, ok in sorted(model_ok.items(), key=lambda kv: -kv[1])[:8]:
+    # Gabungan model yang pernah SUKSES maupun yang hanya GAGAL — model yang
+    # 100% gagal dulu tidak pernah muncul di panel admin (hanya model_ok yang
+    # diiterasi), padahal itulah yang paling perlu dilihat admin.
+    semua_model = set(model_ok) | set(model_err)
+    for m in sorted(semua_model, key=lambda k: -(model_ok.get(k, 0) + model_err.get(k, 0)))[:10]:
+        ok = model_ok.get(m, 0)
         err = model_err.get(m, 0)
-        top_models.append({
+        baris: dict[str, Any] = {
             "model": m, "success": ok, "error": err,
             "reliability": round(ok * 100 / max(1, ok + err), 1),
-        })
+        }
+        if m in err_terakhir:
+            baris["last_error"] = err_terakhir[m]
+        top_models.append(baris)
 
     # --- project by status (pie) ---
     status_count: dict[str, int] = {}

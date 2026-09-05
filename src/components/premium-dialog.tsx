@@ -187,6 +187,35 @@ export function PremiumDialog({
                 <Check className="size-4 text-accent" /> Bayar sekali, aktif langsung
               </li>
             </ul>
+
+            {/* PERBANDINGAN HARGA — angka pesaing dari halaman harga resmi
+                OpusClip (Juni 2026), bukan klaim kosong. Tujuannya menjawab
+                pertanyaan yang paling menentukan pembelian: "kenapa segini
+                murah?" */}
+            <div className="mb-4 rounded-2xl border border-accent/25 bg-accent/[0.06] px-4 py-3">
+              <p className="text-[12px] font-semibold uppercase tracking-wider text-accent">
+                Bandingkan
+              </p>
+              <div className="mt-2 space-y-1.5 text-[13px]">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-muted-foreground">OpusClip Starter</span>
+                  <span className="whitespace-nowrap font-semibold tabular-nums line-through decoration-muted-foreground/50">
+                    ±Rp240.000<span className="font-normal">/bln</span>
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="font-semibold">CortexClip 1 Bulan</span>
+                  <span className="whitespace-nowrap font-bold tabular-nums text-accent">
+                    Rp25.000<span className="font-normal">/bln</span>
+                  </span>
+                </div>
+              </div>
+              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                Hampir 10x lebih murah, dan tanpa sistem kredit per menit —
+                OpusClip Starter hanya memberi 150 menit video sumber sebulan,
+                di sini 10 video sehari.
+              </p>
+            </div>
             <div className="space-y-2">
               {plans.map((p) => (
                 <button

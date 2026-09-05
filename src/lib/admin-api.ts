@@ -74,7 +74,15 @@ export interface AdminStats {
     renders_total: number;
   };
   series: { date: string; label: string; projects: number; requests: number; logins: number }[];
-  top_models: { model: string; success: number; error: number; reliability: number }[];
+  top_models: {
+    model: string;
+    success: number;
+    error: number;
+    reliability: number;
+    /** Kegagalan TERBARU model ini (kalau ada) — supaya admin melihat sebabnya,
+     *  bukan hanya angka. Diisi backend dari usage_log.meta.error. */
+    last_error?: { waktu?: string; kind?: string; pesan?: string };
+  }[];
   by_kind: { kind: string; count: number }[];
   project_status: { status: string; count: number }[];
   resources: Record<string, number | string | string[]>;
