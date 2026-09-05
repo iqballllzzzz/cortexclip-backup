@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kode verifikasi CortexClip</title>
+  </head>
+  <body style="margin:0;padding:0;background:#0b0b0f;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0b0b0f;padding:32px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#14141b;border:1px solid #26263a;border-radius:16px;overflow:hidden;">
+            <tr>
+              <td style="padding:28px 28px 8px 28px;">
+                <div style="font-size:18px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">CortexClip</div>
+                <div style="margin-top:2px;font-size:12px;color:#8b8ba7;">Klip pendek otomatis dari video panjang</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:16px 28px 0 28px;">
+                <h1 style="margin:0;font-size:20px;line-height:1.35;color:#ffffff;font-weight:700;">
+                  Verifikasi email kamu
+                </h1>
+                <p style="margin:10px 0 0 0;font-size:14px;line-height:1.6;color:#b9b9cf;">
+                  Masukkan kode ini di halaman pendaftaran untuk mengaktifkan akun
+                  <strong style="color:#ffffff;">{{ .Email }}</strong>.
+                  Sebelum diverifikasi, akun belum bisa dipakai untuk masuk.
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:22px 28px 0 28px;">
+                <div style="background:#1c1c28;border:1px solid #32324a;border-radius:12px;padding:18px;text-align:center;">
+                  <div style="font-size:11px;letter-spacing:1.5px;color:#8b8ba7;text-transform:uppercase;">Kode verifikasi</div>
+                  <div style="margin-top:8px;font-size:34px;font-weight:700;letter-spacing:8px;color:#ffffff;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;">{{ .Token }}</div>
+                  <div style="margin-top:8px;font-size:12px;color:#8b8ba7;">Berlaku 1 jam</div>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:20px 28px 0 28px;text-align:center;">
+                <a href="{{ .ConfirmationURL }}"
+                   style="display:inline-block;background:#6c5cff;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:12px 22px;border-radius:10px;">
+                  Atau verifikasi lewat tautan ini
+                </a>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:20px 28px 28px 28px;">
+                <p style="margin:0;font-size:12px;line-height:1.6;color:#75758f;">
+                  Bukan kamu yang mendaftar? Abaikan email ini — tanpa kode di atas,
+                  akun tidak akan pernah aktif dan tidak ada yang bisa masuk.
+                </p>
+                <hr style="border:none;border-top:1px solid #26263a;margin:18px 0;" />
+                <p style="margin:0;font-size:11px;color:#5c5c73;">
+                  Email ini dikirim otomatis oleh CortexClip. Balasan ke alamat ini
+                  tidak dibaca.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

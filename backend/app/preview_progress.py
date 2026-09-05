@@ -44,7 +44,12 @@ def set_progress(clip_id: str, pct: int, tahap: str) -> None:
         row["titik"].append((now, pct))
         if len(row["titik"]) > _MAKS_TITIK:
             del row["titik"][:-_MAKS_TITIK]
-    row["pct"] = pct
+    # PALANG MONOTON: dalam satu render, persen TIDAK BOLEH turun. Mundur kecil
+    # (<=20%) terjadi karena fase berbeda memakai skala berbeda — mis. fase
+    # unduh melapor 6% lalu fase analisis mulai dari 5%. Terukur di E2E:
+    # [4,4,5,6,6,5,12,...] — turunnya cuma 1% tapi pengguna tetap melihat
+    # "kok mundur". Mundur >20% sudah ditangani di atas sebagai render ulang.
+    row["pct"] = max(pct, int(row.get("pct", 0)))
     row["tahap"] = tahap
     row["ts"] = now
 
@@ -91,3 +96,29 @@ def get_progress(clip_id: str) -> dict[str, Any] | None:
 
 def clear_progress(clip_id: str) -> None:
     _state.pop(clip_id, None)
+
+
+def set_gagal(clip_id: str, pesan: str) -> None:
+    """Tandai render preview GAGAL supaya UI berhenti mengulang tanpa akhir.
+
+    Keluhan pengguna: "5 persen terus jadi 3 persen terus langsung 60 persen
+    terus nurun lagi jadi 3 persen, gaada habisnya". Sebabnya ffmpeg gagal,
+    task mati, status berubah "idle", lalu klien memulai render baru dari nol —
+    berulang tanpa pernah memberi tahu bahwa ada yang salah. Dengan penanda ini
+    endpoint status membalas status="failed" + pesan, dan klien berhenti
+    mengulang serta menampilkan penyebabnya.
+    """
+    row = _state.get(clip_id) or {}
+    row.update({"gagal": True, "pesan": pesan[:300], "t_gagal": time.time()})
+    _state[clip_id] = row
+
+
+def ambil_gagal(clip_id: str) -> dict[str, Any] | None:
+    """Kembalikan info kegagalan kalau masih segar (<5 menit)."""
+    row = _state.get(clip_id)
+    if not row or not row.get("gagal"):
+        return None
+    if time.time() - float(row.get("t_gagal", 0)) > 300:
+        _state.pop(clip_id, None)
+        return None
+    return {"pesan": row.get("pesan") or "Render gagal"}

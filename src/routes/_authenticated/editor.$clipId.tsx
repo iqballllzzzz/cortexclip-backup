@@ -433,6 +433,16 @@ function EditorPage() {
           }
           return;
         }
+        if (sd.status === "failed") {
+          // server melaporkan render GAGAL — berhenti mengulang, beri tahu
+          // penyebabnya. Dulu status ini tidak ada: task mati → "idle" →
+          // klien memulai ulang dari nol berkali-kali, dan pengguna hanya
+          // melihat persen naik-turun tanpa akhir.
+          setPrevStage(sd.stage || "Render gagal");
+          setPrevEta(null);
+          toast.error(sd.stage || "Render preview gagal di server");
+          return;
+        }
         if (sd.status === "idle") {
           // Server tidak punya task untuk klip ini DAN previewnya belum ada.
           // Ini keadaan yang dulu membuat UI beku: mulai ulang, jangan diam.

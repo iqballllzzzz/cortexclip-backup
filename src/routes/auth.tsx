@@ -44,6 +44,11 @@ function AuthPage() {
   const [displayName, setDisplayName] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirmSent, setConfirmSent] = useState(false);
+  // Alur verifikasi KODE: pendaftar mengetik 6 digit dari email. Sebelum
+  // diverifikasi, GoTrue menolak login dengan error "email_not_confirmed",
+  // jadi akun benar-benar belum bisa dipakai.
+  const [kode, setKode] = useState("");
+  const [kirimUlangSisa, setKirimUlangSisa] = useState(0);
 
   // Sudah login → langsung dashboard (jangan tampilkan halaman auth lagi)
   useEffect(() => {
@@ -58,6 +63,65 @@ function AuthPage() {
     };
   }, [navigate]);
 
+  // hitung mundur tombol "kirim ulang" (server membatasi 1 email/60 detik —
+  // tanpa hitung mundur pengguna menekan berulang lalu melihat error)
+  useEffect(() => {
+    if (kirimUlangSisa <= 0) return;
+    const id = setTimeout(() => setKirimUlangSisa((n) => n - 1), 1000);
+    return () => clearTimeout(id);
+  }, [kirimUlangSisa]);
+
+  async function handleVerifikasi(e: React.FormEvent) {
+    e.preventDefault();
+    const bersih = kode.replace(/\D/g, "");
+    if (bersih.length !== 6) {
+      toast.error("Kode verifikasi terdiri dari 6 angka.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        email,
+        token: bersih,
+        type: "signup",
+      });
+      if (error) throw error;
+      toast.success("Email terverifikasi! Selamat datang.");
+      void recordLoginEvent();
+      navigate({ to: "/dashboard", replace: true });
+    } catch (err) {
+      const pesan = err instanceof Error ? err.message : "Kode tidak cocok";
+      toast.error(
+        /expired|invalid/i.test(pesan)
+          ? "Kode salah atau sudah kedaluwarsa. Minta kode baru."
+          : pesan,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleKirimUlang() {
+    if (kirimUlangSisa > 0) return;
+    setBusy(true);
+    try {
+      const { error } = await supabase.auth.resend({ type: "signup", email });
+      if (error) throw error;
+      toast.success("Kode baru dikirim. Cek email kamu.");
+      setKirimUlangSisa(60);
+    } catch (err) {
+      const pesan = err instanceof Error ? err.message : "Gagal mengirim ulang";
+      toast.error(
+        /security purposes|rate/i.test(pesan)
+          ? "Tunggu sebentar sebelum minta kode lagi."
+          : pesan,
+      );
+      setKirimUlangSisa(60);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -70,10 +134,20 @@ function AuthPage() {
         });
         if (error) throw error;
         setConfirmSent(true);
-        toast.success("Akun dibuat! Cek email kamu untuk konfirmasi.");
+        setKirimUlangSisa(60);
+        toast.success("Kode verifikasi dikirim ke email kamu.");
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+        if (error) {
+          // Akun yang belum diverifikasi DITOLAK server. Tampilkan layar kode
+          // alih-alih pesan teknis "Email not confirmed".
+          if (/email not confirmed|email_not_confirmed/i.test(error.message)) {
+            setConfirmSent(true);
+            toast.error("Email belum diverifikasi. Masukkan kode dari email kamu.");
+            return;
+          }
+          throw error;
+        }
         toast.success("Berhasil masuk!");
         void recordLoginEvent();
         navigate({ to: "/dashboard", replace: true });
@@ -116,20 +190,60 @@ function AuthPage() {
           <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-accent/10">
             <CheckCircle2 className="size-6 text-accent" />
           </div>
-          <h1 className="mt-5 text-2xl font-bold tracking-tight">Cek email kamu</h1>
+          <h1 className="mt-5 text-2xl font-bold tracking-tight">Masukkan kode verifikasi</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Kami sudah mengirim link konfirmasi ke{" "}
+            Kami mengirim 6 angka ke{" "}
             <span className="font-semibold text-foreground">{email}</span>.
+            Akun belum bisa dipakai sebelum kode ini dimasukkan.
           </p>
+
+          <form onSubmit={handleVerifikasi} className="mt-5 space-y-3">
+            <Label htmlFor="kode-verifikasi" className="sr-only">
+              Kode verifikasi 6 angka
+            </Label>
+            <Input
+              id="kode-verifikasi"
+              name="one-time-code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              autoFocus
+              maxLength={6}
+              placeholder="000000"
+              aria-describedby="kode-bantuan"
+              value={kode}
+              onChange={(e) => setKode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              className="text-center font-mono text-2xl tracking-[0.5em]"
+            />
+            <p id="kode-bantuan" className="text-xs text-muted-foreground">
+              Kode berlaku 1 jam. Periksa folder spam kalau belum masuk.
+            </p>
+            <Button type="submit" className="w-full" disabled={busy || kode.length !== 6}>
+              {busy ? "Memverifikasi…" : "Verifikasi & masuk"}
+              <ArrowRight className="ml-1.5 size-4" />
+            </Button>
+          </form>
+
+          <button
+            type="button"
+            onClick={handleKirimUlang}
+            disabled={busy || kirimUlangSisa > 0}
+            className="mt-3 text-sm text-accent hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
+          >
+            {kirimUlangSisa > 0
+              ? `Kirim ulang kode (${kirimUlangSisa}s)`
+              : "Kirim ulang kode"}
+          </button>
+
           <Link
             to="/auth"
-            className="mt-5 block text-sm text-accent hover:underline"
+            className="mt-4 block text-sm text-muted-foreground hover:underline"
             onClick={() => {
               setConfirmSent(false);
+              setKode("");
               setMode("login");
             }}
           >
-            Sudah konfirmasi? Masuk di sini
+            Kembali ke halaman masuk
           </Link>
         </motion.div>
       </AuthShell>

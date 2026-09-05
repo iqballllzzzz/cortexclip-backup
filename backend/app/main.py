@@ -392,8 +392,26 @@ async def api_preview_clip(body: RenderClipIn, request: Request, authorization: 
                             provider="local",
                             latency_ms=int((time.time() - t0) * 1000),
                             project_id=body.project_id)
+        except asyncio.CancelledError:
+            # dibatalkan karena layout berubah — bukan kegagalan, jangan
+            # ditandai gagal (klien akan memulai render baru yang benar)
+            from .preview_progress import clear_progress as _cp
+            _cp(body.clip_id)
+            raise
         except Exception as exc:
             print(f"[preview] gagal: {exc}")
+            # TANDAI GAGAL. Tanpa ini task mati → status "idle" → klien memulai
+            # render baru dari nol, berulang tanpa akhir dan tanpa memberi tahu
+            # penyebabnya (keluhan: "5 persen terus 3 persen terus 60 persen
+            # terus nurun lagi, gaada habisnya").
+            try:
+                from .preview_progress import set_gagal
+                pesan = str(exc)
+                if "returned non-zero exit status" in pesan:
+                    pesan = "Render video gagal di server (ffmpeg)"
+                set_gagal(body.clip_id, pesan)
+            except Exception:
+                pass
             try:
                 from .admin import log_usage
                 await log_usage(user["id"], "preview", model="ffmpeg-preview",
@@ -496,6 +514,13 @@ async def api_preview_status(clip_id: str, request: Request,
     key = f"preview:{clip_id}"
     from .background import sedang_jalan
     running = sedang_jalan(key)
+    if not running:
+        # kegagalan nyata dilaporkan apa adanya supaya klien BERHENTI mengulang
+        from .preview_progress import ambil_gagal
+        info = ambil_gagal(clip_id)
+        if info:
+            return {"status": "failed", "url": None, "progress": 0,
+                    "stage": info["pesan"], "eta_s": None, "elapsed_s": 0}
     return {"status": "processing" if running else "idle", "url": None,
             "progress": int(prog.get("pct", 0)),
             "stage": prog.get("tahap") or ("Menyiapkan" if running else ""),

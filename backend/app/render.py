@@ -524,13 +524,18 @@ def render_clip(
     vf_parts: list[str] = []
 
     if face_tracking and camera_trajectory and len(camera_trajectory) > 1:
-        _cam_lines = build_sendcmd_file(camera_trajectory, src_w, src_h,
-                                        analysis_fps=camera_fps, cuts=camera_cuts,
-                                        rolls=camera_rolls).splitlines()
+        # build_sendcmd_file mengembalikan PATH berkas (bukan isinya) — baca
+        # isinya dulu, saring jendela pragelar, lalu tulis kembali ke berkas
+        # yang SAMA. Salah membaca ini membuat berkas sendcmd berisi satu baris
+        # path dan ffmpeg gagal dengan exit 234 (semua preview macet).
+        cmdfile = build_sendcmd_file(camera_trajectory, src_w, src_h,
+                                     analysis_fps=camera_fps, cuts=camera_cuts,
+                                     rolls=camera_rolls)
+        with open(cmdfile, encoding="utf-8") as _f:
+            _cam_lines = _f.read().splitlines()
         # pragelar: jangan biarkan kamera melompat di dekat tepi split
         _cam_lines = buang_perintah_dekat_split(_cam_lines, auto_splits)
-        cmdfile = tempfile.mkstemp(suffix=".cmd", prefix="cam_")[1]
-        with open(cmdfile, "w") as _f:
+        with open(cmdfile, "w", encoding="utf-8") as _f:
             _f.write("\n".join(_cam_lines) + "\n")
         crop_w = min(int(src_h * aspect), src_w)
         # dynamic crop with sendcmd-driven x
@@ -785,12 +790,14 @@ def render_preview_fast(
     vf_parts: list[str] = []
     cmdfile: Optional[str] = None
     if camera_trajectory and len(camera_trajectory) > 1:
-        _cam_lines = build_sendcmd_file(camera_trajectory, src_w, src_h,
-                                        analysis_fps=camera_fps, cuts=camera_cuts,
-                                        rolls=camera_rolls).splitlines()
+        # sama seperti jalur unduhan: build_sendcmd_file mengembalikan PATH
+        cmdfile = build_sendcmd_file(camera_trajectory, src_w, src_h,
+                                     analysis_fps=camera_fps, cuts=camera_cuts,
+                                     rolls=camera_rolls)
+        with open(cmdfile, encoding="utf-8") as _f:
+            _cam_lines = _f.read().splitlines()
         _cam_lines = buang_perintah_dekat_split(_cam_lines, auto_splits)
-        cmdfile = tempfile.mkstemp(suffix=".cmd", prefix="cam_")[1]
-        with open(cmdfile, "w") as _f:
+        with open(cmdfile, "w", encoding="utf-8") as _f:
             _f.write("\n".join(_cam_lines) + "\n")
         crop_w = min(int(src_h * ASPECT), src_w)
         vf_parts.append(f"sendcmd=f={cmdfile}")
