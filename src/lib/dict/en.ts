@@ -119,4 +119,9 @@ export const dict: Record<string, string> = {
   "auth.kirim_ulang_hitung": "Resend code ({detik}s)",
   "auth.kembali_masuk": "Back to sign in",
   "auth.kode_salah": "Code is wrong or expired. Request a new one.",
+  "auth.masuk_untuk_lanjut": "Sign in to keep turning videos into clips.",
+  "auth.gratis_tanpa_kartu": "Free, no credit card.",
+  "auth.kode_dikirim": "Verification code sent to your email.",
+  "auth.email_belum_verif": "Email not verified yet. Enter the code from your email.",
+  "auth.kode_baru_dikirim": "New code sent. Check your email.",
 };

@@ -4,6 +4,7 @@ import { motion } from "motion/react";
 import { ArrowRight, Lock, Mail, User, CheckCircle2, Captions, TrendingUp, Zap } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
+import { useI18n } from "@/lib/i18n";
 import { recordLoginEvent } from "@/lib/admin-api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +38,7 @@ const perks = [
 ];
 
 function AuthPage() {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [email, setEmail] = useState("");
@@ -93,7 +95,7 @@ function AuthPage() {
       const pesan = err instanceof Error ? err.message : "Kode tidak cocok";
       toast.error(
         /expired|invalid/i.test(pesan)
-          ? "Kode salah atau sudah kedaluwarsa. Minta kode baru."
+          ? t("auth.kode_salah")
           : pesan,
       );
     } finally {
@@ -107,7 +109,7 @@ function AuthPage() {
     try {
       const { error } = await supabase.auth.resend({ type: "signup", email });
       if (error) throw error;
-      toast.success("Kode baru dikirim. Cek email kamu.");
+      toast.success(t("auth.kode_baru_dikirim"));
       setKirimUlangSisa(60);
     } catch (err) {
       const pesan = err instanceof Error ? err.message : "Gagal mengirim ulang";
@@ -135,7 +137,7 @@ function AuthPage() {
         if (error) throw error;
         setConfirmSent(true);
         setKirimUlangSisa(60);
-        toast.success("Kode verifikasi dikirim ke email kamu.");
+        toast.success(t("auth.kode_dikirim"));
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) {
@@ -143,7 +145,7 @@ function AuthPage() {
           // alih-alih pesan teknis "Email not confirmed".
           if (/email not confirmed|email_not_confirmed/i.test(error.message)) {
             setConfirmSent(true);
-            toast.error("Email belum diverifikasi. Masukkan kode dari email kamu.");
+            toast.error(t("auth.email_belum_verif"));
             return;
           }
           throw error;
@@ -190,11 +192,9 @@ function AuthPage() {
           <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-accent/10">
             <CheckCircle2 className="size-6 text-accent" />
           </div>
-          <h1 className="mt-5 text-2xl font-bold tracking-tight">Masukkan kode verifikasi</h1>
+          <h1 className="mt-5 text-2xl font-bold tracking-tight">{t("auth.kode_verifikasi")}</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Kami mengirim 6 angka ke{" "}
-            <span className="font-semibold text-foreground">{email}</span>.
-            Akun belum bisa dipakai sebelum kode ini dimasukkan.
+            {t("auth.kode_kirim_ke", { email })}
           </p>
 
           <form onSubmit={handleVerifikasi} className="mt-5 space-y-3">
@@ -208,17 +208,17 @@ function AuthPage() {
               autoComplete="one-time-code"
               autoFocus
               maxLength={6}
-              placeholder="000000"
+              placeholder={t("auth.kode_placeholder")}
               aria-describedby="kode-bantuan"
               value={kode}
               onChange={(e) => setKode(e.target.value.replace(/\D/g, "").slice(0, 6))}
               className="text-center font-mono text-2xl tracking-[0.5em]"
             />
             <p id="kode-bantuan" className="text-xs text-muted-foreground">
-              Kode berlaku 1 jam. Periksa folder spam kalau belum masuk.
+              {t("auth.kode_bantuan")}
             </p>
             <Button type="submit" className="w-full" disabled={busy || kode.length !== 6}>
-              {busy ? "Memverifikasi…" : "Verifikasi & masuk"}
+              {busy ? t("auth.memverifikasi") : t("auth.verifikasi_masuk")}
               <ArrowRight className="ml-1.5 size-4" />
             </Button>
           </form>
@@ -230,8 +230,8 @@ function AuthPage() {
             className="mt-3 text-sm text-accent hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
           >
             {kirimUlangSisa > 0
-              ? `Kirim ulang kode (${kirimUlangSisa}s)`
-              : "Kirim ulang kode"}
+              ? t("auth.kirim_ulang_hitung", { detik: kirimUlangSisa })
+              : t("auth.kirim_ulang")}
           </button>
 
           <Link
@@ -243,7 +243,7 @@ function AuthPage() {
               setMode("login");
             }}
           >
-            Kembali ke halaman masuk
+            {t("auth.kembali_masuk")}
           </Link>
         </motion.div>
       </AuthShell>
@@ -268,16 +268,16 @@ function AuthPage() {
         </div>
 
         <h1 className="mt-6 text-center font-display text-2xl font-bold tracking-tight">
-          {mode === "login" ? "Selamat datang kembali" : "Buat akun"}
+          {mode === "login" ? t("auth.selamat_datang") : t("auth.buat_akun")}
         </h1>
         <p className="mt-1 text-center text-sm text-muted-foreground">
-          {mode === "login" ? "Masuk untuk lanjut mengubah video jadi klip." : "Gratis, tanpa kartu kredit."}
+          {mode === "login" ? t("auth.masuk_untuk_lanjut") : t("auth.gratis_tanpa_kartu")}
         </p>
 
         <Tabs value={mode} onValueChange={(v) => setMode(v as "login" | "signup")} className="mt-6">
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="login">Masuk</TabsTrigger>
-            <TabsTrigger value="signup">Daftar</TabsTrigger>
+            <TabsTrigger value="login">{t("umum.masuk")}</TabsTrigger>
+            <TabsTrigger value="signup">{t("umum.daftar")}</TabsTrigger>
           </TabsList>
           <TabsContent value="login" />
           <TabsContent value="signup" />
@@ -286,7 +286,7 @@ function AuthPage() {
         <form onSubmit={handleSubmit} className="mt-5 space-y-4">
           {mode === "signup" && (
             <div className="space-y-1.5">
-              <Label htmlFor="name" className="text-xs text-muted-foreground">Nama tampilan</Label>
+              <Label htmlFor="name" className="text-xs text-muted-foreground">{t("auth.nama_tampilan")}</Label>
               <div className="relative">
                 <User className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input id="name" type="text" placeholder="Nama kamu" value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="pl-10" />
