@@ -15,6 +15,7 @@ import {
   Subtitles,
   Sticker,
   X,
+  Type,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -50,10 +51,11 @@ export const Route = createFileRoute("/_authenticated/editor/$clipId")({
 
 /* ---------------------------------------------------------------- toolbar */
 
-type ToolId = "subtitle" | "info" | "broll";
+type ToolId = "subtitle" | "info" | "broll" | "teks";
 
 const TOOLS: { id: ToolId; label: string; Icon: typeof Hash }[] = [
   { id: "subtitle", label: "Subtitle", Icon: Subtitles },
+  { id: "teks", label: "Transkrip", Icon: Type },
   { id: "info", label: "Deskripsi", Icon: Hash },
   { id: "broll", label: "Ikon", Icon: Sticker },
 ];
@@ -1041,7 +1043,7 @@ function EditorPage() {
 
         {/* ===== PANEL TOOL — mobile 40% tinggi (mudah dipencet & scroll), desktop 272px ===== */}
         <aside className="flex h-[40dvh] w-full shrink-0 flex-col border-t border-border bg-card md:h-auto md:w-[272px] md:border-l md:border-t-0">
-          <div className="grid shrink-0 grid-cols-3 border-b border-border" role="tablist">
+          <div className="grid shrink-0 grid-cols-4 border-b border-border" role="tablist">
             {TOOLS.map((t) => (
               <button
                 key={t.id}
@@ -1091,6 +1093,45 @@ function EditorPage() {
                     <SliderRow label={`Posisi · ${effPosition}%`} min={20} max={80} step={1} value={effPosition} onChange={(v) => setPosition(Math.round(v))} />
                     <SliderRow label={`Transparansi · ${Math.round(opacity * 100)}%`} min={0.1} max={1} step={0.05} value={opacity} onChange={setOpacity} />
                   </div>
+                </ToolPane>
+              ) : activeTool === "teks" ? (
+                <ToolPane key="teks">
+                  {/* TRANSKRIP INTERAKTIF ala OpusClip: tiap kata <span>,
+                      kata aktif disorot real-time, klik kata = lompat ke
+                      waktunya. Sumber data: caption_words (sama dgn overlay). */}
+                  {words.length === 0 ? (
+                    <p className="text-[12px] leading-relaxed text-muted-foreground">
+                      Transkrip belum tersedia untuk klip ini.
+                    </p>
+                  ) : (
+                    <p className="flex flex-wrap gap-x-1 gap-y-1.5 text-[14px] leading-relaxed">
+                      {words.map((w, wi) => {
+                        const aktif = time >= w.start && time < w.end;
+                        const lewat = time >= w.end;
+                        return (
+                          <button
+                            key={wi}
+                            type="button"
+                            onClick={() => seek(w.start + 0.01)}
+                            className={`rounded px-0.5 transition-colors ${
+                              aktif
+                                ? "bg-accent text-accent-foreground"
+                                : lewat
+                                  ? "text-foreground/60 hover:text-foreground"
+                                  : "text-foreground/90 hover:text-accent"
+                            }`}
+                            aria-label={`Putar dari kata ${w.word}`}
+                          >
+                            {w.word}
+                          </button>
+                        );
+                      })}
+                    </p>
+                  )}
+                  <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
+                    Ketuk kata untuk melompat ke momennya. Sorotan mengikuti video
+                    secara real-time.
+                  </p>
                 </ToolPane>
               ) : (
                 <ToolPane key="broll">
