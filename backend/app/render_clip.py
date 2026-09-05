@@ -659,6 +659,28 @@ async def _ensure_source_local(project: dict[str, Any], dest: str) -> str:
     if storage_path:
         return await download_from_storage(storage_path, dest)
 
+    # JARING AMAN 1: video sumber sering MASIH ADA di disk uploads
+    # (unduhan pertama saat proses AI) walau storage_path belum terisi
+    # (upload storage bisa gagal/koneksi putus). Memakai file lokal ini
+    # menghindari unduh ulang YouTube — yang sekarang sering ditolak
+    # ("Sign in to confirm you're not a bot" / googlevideo 403).
+    import os as _os
+    lokal = _os.path.join(_os.path.dirname(_os.path.dirname(
+        _os.path.abspath(__file__))), "uploads", f"yt_{project['id']}.mp4")
+    if not _os.path.isfile(lokal) or _os.path.getsize(lokal) <= 1_000_000:
+        lokal = None
+    if lokal and _os.path.getsize(lokal) > 1_000_000:
+        print(f"[preview] pakai file sumber lokal: {_os.path.basename(lokal)}")
+        import shutil as _sh
+        _sh.copyfile(lokal, dest)
+        # persist sekalian supaya berikutnya lewat storage
+        try:
+            from .youtube import _persist_source_to_storage
+            await _persist_source_to_storage(project["id"], project["user_id"], dest)
+        except Exception as exc:
+            print(f"[preview] persist ulang gagal (lanjut): {exc}")
+        return dest
+
     url = project.get("source_url")
     if not url:
         raise RuntimeError(
