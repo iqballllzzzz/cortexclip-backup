@@ -9,4 +9,26 @@ Disallow: /unduh
 Disallow: /editor/
 Disallow: /projects/
 
+# API bukan halaman: memblokirnya menghemat anggaran crawl Google
+# (setiap request bot ke /api mengurangi kuota untuk halaman yang benar)
+Disallow: /api/
+Disallow: /files/
+
+# Bot AI/SEO agresif yang tidak mengirim pengunjung tapi memakan bandwidth.
+# Googlebot & Bingbot TIDAK termasuk — keduanya tetap diizinkan penuh di atas.
+User-agent: AhrefsBot
+Disallow: /
+
+User-agent: SemrushBot
+Disallow: /
+
+User-agent: MJ12bot
+Disallow: /
+
+User-agent: DotBot
+Disallow: /
+
+User-agent: PetalBot
+Disallow: /
+
 Sitemap: https://cortexclip.eu.cc/sitemap.xml

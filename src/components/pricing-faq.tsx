@@ -3,7 +3,7 @@ import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 
-const FAQS = [
+export const FAQS = [
   {
     q: "Apakah bisa langsung dari URL YouTube?",
     a: "Bisa. Tempel link videonya, CortexClip mengunduh di server, mentranskrip, dan memilih momen terbaik tanpa kamu unduh manual.",
@@ -23,6 +23,18 @@ const FAQS = [
   {
     q: "Bagaimana cara bayar premium?",
     a: "Scan QRIS dari dashboard (semua e-wallet & m-banking). Premium aktif otomatis beberapa detik setelah pembayaran masuk.",
+  },
+  {
+    q: "Berapa harga CortexClip dibanding OpusClip?",
+    a: "Rp25.000 per bulan untuk 10 video panjang sehari. OpusClip Starter sekitar Rp240.000 sebulan dan hanya memberi 150 menit video sumber, jadi CortexClip hampir 10x lebih murah tanpa sistem kredit per menit.",
+  },
+  {
+    q: "Apakah ada cara pakai premium tanpa bayar?",
+    a: "Ada. Tonton iklan sampai target terpenuhi — 8 iklan untuk 1 hari, 45 iklan untuk 7 hari, 340 iklan untuk 30 hari — lalu premium aktif otomatis dan watermark hilang.",
+  },
+  {
+    q: "Apakah watermark bisa dihilangkan?",
+    a: "Ya. Akun premium tidak memakai watermark sama sekali, dan pengguna gratis bisa menghapusnya dengan menonton iklan.",
   },
 ];
 

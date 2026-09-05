@@ -137,17 +137,22 @@ export function AdPremiumPanel({ onUpgraded }: { onUpgraded?: () => void }) {
   if (!st) return null;
 
   return (
-    <div className="rounded-2xl border border-accent/30 bg-accent/5 p-4">
-      <p className="flex items-center gap-2 text-sm font-bold">
+    <div className="rounded-xl border border-accent/30 bg-accent/5 p-3">
+      {/* Dipadatkan: judul dua baris + paragraf dua baris dulu memakan ~72px,
+          sekarang satu baris judul + satu baris penjelas. Panel ini harus
+          terlihat tanpa menggulir supaya jalur gratis benar-benar ditemukan. */}
+      <p className="flex items-center gap-1.5 text-[13px] font-bold">
         <Gift className="size-4 shrink-0 text-accent" />
-        Premium bisa didapatkan secara GRATIS melalui menonton iklan!
+        Premium GRATIS — tonton iklan
       </p>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Pencet salah satu paket di bawah — iklannya langsung tayang. Setelah
-        target terpenuhi, premium aktif otomatis dan watermark hilang.
+      <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+        Pencet paket, iklan langsung tayang. Target terpenuhi = premium aktif
+        otomatis, watermark hilang.
       </p>
 
-      <div className="mt-3 space-y-2">
+      {/* Grid 2 kolom seperti daftar harga di atas — 3 paket jadi ~2 baris
+          pendek, bukan 3 tombol lebar bertumpuk. */}
+      <div className="mt-2.5 grid grid-cols-2 gap-2">
         {st.plans.map((p) => {
           const progres = st.target === p.key ? st.credits : 0;
           const jalan = busy && plan === p.key;
@@ -157,28 +162,25 @@ export function AdPremiumPanel({ onUpgraded }: { onUpgraded?: () => void }) {
               type="button"
               disabled={busy}
               onClick={() => void mulai(p)}
-              className="flex w-full items-center justify-between gap-3 rounded-xl border border-border px-3 py-2.5 text-left transition-colors hover:border-accent hover:bg-accent/10 disabled:opacity-60"
+              className="rounded-xl border border-border px-2.5 py-2 text-left transition-colors hover:border-accent hover:bg-accent/10 disabled:opacity-60"
             >
-              <span className="min-w-0">
-                <span className="block text-sm font-semibold">
-                  {p.label} premium — gratis
-                </span>
-                <span className="text-[11px] text-muted-foreground">
-                  {p.ads} iklan
-                  {p.installment ? " · bisa dicicil" : " · harus sekali jalan"}
-                </span>
+              <span className="flex items-center justify-between gap-1.5">
+                <span className="truncate text-[12px] font-semibold">{p.label}</span>
+                {jalan ? (
+                  <Loader2 className="size-3.5 shrink-0 animate-spin text-accent" />
+                ) : (
+                  <PlayCircle className="size-3.5 shrink-0 text-accent" />
+                )}
               </span>
-              <span className="flex shrink-0 items-center gap-2">
+              <span className="mt-0.5 block text-[10px] leading-tight text-muted-foreground">
                 {progres > 0 ? (
-                  <span className="text-xs font-bold tabular-nums text-accent">
+                  <span className="font-bold tabular-nums text-accent">
                     {progres}/{p.ads}
                   </span>
-                ) : null}
-                {jalan ? (
-                  <Loader2 className="size-4 animate-spin text-accent" />
                 ) : (
-                  <PlayCircle className="size-4 text-accent" />
+                  `${p.ads} iklan`
                 )}
+                {p.installment ? " · dicicil" : " · sekali jalan"}
               </span>
             </button>
           );
@@ -186,9 +188,9 @@ export function AdPremiumPanel({ onUpgraded }: { onUpgraded?: () => void }) {
       </div>
 
       {st.target && st.credits > 0 ? (
-        <p className="mt-2 text-[11px] text-muted-foreground">
-          Progres tersimpan: {st.credits} iklan untuk paket{" "}
-          {st.plans.find((p) => p.key === st.target)?.label ?? st.target}.
+        <p className="mt-1.5 text-[10px] leading-tight text-muted-foreground">
+          Progres tersimpan: {st.credits} iklan ·{" "}
+          {st.plans.find((p) => p.key === st.target)?.label ?? st.target}
         </p>
       ) : null}
 

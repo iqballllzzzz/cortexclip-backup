@@ -9,10 +9,14 @@ import { ClipShowcase } from "@/components/clip-showcase";
 import { ResultShowcase } from "@/components/result-showcase";
 import { PricingFaq } from "@/components/pricing-faq";
 import { supabase } from "@/integrations/supabase/client";
+import { FAQS } from "@/components/pricing-faq";
 import {
   SITE_URL,
+  faqLd,
+  howToLd,
   ldScript,
   organizationLd,
+  productLd,
   softwareLd,
   websiteLd,
 } from "@/lib/seo-jsonld";
@@ -37,7 +41,19 @@ export const Route = createFileRoute("/")({
       { name: "application-name", content: "CortexClip" },
     ],
     links: [{ rel: "canonical", href: `${SITE_URL}/` }],
-    scripts: [ldScript(organizationLd), ldScript(websiteLd), ldScript(softwareLd)],
+    // JSON-LD: Organization + WebSite + SoftwareApplication (identitas brand),
+    // Product (rentang harga bisa muncul di hasil pencarian), FAQPage (kotak
+    // pertanyaan), HowTo (kueri "cara memotong video jadi shorts").
+    // FAQ memakai daftar yang SAMA dengan yang tampil di halaman — Google
+    // menolak FAQ terstruktur yang isinya tidak terlihat pengunjung.
+    scripts: [
+      ldScript(organizationLd),
+      ldScript(websiteLd),
+      ldScript(softwareLd),
+      ldScript(productLd),
+      ldScript(faqLd(FAQS)),
+      ldScript(howToLd),
+    ],
   }),
   component: Index,
 });

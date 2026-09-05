@@ -99,6 +99,87 @@ export function faqLd(qa: { q: string; a: string }[]) {
   };
 }
 
+/**
+ * Harga + rating dalam satu blok Product.
+ *
+ * Kenapa terpisah dari softwareLd: `offers` di SoftwareApplication tidak
+ * memenuhi syarat rich result harga Google, sedangkan Product dengan
+ * `AggregateOffer` (lowPrice/highPrice/priceCurrency) berpeluang menampilkan
+ * rentang harga langsung di hasil pencarian — itu yang membuat listing
+ * menonjol dibanding pesaing yang hanya teks biru.
+ *
+ * TIDAK memakai aggregateRating: Google mensyaratkan rating berasal dari
+ * ulasan nyata yang terlihat di halaman. Memalsukannya berisiko penalti
+ * manual, jadi sengaja dikosongkan sampai ada ulasan asli.
+ */
+export const productLd = {
+  "@context": "https://schema.org",
+  "@type": "Product",
+  name: "CortexClip AI",
+  alternateName: BRAND_ALIASES,
+  url: SITE_URL,
+  image: `${SITE_URL}/favicon.png`,
+  brand: { "@type": "Brand", name: "CortexClip" },
+  category: "Video Editing Software",
+  description:
+    "AI auto clipper berbahasa Indonesia: satu video panjang jadi puluhan klip vertikal 9:16 dengan subtitle karaoke, face tracking, dan metadata siap unggah.",
+  offers: {
+    "@type": "AggregateOffer",
+    priceCurrency: "IDR",
+    lowPrice: "0",
+    highPrice: "210000",
+    offerCount: 5,
+    availability: "https://schema.org/InStock",
+    url: `${SITE_URL}/`,
+  },
+};
+
+/**
+ * HowTo — cara memakai CortexClip dalam 4 langkah.
+ *
+ * Google memakai skema ini untuk kueri berpola "cara ..." / "how to ...",
+ * yang justru paling sering dipakai orang mencari alat seperti ini
+ * ("cara memotong video panjang jadi shorts").
+ */
+export const howToLd = {
+  "@context": "https://schema.org",
+  "@type": "HowTo",
+  name: "Cara mengubah video panjang jadi klip vertikal dengan CortexClip",
+  description:
+    "Langkah memotong podcast, webinar, atau ceramah menjadi klip pendek 9:16 siap unggah ke TikTok, Reels, dan Shorts.",
+  inLanguage: "id-ID",
+  totalTime: "PT8M",
+  tool: [{ "@type": "HowToTool", name: "CortexClip AI" }],
+  step: [
+    {
+      "@type": "HowToStep",
+      position: 1,
+      name: "Tempel link atau unggah video",
+      text: "Masukkan URL YouTube atau unggah berkas video. CortexClip mengunduh dan menyiapkannya di server, jadi kamu boleh menutup halaman.",
+      url: `${SITE_URL}/#mulai`,
+    },
+    {
+      "@type": "HowToStep",
+      position: 2,
+      name: "AI memilih momen berpotensi viral",
+      text: "Transkripsi otomatis lalu penilaian tiap bagian: kekuatan hook, kejelasan konteks, dan penutup. Setiap klip mendapat virality score.",
+    },
+    {
+      "@type": "HowToStep",
+      position: 3,
+      name: "Atur subtitle dan framing di editor",
+      text: "Pilih gaya subtitle karaoke, aktifkan face tracking atau auto split untuk video dua orang, tambahkan ikon dan b-roll.",
+    },
+    {
+      "@type": "HowToStep",
+      position: 4,
+      name: "Unduh klip 720p siap unggah",
+      text: "Render menghasilkan MP4 vertikal 720x1280 dengan subtitle terbakar, plus judul, deskripsi, dan hashtag otomatis.",
+      url: `${SITE_URL}/unduh`,
+    },
+  ],
+};
+
 /** Bentuk objek <script type="application/ld+json"> untuk head route. */
 export function ldScript(data: unknown) {
   return { type: "application/ld+json", children: JSON.stringify(data) };

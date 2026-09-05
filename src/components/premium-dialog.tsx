@@ -176,70 +176,90 @@ export function PremiumDialog({
 
         {!order ? (
           <>
-            <ul className="mb-4 space-y-1.5 text-sm text-muted-foreground">
-              <li className="flex items-center gap-2">
-                <Check className="size-4 text-accent" /> 10 video panjang per hari (free: 2)
+            {/* MANFAAT — dulu tiga baris <li> setinggi ~66px. Dipadatkan jadi
+                satu baris chip: isinya sama (10 video/hari, 40 klip, aktif
+                langsung) tapi hemat ~44px sehingga panel "atau gratis" ikut
+                terlihat tanpa menggulir di layar HP. */}
+            <ul className="mb-2.5 flex flex-wrap gap-x-3 gap-y-1 text-[12px] text-muted-foreground">
+              <li className="flex items-center gap-1">
+                <Check className="size-3.5 shrink-0 text-accent" />
+                10 video/hari <span className="opacity-60">(free 2)</span>
               </li>
-              <li className="flex items-center gap-2">
-                <Check className="size-4 text-accent" /> Maks 40 klip per video (free: 10)
+              <li className="flex items-center gap-1">
+                <Check className="size-3.5 shrink-0 text-accent" />
+                40 klip/video <span className="opacity-60">(free 10)</span>
               </li>
-              <li className="flex items-center gap-2">
-                <Check className="size-4 text-accent" /> Bayar sekali, aktif langsung
+              <li className="flex items-center gap-1">
+                <Check className="size-3.5 shrink-0 text-accent" />
+                aktif langsung
               </li>
             </ul>
 
             {/* PERBANDINGAN HARGA — angka pesaing dari halaman harga resmi
-                OpusClip (Juni 2026), bukan klaim kosong. Tujuannya menjawab
-                pertanyaan yang paling menentukan pembelian: "kenapa segini
-                murah?" */}
-            <div className="mb-4 rounded-2xl border border-accent/25 bg-accent/[0.06] px-4 py-3">
-              <p className="text-[12px] font-semibold uppercase tracking-wider text-accent">
-                Bandingkan
-              </p>
-              <div className="mt-2 space-y-1.5 text-[13px]">
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-muted-foreground">OpusClip Starter</span>
-                  <span className="whitespace-nowrap font-semibold tabular-nums line-through decoration-muted-foreground/50">
-                    ±Rp240.000<span className="font-normal">/bln</span>
-                  </span>
-                </div>
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="font-semibold">CortexClip 1 Bulan</span>
-                  <span className="whitespace-nowrap font-bold tabular-nums text-accent">
-                    Rp25.000<span className="font-normal">/bln</span>
-                  </span>
-                </div>
-              </div>
-              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-                Hampir 10x lebih murah, dan tanpa sistem kredit per menit —
-                OpusClip Starter hanya memberi 150 menit video sumber sebulan,
-                di sini 10 video sehari.
-              </p>
-            </div>
-            <div className="space-y-2">
-              {plans.map((p) => (
-                <button
-                  key={p.key}
-                  onClick={() => void pay(p)}
-                  disabled={loading}
-                  className="flex w-full items-center justify-between rounded-2xl border border-border px-4 py-3 text-left transition-colors hover:border-accent disabled:opacity-60"
-                >
-                  <span>
-                    <span className="block font-semibold">{p.label}</span>
-                    <span className="text-xs text-muted-foreground">{p.days} hari premium</span>
-                  </span>
-                  <span className="font-bold text-accent">Rp{p.amount.toLocaleString("id-ID")}</span>
-                </button>
-              ))}
+                OpusClip (Juni 2026), bukan klaim kosong. Dipadatkan dari kotak
+                3 baris + paragraf jadi SATU baris: dua harga bersebelahan
+                sudah menyampaikan seluruh argumennya. */}
+            <p className="mb-3 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-xl border border-accent/25 bg-accent/[0.06] px-3 py-2 text-[12px]">
+              <span className="text-muted-foreground line-through decoration-muted-foreground/50">
+                OpusClip ±Rp240rb/bln
+              </span>
+              <span className="font-bold text-accent">→ di sini Rp25rb/bln</span>
+              <span className="text-[11px] text-muted-foreground">
+                tanpa kredit per menit
+              </span>
+            </p>
+
+            {/* PAKET 2 KOLOM — dulu 4 tombol bertumpuk (~57px each = 228px).
+                Grid 2x2 memangkasnya jadi ~150px tanpa menghilangkan satu pun
+                harga, label, atau jumlah hari. Harga per hari ditampilkan
+                supaya pengguna bisa membandingkan paket tanpa berhitung. */}
+            <div className="grid grid-cols-2 gap-2">
+              {plans.map((p) => {
+                const perHari = p.days > 0 ? Math.round(p.amount / p.days) : p.amount;
+                const termurah =
+                  plans.length > 1 &&
+                  plans.every(
+                    (q) =>
+                      q.key === p.key ||
+                      (q.days > 0 ? q.amount / q.days : q.amount) >= perHari,
+                  );
+                return (
+                  <button
+                    key={p.key}
+                    onClick={() => void pay(p)}
+                    disabled={loading}
+                    className={`relative rounded-xl border px-3 py-2.5 text-left transition-colors disabled:opacity-60 ${
+                      termurah
+                        ? "border-accent bg-accent/[0.06]"
+                        : "border-border hover:border-accent"
+                    }`}
+                  >
+                    {termurah ? (
+                      <span className="absolute -top-1.5 right-2 rounded-full bg-accent px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-accent-foreground">
+                        hemat
+                      </span>
+                    ) : null}
+                    <span className="block text-[13px] font-semibold leading-tight">
+                      {p.label}
+                    </span>
+                    <span className="mt-0.5 block font-bold tabular-nums text-accent">
+                      Rp{p.amount.toLocaleString("id-ID")}
+                    </span>
+                    <span className="mt-0.5 block text-[10px] leading-tight text-muted-foreground">
+                      {p.days} hari · Rp{perHari.toLocaleString("id-ID")}/hari
+                    </span>
+                  </button>
+                );
+              })}
             </div>
             {loading && (
-              <p className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+              <p className="mt-2 flex items-center gap-2 text-[13px] text-muted-foreground">
                 <Loader2 className="size-4 animate-spin" /> Menyiapkan QRIS…
               </p>
             )}
 
             {/* Jalur GRATIS: premium lewat menonton iklan */}
-            <div className="my-4 flex items-center gap-3">
+            <div className="my-3 flex items-center gap-3">
               <span className="h-px flex-1 bg-border" />
               <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 atau gratis
