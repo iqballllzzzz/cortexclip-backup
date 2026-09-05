@@ -75,9 +75,15 @@ CUT_MIN_SAMPLES = 6       # kandidat baru boleh memicu potong kalau datanya cuku
 EMA_UP = 0.85             # skor naik cepat (pindah pembicara harus responsif)
 EMA_DOWN = 0.30           # turun lambat (jeda antar kata bukan berhenti)
 
-HOLD_FRAMES = 2           # kandidat harus dominan 2 frame (0.13s @15fps)
-COOLDOWN_S = 0.8          # jeda minimal antar potong kamera
-STICKY_S = 0.5            # setelah pindah, kandidat lain ditahan dulu
+HOLD_FRAMES = 3           # kandidat harus dominan 3 frame (0.20s @15fps)
+COOLDOWN_S = 1.6          # jeda minimal antar potong kamera. Terukur: 0.8s
+                          # menghasilkan 15-18 cut/menit dengan 8 cut berjarak
+                          # < 1 detik — mata membaca rentetan itu sebagai
+                          # "pindah orang patah-patah". Editor manusia jarang
+                          # memotong lebih rapat dari ~1.5s pada dialog santai.
+STICKY_S = 1.0            # setelah pindah, kandidat lain ditahan dulu (0.5
+                          # terlalu pendek: pembicara yang menyela satu kata
+                          # sudah cukup untuk menarik kamera balik)
 LOST_HOLD_S = 0.15        # kamera bertahan di wajah yang hilang PALING LAMA ini
 LOST_S = 3.0              # track hilang lebih lama dari ini -> dipensiunkan
 RETIRE_S = 8.0            # identitas pensiun masih bisa dipakai ulang
@@ -107,6 +113,12 @@ DWELL_S = 0.90            # dan bertahan 0.9 detik (geleng biasanya < 0.4 s;
                           # condong badan < 0.7 s) — hanya pindah tempat
                           # sungguhan yang lolos
 SETTLE_FRAC = 0.05        # selisih <= 5% lebar crop → kunci ulang
+COOLDOWN_GESER_S = 1.20   # setelah kamera mengunci, DIAM minimal sekian detik
+                          # sebelum boleh bergerak lagi. Tanpa ini kamera
+                          # memulai episode baru tiap beberapa frame: terukur
+                          # 16 episode 0,07s dalam satu klip 62s — mata membaca
+                          # itu sebagai goyang & patah-patah, bukan sebagai
+                          # "kamera mengikuti".
 # Pemutus seri sinkron audio (dipakai HANYA saat dua skor mulut berdekatan)
 AV_TIE_RATIO = 0.70       # kandidat >= 70% skor yang disorot = dianggap "dekat"
 AV_TIE_MARGIN = 0.20      # dan sinkron audionya harus lebih baik >= 0.20

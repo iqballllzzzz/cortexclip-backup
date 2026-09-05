@@ -15,11 +15,12 @@ import math
 from typing import Any, Optional
 
 from .speaker_track import (AV_TIE_MARGIN, AV_TIE_RATIO, BIG_MOVE_FRAC,
-                            COOLDOWN_S, CUT_MIN_SAMPLES, DEADZONE_FRAC,
-                            DOMINANCE, DWELL_S, HOLD_FRAMES, LOOKAHEAD_S,
-                            LOST_HOLD_S, MAX_PAN_PER_S, RECENT_FRAMES,
-                            SETTLE_FRAC, SMOOTH_TIME_S, SPEAK_OFF, SPEAK_ON,
-                            SPRING_HZ, STICKY_S, STILL_SPAN_FRAC)
+                            COOLDOWN_GESER_S, COOLDOWN_S, CUT_MIN_SAMPLES,
+                            DEADZONE_FRAC, DOMINANCE, DWELL_S, HOLD_FRAMES,
+                            LOOKAHEAD_S, LOST_HOLD_S, MAX_PAN_PER_S,
+                            RECENT_FRAMES, SETTLE_FRAC, SMOOTH_TIME_S,
+                            SPEAK_OFF, SPEAK_ON, SPRING_HZ, STICKY_S,
+                            STILL_SPAN_FRAC)
 
 
 def pick_active(live: list[dict[str, Any]], state: dict[str, Any], fi: int,
@@ -244,17 +245,36 @@ def build_trajectory(targets: list[float], cuts: set[int], src_w: int,
         x = om * dt
         peluruhan = 1.0 / (1.0 + x + 0.48 * x * x + 0.235 * x * x * x)
 
+        # POSISI MENETAP, bukan posisi sesaat. Keputusan "orangnya pindah"
+        # diambil dari MEDIAN target sepanjang jendela dwell, bukan dari satu
+        # frame. Terukur pada klip 51cb2158: versi lama menghasilkan 16 episode
+        # gerakan masing-masing 0,07 detik (satu frame) dengan total perpindahan
+        # 761px — kamera menyentak sedikit-sedikit sepanjang klip lalu mengunci
+        # di tempat baru. Itulah "goyang-goyang" dan "patah-patah" yang
+        # dikeluhkan: bukan durasi geraknya yang panjang, tapi kejadiannya
+        # banyak dan tiap kejadian berupa lompatan.
+        wdw = dwell
+        menetap: list[float] = []
+        for i in range(n):
+            a = max(0, i - wdw + 1)
+            pot = sorted(seq[a:i + 1])
+            menetap.append(pot[len(pot) // 2])
+
         cam = sorted(seq[: min(n, 5)])[min(n, 5) // 2]
         vel = 0.0
         geser = False
         lama = 0                            # berapa frame target sudah jauh
+        cooldown = 0                        # frame tersisa sebelum boleh geser lagi
         out: list[float] = []
         for i in range(n):
             tgt = seq[min(n - 1, i + look)]
-            beda_abs = abs(tgt - cam)
+            # ambang diuji terhadap posisi MENETAP; gerak sesaat (geleng,
+            # menunjuk, badan condong) tidak menggeser median sejauh big.
+            beda_tetap = abs(menetap[min(n - 1, i + look)] - cam)
+            if cooldown > 0:
+                cooldown -= 1
             if not geser:
-                # DIAM: hitung berapa lama target sudah di luar ambang besar
-                lama = lama + 1 if beda_abs > big else 0
+                lama = lama + 1 if (beda_tetap > big and cooldown == 0) else 0
                 if lama >= dwell:
                     geser = True
                     lama = 0
@@ -283,6 +303,9 @@ def build_trajectory(targets: list[float], cuts: set[int], src_w: int,
             if abs(tgt - cam) <= settle and laju <= settle * 0.12:
                 geser = False               # sudah sampai → kunci di posisi ini
                 vel = 0.0
+                # JEDA setelah mengunci: tanpa ini kamera bisa langsung memulai
+                # episode berikutnya, menghasilkan rentetan sentakan kecil.
+                cooldown = max(dwell, int(fps * COOLDOWN_GESER_S))
         return out
 
     def zero_phase(seq: list[float], k: int) -> list[float]:

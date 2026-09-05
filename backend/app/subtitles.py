@@ -699,12 +699,34 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     # Kata aktif: WARNA (+ pill box) SAJA — tanpa scale (anti-getar Supoclip).
     # Kata aktif SELALU PUTIH (kontras maksimal) di atas pill berwarna —
     # jangan samakan warna teks dengan pill (bug "hijau menutupi teks").
+    #
+    # ANIMASI KATA AKTIF (keluhan: "subtitle-nya gak ada animasi yang bagus").
+    # Batasannya nyata: `\fscx` mengubah ADVANCE WIDTH kata, jadi baris yang
+    # di-anchor tengah akan reflow dan seluruh kata bergetar tiap pop — itu
+    # sebabnya versi sebelumnya sengaja tidak menganimasikan apa pun. Yang
+    # BOLEH dianimasikan tanpa menggeser kata lain:
+    #   \fscy  — skala VERTIKAL saja; advance width tidak berubah
+    #   \c/\3c — transisi warna
+    #   \blur  — kilau
+    # Ketiganya dipakai bersama: kata aktif "mendorong" ke atas-bawah sedikit,
+    # warnanya beralih mulus, dan tepinya berkilau sesaat.
+    POP_MS = 90            # naik cepat
+    POP_TURUN_MS = 130     # kembali lebih lambat (terasa berbobot)
+    POP_SKALA = 118        # 118% vertikal — terlihat jelas tanpa merusak baris
+
     def active_span(disp: str) -> str:
         if word_box:
             # teks PUTIH di atas pill berwarna (kontras maksimal)
             tags = f"{font_tag}\\c&HFFFFFF&\\3c{box_color}\\bord{box_bord}\\shad0"
         else:
             tags = f"{font_tag}\\c{highlight}"
+        if word_pop:
+            # pop vertikal + transisi warna masuk. \fscy TIDAK mengubah
+            # advance width, jadi kata di sebelahnya tidak bergeser.
+            tags += (f"\\fscy100\\t(0,{POP_MS},\\fscy{POP_SKALA})"
+                     f"\\t({POP_MS},{POP_MS + POP_TURUN_MS},\\fscy100)")
+            if glow:
+                tags += f"\\blur2\\t(0,{POP_MS},\\blur6)\\t({POP_MS},{POP_MS + POP_TURUN_MS},\\blur2)"
         return f"{{{tags}}}{disp}"
 
     def idle_span(global_idx: int, disp: str) -> str:

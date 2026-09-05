@@ -266,12 +266,17 @@ function EditorPage() {
   useEffect(() => {
     const prefs = (clip as unknown as { layout_prefs?: { enabled?: boolean } } | null)
       ?.layout_prefs;
-    if (!prefs) return;
-    setLayoutEnabled(!!prefs.enabled);
+    if (!clip) return;
+    // BAWAAN MENYALA: klip tanpa layout_prefs (dibuat sebelum toggle ada, atau
+    // pengguna belum membuka panel) tetap di-split oleh backend, jadi UI harus
+    // menampilkan keadaan yang sama — kalau tidak, toggle terlihat mati
+    // padahal hasil unduhannya ter-split.
+    const aktif = prefs?.enabled ?? true;
+    setLayoutEnabled(aktif);
     // Rentang split dimuat OTOMATIS saat aktif — bukan hanya kalau panel
     // dibuka. Preview memakainya untuk memindahkan caption ke garis batas,
     // jadi tanpa ini preview dan unduhan menaruh caption di tempat berbeda.
-    if (prefs.enabled) void muatRencanaLayout();
+    if (aktif) void muatRencanaLayout();
   }, [clip?.id]);
 
   const muatRencanaLayout = useCallback(async () => {

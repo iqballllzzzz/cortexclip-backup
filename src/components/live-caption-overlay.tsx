@@ -8,8 +8,8 @@ import { cn } from "@/lib/utils";
  * setting (gaya/ukuran/posisi/opacity) TANPA menunggu re-render VPS —
  * karena dirender browser pakai word-level timing JSON (caption_words).
  * Perilaku MIRROR engine Supoclip backend:
- * - kata aktif = ganti warna + optional pill (word_box) — TANPA scale
- *   (anti-getar: scaling mengubah advance width → baris reflow)
+ * - kata aktif = ganti warna + optional pill (word_box) + pop scaleY 118%
+ *   (HANYA sumbu Y: scaleX/fscx mengubah advance width → baris reflow/getar)
  * - entrance pop one-shot per baris (fscx92→100)
  * - emphasis power-words → warna emphasis
  * Font = file @font-face self-hosted yang sama dengan bundle VPS.
@@ -204,7 +204,13 @@ export function LiveCaptionOverlay({
                 padding: isActive && style.wordBox ? `${0.06 * fontSize}px ${0.18 * fontSize}px` : undefined,
                 borderRadius: isActive && style.wordBox ? `${0.15 * fontSize}px` : undefined,
                 display: "inline-block",
-                transition: "color 80ms linear",
+                // PARITY animasi: backend memakai \fscy118 selama 90ms lalu
+                // kembali 100 dalam 130ms (subtitles.py active_span). Di sini
+                // padanannya scaleY — hanya sumbu Y, jadi lebar kata tidak
+                // berubah dan baris tidak reflow (itu alasan \fscx dilarang).
+                transform: isActive ? "scaleY(1.18)" : "scaleY(1)",
+                transformOrigin: "center",
+                transition: "color 80ms linear, transform 90ms ease-out",
               }}
             >
               {text}

@@ -315,11 +315,13 @@ def split_filtergraph_parts(src_w: int, src_h: int, out_w: int, out_h: int,
     w0, h0, x0, y0, half_h, aksi0 = geometri_panel_bersih(
         src_w, src_h, out_w, out_h,
         kiri["kiri_cx"], kiri["kiri_cy"],
-        cx_lain=float(kanan["kanan_cx"]), w_frac_lain=kw, sisi="kiri")
+        cx_lain=float(kanan["kanan_cx"]), w_frac_lain=kw, sisi="kiri",
+        w_frac_diri=lw)
     w1, h1, x1, y1, _, aksi1 = geometri_panel_bersih(
         src_w, src_h, out_w, out_h,
         kanan["kanan_cx"], kanan["kanan_cy"],
-        cx_lain=float(kiri["kiri_cx"]), w_frac_lain=lw, sisi="kanan")
+        cx_lain=float(kiri["kiri_cx"]), w_frac_lain=lw, sisi="kanan",
+        w_frac_diri=kw)
     la, lb = labels
     split_line = f"[{in_label}]split=2[{la}][{lb}]"
     part0 = (f"[{la}]crop=w={w0}:h={h0}:x={x0}:y={y0},"
@@ -444,45 +446,66 @@ def geometri_panel(src_w: int, src_h: int, out_w: int, out_h: int,
 
 
 # --- ANTI-BOCOR PANEL (permintaan pengguna) ---
-# Masalah nyata yang terlihat di frame uji: dua orang duduk berdempetan, jadi
-# crop panel orang PERTAMA masih memuat lengan/baju orang KEDUA. Solusinya
-# bertingkat, meniru cara editor manusia: GESER dulu (murah, komposisi tetap
-# lega), ZOOM hanya kalau geser tidak cukup.
+# Masalah nyata: dua orang duduk berdempetan, jadi crop panel orang PERTAMA
+# masih memuat lengan/baju orang KEDUA. Solusinya bertingkat, meniru cara
+# editor manusia: GESER dulu (murah, komposisi tetap lega), ZOOM hanya kalau
+# geser tidak cukup.
+#
+# ATURAN YANG TIDAK BOLEH DILANGGAR (keluhan pengguna: "kok orangnya jadi
+# terpotong?"): kepala orang yang jadi subjek panel WAJIB utuh di dalam crop.
+# Lebih baik menerima sedikit bocor daripada memotong kepala subjek — bocor
+# hanya mengganggu, kepala terpotong membuat klip tidak bisa dipakai.
 BAHU_HALF = 1.15        # setengah lebar badan ≈ 1,15 × lebar wajah. Wajah saja
                         # tidak cukup: yang terlihat bocor justru bahu & lengan.
 BOCOR_MARGIN = 0.012    # jarak aman tambahan (fraksi lebar sumber)
-MIN_TEPI_WAJAH = 0.10   # wajah harus ≥10% lebar panel dari tepi panel, kalau
-                        # tidak orangnya menempel tepi dan terlihat terpotong
-MAKS_ZOOM = 1.55        # batas zoom. Lebih dari ini wajah jadi terlalu besar
-                        # dan panel kehilangan konteks — lebih baik terima
-                        # sedikit bocor daripada close-up ekstrem.
+# Ruang minimum di kiri/kanan wajah SUBJEK, dinyatakan relatif LEBAR WAJAH
+# (bukan lebar panel). Versi lama memakai 10% lebar panel; pada panel yang
+# sudah di-zoom, 10% panel bisa lebih kecil dari setengah wajah sehingga
+# kepala terpotong. Relatif lebar wajah selalu aman.
+MARGIN_WAJAH = 0.85     # >= 0,85 × lebar wajah di kedua sisi wajah subjek
+MAKS_ZOOM = 1.25        # batas zoom (1,55 terbukti memotong kepala pada uji
+                        # t=1242s: crop menyusut sampai wajah menyentuh tepi).
+                        # Di atas ini lebih baik terima bocor.
 
 
 def geometri_panel_bersih(src_w: int, src_h: int, out_w: int, out_h: int,
                           cx: float, cy: float,
                           cx_lain: float, w_frac_lain: float,
-                          sisi: str) -> tuple[int, int, int, int, int, str]:
+                          sisi: str,
+                          w_frac_diri: float = 0.0,
+                          ) -> tuple[int, int, int, int, int, str]:
     """Crop panel yang TIDAK memuat orang lain: geser dulu, zoom kalau perlu.
 
     sisi="kiri"  → orang ini di kiri, orang lain di KANAN: tepi KANAN crop
                    dibatasi di pangkal badan orang lain.
     sisi="kanan" → sebaliknya.
+    w_frac_diri  → lebar wajah SUBJEK (fraksi lebar sumber). Dipakai untuk
+                   menjamin kepalanya tidak terpotong. 0 = tidak diketahui,
+                   pakai perkiraan dari lebar wajah tetangga.
 
-    Balik (w, h, x, y, half_h, aksi); aksi ∈ {"utuh","geser","zoom","mustahil"}
-    untuk log dan pengujian.
+    Balik (w, h, x, y, half_h, aksi); aksi ∈ {"utuh","geser","zoom","batal"}.
 
-    Cara kerja: hitung dulu ruang horizontal yang BEBAS dari orang lain, lalu
-    ambil jendela crop TERBESAR yang muat di ruang itu (dengan rasio panel
-    tetap), dipusatkan ke wajah. Kalau ruangnya masih lebih lebar dari crop
-    dasar, hasilnya sama dengan sebelumnya (aksi "utuh") — jadi video yang
-    orangnya berjauhan tidak berubah sama sekali, sesuai permintaan
-    "cuma berlaku di video yang samping-sampingan yang kedeteksi keliatan".
+    Cara kerja: hitung ruang horizontal yang BEBAS dari orang lain, lalu ambil
+    jendela crop TERBESAR yang muat di ruang itu (rasio panel tetap),
+    dipusatkan ke wajah. Kalau ruangnya sudah lebih lebar dari crop dasar,
+    hasilnya sama seperti sebelumnya (aksi "utuh") — jadi video yang orangnya
+    berjauhan tidak berubah sama sekali.
+
+    PENJAGA KEPALA: kalau crop yang bebas-bocor ternyata terlalu sempit untuk
+    memuat kepala subjek beserta marginnya, seluruh penyesuaian DIBATALKAN
+    (aksi "batal") dan crop dasar dipakai. Memotong kepala subjek jauh lebih
+    buruk daripada membiarkan bahu tetangga terlihat.
     """
     w0, h0, x0, y0, half_h = geometri_panel(src_w, src_h, out_w, out_h, cx, cy)
     aspect = w0 / float(h0) if h0 else 1.0
 
     occ = max(0.0, float(w_frac_lain)) * BAHU_HALF + BOCOR_MARGIN
     wajah_px = cx * src_w
+    # lebar wajah subjek dalam piksel; kalau tidak diberi, pakai lebar wajah
+    # tetangga sebagai perkiraan (dua orang dalam satu shot ukurannya mirip)
+    wajah_w = max(8.0, (float(w_frac_diri) or float(w_frac_lain)) * src_w)
+    # ruang yang WAJIB tersedia: wajah + margin di kedua sisi
+    perlu = wajah_w * (1.0 + 2.0 * MARGIN_WAJAH)
 
     if sisi == "kiri":
         batas = (float(cx_lain) - occ) * src_w
@@ -492,36 +515,50 @@ def geometri_panel_bersih(src_w: int, src_h: int, out_w: int, out_h: int,
         lo, hi = max(0.0, min(float(src_w), batas)), float(src_w)
 
     ruang = hi - lo
-    # wajah sendiri sudah di dalam wilayah orang lain → dua orang bertumpuk;
-    # tidak ada crop yang bisa memisahkan mereka. Pakai crop dasar apa adanya.
-    if wajah_px < lo or wajah_px > hi or ruang < 32:
-        return w0, h0, x0, y0, half_h, "mustahil"
+    # wajah subjek sendiri sudah di dalam wilayah orang lain → dua orang
+    # bertumpuk; tidak ada crop yang bisa memisahkan mereka.
+    if wajah_px < lo or wajah_px > hi:
+        return w0, h0, x0, y0, half_h, "batal"
+    # ruang bebas terlalu sempit untuk kepala subjek → JANGAN paksa.
+    if ruang < perlu:
+        return w0, h0, x0, y0, half_h, "batal"
 
     if ruang >= w0:
         # cukup ruang: tinggal geser (mungkin tidak perlu bergerak sama sekali)
-        w, h = w0, h0
+        w, h = float(w0), float(h0)
         x = wajah_px - w / 2.0
         x = max(lo, min(x, hi - w))
         aksi = "utuh" if abs(x - x0) < 2 else "geser"
     else:
-        # harus mengecilkan crop = zoom in. Batasi supaya tidak ekstrem.
-        w_min = w0 / MAKS_ZOOM
-        w = max(w_min, ruang)
+        # harus mengecilkan crop = zoom in. Dua batas sekaligus: MAKS_ZOOM
+        # (jangan close-up ekstrem) dan `perlu` (jangan potong kepala).
+        w_min = max(w0 / MAKS_ZOOM, perlu)
+        if ruang < w_min:
+            # tidak ada crop yang sekaligus bebas-bocor DAN aman untuk kepala
+            return w0, h0, x0, y0, half_h, "batal"
+        w = float(ruang)
         h = w / aspect
         if h > src_h:
             h = float(src_h)
             w = h * aspect
+            if w > ruang:
+                return w0, h0, x0, y0, half_h, "batal"
         x = wajah_px - w / 2.0
         x = max(lo, min(x, max(lo, hi - w)))
-        # kalau ruang lebih sempit dari w_min, crop tetap sedikit melewati batas
         aksi = "zoom"
 
-    # wajah tidak boleh menempel tepi panel
-    tepi_min = MIN_TEPI_WAJAH * w
-    if wajah_px - x < tepi_min:
-        x = max(lo, wajah_px - tepi_min)
-    elif (x + w) - wajah_px < tepi_min:
-        x = min(max(lo, hi - w), wajah_px + tepi_min - w)
+    # PENJAGA KEPALA: wajah harus punya margin nyata di kedua sisi crop.
+    tepi = wajah_w * MARGIN_WAJAH
+    if wajah_px - x < tepi:
+        x = wajah_px - tepi
+    elif (x + w) - wajah_px < tepi:
+        x = wajah_px + tepi - w
+    # setelah digeser, crop tidak boleh keluar ruang bebas maupun keluar frame
+    x = max(lo, min(x, hi - w))
+    x = max(0.0, min(x, src_w - w))
+    # verifikasi akhir: kalau margin tetap tidak terpenuhi, batalkan.
+    if (wajah_px - x) < tepi * 0.9 or ((x + w) - wajah_px) < tepi * 0.9:
+        return w0, h0, x0, y0, half_h, "batal"
 
     y = cy * src_h - h * 0.42
     y = max(0.0, min(y, src_h - h))

@@ -108,6 +108,27 @@ async def fetch_project_clip(project_id: str, clip_id: str, token: str) -> tuple
     return projects[0], clips[0]
 
 
+def _auto_split_aktif(prefs: Optional[dict[str, Any]]) -> bool:
+    """Apakah Auto Split menyala untuk klip ini.
+
+    BAWAAN: MENYALA. Pengguna hanya perlu bertindak kalau ingin mematikannya.
+    Alasannya terukur: 36 dari 45 klip di database tidak punya `layout_prefs`
+    sama sekali (dibuat sebelum toggle ada, atau pengguna tidak membuka panel),
+    sehingga syarat `prefs.get("enabled")` membuat hasil unduhan mereka SELALU
+    tanpa split — pengguna melihat video dua orang berdampingan tapi hasilnya
+    satu bingkai penuh, lalu menyimpulkan fiturnya tidak jalan.
+
+    Split sendiri sudah bersyarat sangat ketat di auto_split.py (dua wajah
+    cukup besar, separasi >= 20% lebar, hadir bersama >= 50% rentang, keduanya
+    benar-benar bergiliran bicara), jadi klip yang bukan two-shot tidak
+    terpengaruh oleh bawaan ini.
+    """
+    if not prefs:
+        return True
+    v = prefs.get("enabled")
+    return True if v is None else bool(v)
+
+
 async def _watermark_aktif_untuk(user_id: str) -> bool:
     """True kalau unduhan user ini HARUS diberi watermark.
 
@@ -352,7 +373,14 @@ async def render_clip_server(
         try:
             from . import auto_split
             prefs = clip.get("layout_prefs") or {}
-            if prefs.get("enabled"):
+            # AUTO SPLIT AKTIF SECARA BAWAAN. Sebelumnya `prefs.get("enabled")`
+            # berarti klip TANPA prefs (36 dari 45 klip di database) tidak
+            # pernah di-split, dan hasil unduhan terlihat "tidak ada layout"
+            # walau videonya jelas dua orang berdampingan. Split sendiri sudah
+            # bersyarat ketat (dua wajah, separasi >= 0.20, co-exist >= 0.5,
+            # keduanya bicara), jadi menyalakannya secara bawaan tidak
+            # mengubah klip yang memang bukan two-shot.
+            if _auto_split_aktif(prefs):
                 rencana = auto_split.rencana_auto_split(
                     {**st_full,
                      "layout_frames": lay_frames, "analysis_fps": cam_fps},
@@ -362,6 +390,11 @@ async def render_clip_server(
                     print(f"[render] auto split: {len(lay_seg)} rentang "
                           + "; ".join(f"{s['start']:.1f}-{s['end']:.1f}s"
                                       for s in lay_seg))
+                else:
+                    print("[render] auto split aktif tapi tidak ada momen "
+                          "dua-orang yang memenuhi syarat → kamera saja")
+            else:
+                print("[render] auto split DIMATIKAN pengguna")
         except Exception as exc:
             print(f"[render] auto split gagal ({str(exc)[:150]}) → kamera saja")
             lay_seg = []
@@ -776,7 +809,7 @@ async def render_preview_clip(
                     from . import auto_split
                     prefs = clip.get("layout_prefs") or {}
                     auto_splits = []
-                    if prefs.get("enabled"):
+                    if _auto_split_aktif(prefs):
                         rencana = auto_split.rencana_auto_split(
                             st, src_w=int(st.get("src_w") or 0))
                         auto_splits = rencana.get("splits") or []
