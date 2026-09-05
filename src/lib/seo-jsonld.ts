@@ -67,9 +67,9 @@ export const softwareLd = {
   offers: [
     { "@type": "Offer", name: "Gratis", price: "0", priceCurrency: "IDR" },
     { "@type": "Offer", name: "Premium 1 Hari", price: "3000", priceCurrency: "IDR" },
-    { "@type": "Offer", name: "Premium 5 Hari", price: "8000", priceCurrency: "IDR" },
-    { "@type": "Offer", name: "Premium 1 Bulan", price: "25000", priceCurrency: "IDR" },
-    { "@type": "Offer", name: "Premium 1 Tahun", price: "210000", priceCurrency: "IDR" },
+    { "@type": "Offer", name: "Premium 5 Hari", price: "10000", priceCurrency: "IDR" },
+    { "@type": "Offer", name: "Premium 1 Bulan", price: "70000", priceCurrency: "IDR" },
+    { "@type": "Offer", name: "Premium 1 Tahun", price: "215000", priceCurrency: "IDR" },
   ],
 };
 
@@ -127,7 +127,7 @@ export const productLd = {
     "@type": "AggregateOffer",
     priceCurrency: "IDR",
     lowPrice: "0",
-    highPrice: "210000",
+    highPrice: "215000",
     offerCount: 5,
     availability: "https://schema.org/InStock",
     url: `${SITE_URL}/`,

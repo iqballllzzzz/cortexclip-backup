@@ -38,9 +38,9 @@ export function DocsLimits() {
             head={["Paket", "Durasi", "Harga"]}
             rows={[
               ["1 Hari", "1 hari", "Rp3.000"],
-              ["5 Hari", "5 hari", "Rp8.000"],
-              ["1 Bulan", "30 hari", "Rp25.000"],
-              ["1 Tahun", "365 hari", "Rp210.000"],
+              ["5 Hari", "5 hari", "Rp10.000"],
+              ["1 Bulan", "30 hari", "Rp70.000"],
+              ["1 Tahun", "365 hari", "Rp215.000"],
             ]}
           />
           <P>

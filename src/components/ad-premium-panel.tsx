@@ -8,8 +8,8 @@
  *
  * Aturan ditegakkan di server (backend/app/ad_premium.py):
  *   1 hari  = 8 iklan    — sekali jalan, tidak bisa dicicil
- *   7 hari  = 45 iklan   — sekali jalan, tidak bisa dicicil
- *   30 hari = 340 iklan  — BOLEH dicicil, progres tersimpan
+ *   7 hari  = 48 iklan   — sekali jalan, tidak bisa dicicil
+ *   30 hari = 345 iklan  — BOLEH dicicil, progres tersimpan
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Gift, Loader2, PlayCircle } from "lucide-react";

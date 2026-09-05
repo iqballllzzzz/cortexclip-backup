@@ -265,23 +265,6 @@ function EditorPage() {
     })();
   }, []);
 
-  /* --- AUTO SPLIT: muat status tersimpan + rentang split --- */
-  useEffect(() => {
-    const prefs = (clip as unknown as { layout_prefs?: { enabled?: boolean } } | null)
-      ?.layout_prefs;
-    if (!clip) return;
-    // SINKRONISASI: nilainya dibaca dari clips.layout_prefs milik KLIP INI,
-    // jadi keluar-masuk editor tidak menghilangkan pilihan pengguna, dan klip
-    // lain di proyek yang sama tidak terpengaruh (bawaan MATI).
-    const aktif = !!prefs?.enabled;
-    setLayoutEnabled(aktif);
-    // Rentang split dimuat OTOMATIS saat aktif — bukan hanya kalau panel
-    // dibuka. Preview memakainya untuk memindahkan caption ke garis batas,
-    // jadi tanpa ini preview dan unduhan menaruh caption di tempat berbeda.
-    if (aktif) void muatRencanaLayout();
-    else setLayoutPlan(null);
-  }, [clip?.id]);
-
   const muatRencanaLayout = useCallback(async () => {
     if (!clip) return;
     try {
@@ -295,7 +278,30 @@ function EditorPage() {
     } catch {
       /* rencana hanya informasi; kegagalan tidak boleh mengganggu editor */
     }
-  }, [clip?.id]);
+  }, [clip]);
+
+  /* --- AUTO SPLIT: muat status tersimpan + rentang split ---
+     FIX "momen split gak ada saat editor dibuka ulang": efek dulu hanya
+     bergantung pada [clip?.id], tapi `clip` sering masih NULL pada render
+     pertama (fetch berjalan belakangan) — efek tidak pernah jalan ulang saat
+     clip datang, jadi toggle tampak mati & daftar momen kosong. Sekarang
+     bergantung pada clip itu sendiri + tanda siapnya data. */
+  useEffect(() => {
+    if (!clip) return;
+    const prefs = (clip as unknown as { layout_prefs?: { enabled?: boolean } } | null)
+      ?.layout_prefs;
+    const aktif = !!prefs?.enabled;
+    setLayoutEnabled(aktif);
+    // Rentang split dimuat OTOMATIS saat aktif — bukan hanya kalau panel
+    // dibuka. Preview memakainya untuk memindahkan caption ke garis batas,
+    // jadi tanpa ini preview dan unduhan menaruh caption di tempat berbeda.
+    if (aktif) void muatRencanaLayout();
+    else setLayoutPlan(null);
+    // bergantung pada clip, bukan clip?.id: klip yang di-fetch belakangan
+    // tetap memicu muat ulang status & rentang.
+  }, [clip, muatRencanaLayout]);
+
+
 
   /** Simpan status Auto Split. Mengubahnya membatalkan preview lama, jadi
    *  preview dirender ulang dengan split baru (preview = hasil unduhan). */
@@ -416,6 +422,15 @@ function EditorPage() {
           setPrevPct(100);
           setPrevEta(0);
           setClip((c) => (c && c.id === clipId ? { ...c, preview_url: sd.url, preview_ready: true } : c));
+          // FIX "auto split gak langsung muncul di preview": preview baru yang
+          // barusan selesai memakai layout BARU — muat ulang rencananya supaya
+          // daftar momen split & caption overlay ikut, tanpa reload halaman.
+          if (clipRef.current) {
+            const prefs = (clipRef.current as unknown as {
+              layout_prefs?: { enabled?: boolean };
+            })?.layout_prefs;
+            if (prefs?.enabled) void muatRencanaLayout();
+          }
           return;
         }
         if (sd.status === "idle") {
@@ -438,7 +453,7 @@ function EditorPage() {
         /* jaringan sekejap gagal — coba lagi pada iterasi berikutnya */
       }
     }
-  }, [clip?.id, clip?.preview_ready]);
+  }, [clip?.id, clip?.preview_ready, muatRencanaLayout]);
 
   useEffect(() => {
     const t = setTimeout(() => void warmServerPreview(), 600);

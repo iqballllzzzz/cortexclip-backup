@@ -26,11 +26,11 @@ export const FAQS = [
   },
   {
     q: "Berapa harga CortexClip dibanding OpusClip?",
-    a: "Rp25.000 per bulan untuk 10 video panjang sehari. OpusClip Starter sekitar Rp240.000 sebulan dan hanya memberi 150 menit video sumber, jadi CortexClip hampir 10x lebih murah tanpa sistem kredit per menit.",
+    a: "Rp70.000 per bulan untuk 10 video panjang sehari. OpusClip Starter sekitar Rp240.000 sebulan dan hanya memberi 150 menit video sumber, jadi CortexClip masih 3,4x lebih murah tanpa sistem kredit per menit.",
   },
   {
     q: "Apakah ada cara pakai premium tanpa bayar?",
-    a: "Ada. Tonton iklan sampai target terpenuhi — 8 iklan untuk 1 hari, 45 iklan untuk 7 hari, 340 iklan untuk 30 hari — lalu premium aktif otomatis dan watermark hilang.",
+    a: "Ada. Tonton iklan sampai target terpenuhi — 8 iklan untuk 1 hari, 48 iklan untuk 7 hari, 345 iklan untuk 30 hari — lalu premium aktif otomatis dan watermark hilang.",
   },
   {
     q: "Apakah watermark bisa dihilangkan?",

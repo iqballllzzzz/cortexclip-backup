@@ -49,18 +49,18 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 #   OpusClip Pro     $29/bln 300 menit sumber/bulan  ≈ Rp464.000/bulan
 #   → biaya OpusClip ≈ $0,10 per menit video sumber (~Rp1.600/menit)
 #
-#   CortexClip 1 Bulan Rp25.000 = 10 video/hari x 30 hari = 300 video.
+#   CortexClip 1 Bulan Rp70.000 = 10 video/hari x 30 hari = 300 video.
 #   Pada durasi sumber median terukur di database ini (16 menit/video) itu
-#   ≈ 4.800 menit sumber → Rp5,2 per menit. 300x lebih murah per menit
-#   daripada OpusClip, dan 9,6x lebih murah per BULAN daripada Starter.
+#   ≈ 4.800 menit sumber → Rp14,6 per menit. Masih ~110x lebih murah per menit
+#   daripada OpusClip, dan 3,4x lebih murah per BULAN daripada Starter.
 #
 # Kenapa bisa: pemrosesan jalan di VPS sendiri (bukan GPU sewaan per menit),
 # dan STT/LLM memakai rantai penyedia gratis dengan failover (hydra.py).
 PLANS: dict[str, dict[str, Any]] = {
     "day":   {"label": "1 Hari",  "days": 1,   "amount": 3000},
-    "5day":  {"label": "5 Hari",  "days": 5,   "amount": 8000},
-    "month": {"label": "1 Bulan", "days": 30,  "amount": 25000},
-    "year":  {"label": "1 Tahun", "days": 365, "amount": 210000},
+    "5day":  {"label": "5 Hari",  "days": 5,   "amount": 10000},
+    "month": {"label": "1 Bulan", "days": 30,  "amount": 70000},
+    "year":  {"label": "1 Tahun", "days": 365, "amount": 215000},
 }
 # Dipakai UI untuk menunjukkan penghematan nyata, bukan klaim kosong.
 # Angka pesaing WAJIB berasal dari halaman harga resmi mereka; kalau berubah,

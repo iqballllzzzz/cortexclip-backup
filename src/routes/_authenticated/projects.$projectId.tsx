@@ -94,6 +94,21 @@ const STATUS_LABEL: Record<string, string> = {
   failed: "Gagal",
 };
 
+/** Sisa waktu ramah-baca untuk estimasi proses AI. */
+function sisaWaktu(sec: number): string {
+  if (sec >= 3600) {
+    const j = Math.floor(sec / 3600);
+    const m = Math.round((sec % 3600) / 60);
+    return m > 0 ? `${j} jam ${m} menit` : `${j} jam`;
+  }
+  if (sec >= 60) {
+    const m = Math.floor(sec / 60);
+    const s = Math.round(sec % 60);
+    return s > 0 ? `${m} menit ${s} detik` : `${m} menit`;
+  }
+  return `${Math.max(1, Math.round(sec))} detik`;
+}
+
 function formatClock(seconds: number) {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
@@ -196,6 +211,43 @@ function ProjectPage() {
   }, [busy, load]);
 
   const pct = persenTampil(project?.status, project?.progress);
+
+  /* --- ESTIMASI SELESAI (permintaan pengguna: "proses ai itu lama banget,
+     harus ngambil video, cari momen, dll jadi kamu bikin estimasi selesai
+     nya juga").
+
+     Dihitung dari LAJU NYATA, bukan angka karangan: setiap kali persen
+     bergerak, laju = Δpersen / Δwaktu, lalu sisa = (100 - persen) / laju.
+     Laju dihaluskan (EMA 0,3) supaya angkanya tidak melompat ketika satu fase
+     kebetulan cepat. Sebelum ada dua sampel, UI bilang "menghitung estimasi"
+     — lebih jujur daripada menebak. --- */
+  const lajuRef = useRef<number | null>(null);
+  const sampelRef = useRef<{ pct: number; t: number } | null>(null);
+  const [etaS, setEtaS] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!busy) {
+      lajuRef.current = null;
+      sampelRef.current = null;
+      setEtaS(null);
+      return;
+    }
+    const now = Date.now() / 1000;
+    const prev = sampelRef.current;
+    if (prev && pct > prev.pct) {
+      const dt = now - prev.t;
+      const dp = pct - prev.pct;
+      if (dt > 0.5) {
+        const laju = dp / dt;
+        const alpha = 0.3;
+        lajuRef.current = lajuRef.current
+          ? lajuRef.current * (1 - alpha) + laju * alpha
+          : laju;
+        setEtaS(Math.max(1, Math.round((100 - pct) / lajuRef.current)));
+      }
+    }
+    sampelRef.current = { pct, t: now };
+  }, [busy, pct]);
 
   /* --- WATCHDOG: status proses tanpa perubahan >10 menit = macet.
      (Jejak pipeline browser lama / task server crash tanpa update.)
@@ -406,9 +458,23 @@ function ProjectPage() {
               })}
             </ol>
 
-            <p className="mt-4 text-[12px] leading-relaxed text-muted-foreground">
-              Proses berjalan di server — halaman boleh ditutup, klip muncul otomatis saat selesai.
-            </p>
+            {/* ESTIMASI SELESAI — dihitung dari laju nyata (lihat useEffect etaS).
+                Ditampilkan sebagai teks, bukan angka mentah, supaya pengguna tahu
+                harus menunggu berapa lama. Sebelum ada dua sampel persen kita jujur
+                bilang "menghitung" alih-alih menebak. */}
+            <div className="mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[12px] leading-relaxed">
+              {etaS !== null ? (
+                <span className="font-semibold text-foreground">
+                  Estimasi selesai ~{sisaWaktu(etaS)} lagi
+                </span>
+              ) : (
+                <span className="text-muted-foreground">Menghitung estimasi…</span>
+              )}
+              <span className="text-muted-foreground">
+                Proses berjalan di server — halaman boleh ditutup, klip muncul
+                otomatis saat selesai.
+              </span>
+            </div>
           </section>
         ) : null}
 

@@ -26,7 +26,7 @@ const DOCS_FAQ = [
   },
   {
     q: "Berapa harga premium CortexClip?",
-    a: "Rp3.000 untuk 1 hari, Rp8.000 untuk 5 hari, Rp25.000 untuk 1 bulan, dan Rp210.000 untuk 1 tahun. Pembayaran lewat QRIS.",
+    a: "Rp3.000 untuk 1 hari, Rp10.000 untuk 5 hari, Rp70.000 untuk 1 bulan, dan Rp215.000 untuk 1 tahun. Pembayaran lewat QRIS.",
   },
 ];
 

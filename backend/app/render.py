@@ -314,6 +314,77 @@ def _analyze_face_track_single(src: str, start: float, end: float) -> list[float
     return trajectory
 
 
+def buang_perintah_dekat_split(lines: list[str],
+                               auto_splits: Optional[list[dict[str, Any]]],
+                               pragelar_s: float = 1.6) -> list[str]:
+    """Buang perintah sendcmd dalam jendela pragelar di sekitar tepi split.
+
+    lines = baris-baris berkas sendcmd ("t crop x N[, rotate a R];").
+    Di dalam rentang split sendiri filtergraph meng-override dengan vstack,
+    jadi perintah kamera di situ tidak berdampak. Yang berbahaya justru
+    JENDELA SESUATU SEBELUM split: kamera melompat ke wajah dominan lalu
+    split tiba → dua perubahan bingkai berdekatan (terlihat "dibuat AI").
+    Perintah terakhir sebelum jendela diulang di awal jendela supaya kamera
+    MEMBEKU (diam menunggu), bukan mengikuti wajah yang sedang dominan.
+    """
+    if not auto_splits or not lines:
+        return lines
+
+    def t_of(line: str) -> float:
+        try:
+            return float(line.split(" ", 1)[0])
+        except Exception:
+            return -1.0
+
+    tepi: list[float] = []
+    for s in auto_splits:
+        tepi.append(float(s.get("start", 0)))
+        tepi.append(float(s.get("end", 0)))
+    if not tepi:
+        return lines
+
+    keluar: list[str] = []
+    for line in lines:
+        t = t_of(line)
+        if t < 0:
+            keluar.append(line)
+            continue
+        dekat = min(abs(t - e) for e in tepi) < pragelar_s
+        di_dalam = any(float(s.get("start", 0)) <= t <= float(s.get("end", 0))
+                       for s in auto_splits)
+        if dekat and not di_dalam:
+            # buang perintah di jendela pragelar; kamera memegang posisi lama
+            continue
+        keluar.append(line)
+
+    # bekukan kamera pada awal tiap jendela pragelar: ulang perintah terakhir
+    # sebelum jendela pada waktu awal-jendela, sehingga crop TIDAK berubah
+    # selama jendela itu (kamera "diam menunggu" split).
+    hasil: list[str] = list(keluar)
+    for e in sorted(set(tepi)):
+        awal_jendela = e - pragelar_s
+        if awal_jendela <= 0:
+            continue
+        sebelum = None
+        for l in keluar:
+            if t_of(l) < awal_jendela:
+                sebelum = l
+            else:
+                break
+        if not sebelum:
+            continue
+        ada_di_jendela = any(awal_jendela <= t_of(l) < e for l in keluar)
+        if not ada_di_jendela:
+            continue  # kamera sudah diam di jendela ini
+        klon = sebelum.replace(f"{t_of(sebelum):.3f} ", f"{awal_jendela:.3f} ", 1)
+        # ganti SEMUA perintah di dalam jendela dengan satu pembekuan di awal
+        hasil = [l for l in hasil
+                 if not (awal_jendela <= t_of(l) < e)]
+        hasil.append(klon)
+    hasil.sort(key=t_of)
+    return hasil
+
+
 def build_sendcmd_file(trajectory: list[float], src_w: int, src_h: int,
                        out_fps: float = 30.0, analysis_fps: float = 5.0,
                        cuts: Optional[list[int]] = None,
@@ -453,9 +524,14 @@ def render_clip(
     vf_parts: list[str] = []
 
     if face_tracking and camera_trajectory and len(camera_trajectory) > 1:
-        cmdfile = build_sendcmd_file(camera_trajectory, src_w, src_h,
-                                     analysis_fps=camera_fps, cuts=camera_cuts,
-                                     rolls=camera_rolls)
+        _cam_lines = build_sendcmd_file(camera_trajectory, src_w, src_h,
+                                        analysis_fps=camera_fps, cuts=camera_cuts,
+                                        rolls=camera_rolls).splitlines()
+        # pragelar: jangan biarkan kamera melompat di dekat tepi split
+        _cam_lines = buang_perintah_dekat_split(_cam_lines, auto_splits)
+        cmdfile = tempfile.mkstemp(suffix=".cmd", prefix="cam_")[1]
+        with open(cmdfile, "w") as _f:
+            _f.write("\n".join(_cam_lines) + "\n")
         crop_w = min(int(src_h * aspect), src_w)
         # dynamic crop with sendcmd-driven x
         vf_parts.append(f"sendcmd=f={cmdfile}")
@@ -709,9 +785,13 @@ def render_preview_fast(
     vf_parts: list[str] = []
     cmdfile: Optional[str] = None
     if camera_trajectory and len(camera_trajectory) > 1:
-        cmdfile = build_sendcmd_file(camera_trajectory, src_w, src_h,
-                                    analysis_fps=camera_fps, cuts=camera_cuts,
-                                    rolls=camera_rolls)
+        _cam_lines = build_sendcmd_file(camera_trajectory, src_w, src_h,
+                                        analysis_fps=camera_fps, cuts=camera_cuts,
+                                        rolls=camera_rolls).splitlines()
+        _cam_lines = buang_perintah_dekat_split(_cam_lines, auto_splits)
+        cmdfile = tempfile.mkstemp(suffix=".cmd", prefix="cam_")[1]
+        with open(cmdfile, "w") as _f:
+            _f.write("\n".join(_cam_lines) + "\n")
         crop_w = min(int(src_h * ASPECT), src_w)
         vf_parts.append(f"sendcmd=f={cmdfile}")
         # deroll juga di preview: kalau hanya hasil unduhan yang diluruskan,

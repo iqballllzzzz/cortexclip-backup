@@ -415,6 +415,32 @@ def rencana_auto_split(st: dict[str, Any],
             "giliran": [(t0, t1, v) for t0, t1, v in rapi],
         })
 
+    # ===== PRAGELAR SEKITAR SPLIT (keluhan pengguna: "suka patah-patah pas
+    # detik-detik mau auto split, kameranya nge-track yang salah terus baru
+    # muncul split nya") =====
+    # Cut kamera bebas (cut_x) yang jatuh terlalu dekat dengan TEPI rentang
+    # split dibuang: beberapa detik sebelum split dimulai, deteksi wajah satu
+    # orang sudah bisa mendominasi sehingga pemotong kamera melompat ke wajah
+    # itu, lalu 1-2 detik kemudian split muncul dan layar berubah lagi. Dua
+    # perubahan bingkai berdekatan persis seperti "dibuat AI".
+    # Aturannya: dalam jendela PRAGELAR_S di sekitar tepi split, kamera TIDAK
+    # boleh memotong sendiri — transisi itu milik split.
+    if hasil_splits and cut_x:
+        PRAGELAR_S = 1.6  # detik sebelum/sesudah tepi split yang dijaga
+        tepi: list[float] = []
+        for s in hasil_splits:
+            tepi.append(float(s["start"]))
+            tepi.append(float(s["end"]))
+        cut_bersih: list[tuple[float, int]] = []
+        for t, x in cut_x:
+            if min(abs(t - e) for e in tepi) < PRAGELAR_S:
+                continue
+            cut_bersih.append((t, x))
+        if len(cut_bersih) != len(cut_x):
+            print(f"[auto-split] pragelar: {len(cut_x) - len(cut_bersih)} cut kamera "
+                  f"dibuang karena terlalu dekat tepi split (<{PRAGELAR_S}s)")
+        cut_x = cut_bersih
+
     return {"splits": hasil_splits, "cut_x": cut_x}
 
 

@@ -2,8 +2,8 @@
 
 Aturan (dari user):
   day   = 8 iklan    — harus sekali jalan, TIDAK bisa dicicil
-  week  = 45 iklan   — harus sekali jalan, TIDAK bisa dicicil
-  month = 340 iklan  — BOLEH dicicil (nonton sedikit, lanjut kapan saja)
+  week  = 48 iklan   — harus sekali jalan, TIDAK bisa dicicil
+  month = 345 iklan  — BOLEH dicicil (nonton sedikit, lanjut kapan saja)
 
 Kenapa "tidak bisa dicicil" perlu ditegakkan di server: kalau hanya di UI, user
 bisa menutup tab lalu kembali dan tetap melanjutkan hitungan. Untuk day/week,
@@ -22,8 +22,8 @@ from typing import Any, Optional
 # jumlah iklan per paket
 AD_PLANS: dict[str, dict[str, Any]] = {
     "day": {"ads": 8, "days": 1, "label": "1 Hari", "installment": False},
-    "week": {"ads": 45, "days": 7, "label": "7 Hari", "installment": False},
-    "month": {"ads": 340, "days": 30, "label": "30 Hari", "installment": True},
+    "week": {"ads": 48, "days": 7, "label": "7 Hari", "installment": False},
+    "month": {"ads": 345, "days": 30, "label": "30 Hari", "installment": True},
 }
 
 # jeda maksimal antar iklan untuk paket yang tidak boleh dicicil

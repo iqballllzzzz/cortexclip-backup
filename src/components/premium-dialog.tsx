@@ -203,7 +203,7 @@ export function PremiumDialog({
               <span className="text-muted-foreground line-through decoration-muted-foreground/50">
                 OpusClip ±Rp240rb/bln
               </span>
-              <span className="font-bold text-accent">→ di sini Rp25rb/bln</span>
+              <span className="font-bold text-accent">→ di sini Rp70rb/bln</span>
               <span className="text-[11px] text-muted-foreground">
                 tanpa kredit per menit
               </span>
