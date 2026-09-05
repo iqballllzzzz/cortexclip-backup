@@ -15,7 +15,7 @@ import json
 import math
 import os
 import re
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from .hydra import gateway
 from .transcribe import transcript_to_text
@@ -255,17 +255,24 @@ async def _score_batch(windows: list[dict[str, Any]]) -> dict[str, dict[str, Any
             if isinstance(w, dict)}
 
 
-async def score_windows(windows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+async def score_windows(
+    windows: list[dict[str, Any]],
+    on_progress: Optional[Callable[[int, int], None]] = None,
+) -> list[dict[str, Any]]:
     """Pass 1: skor 0-100 potensi viral + koreksi heuristik kualitas isi.
 
     Video BERJAM-JAM menghasilkan ratusan window (1 jam ≈ 72, 3 jam ≈ 216).
     Semuanya dalam satu prompt = melebihi batas token dan gagal total, jadi
     window dipecah jadi batch dan dinilai PARALEL (lebih cepat + tidak ada
     satu titik kegagalan: batch yang gagal jatuh ke heuristik saja).
+
+    `on_progress(batch_selesai, batch_total)` dipakai untuk menaikkan persen
+    fase "Pilih momen" — tanpa itu fase ini membeku 4 menit di angka yang sama.
     """
     batch_size = int(os.environ.get("SCORE_BATCH", "24"))
     batches = [windows[i:i + batch_size] for i in range(0, len(windows), batch_size)]
     sem = asyncio.Semaphore(int(os.environ.get("SCORE_PARALLEL", "3")))
+    selesai = [0]
 
     async def run(b: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         async with sem:
@@ -275,6 +282,13 @@ async def score_windows(windows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 print(f"[clip_selection] batch skor gagal ({len(b)} window): "
                       f"{type(exc).__name__} {str(exc)[:120]}")
                 return {}
+            finally:
+                selesai[0] += 1
+                if on_progress:
+                    try:
+                        on_progress(selesai[0], len(batches))
+                    except Exception:
+                        pass
 
     maps = await asyncio.gather(*[run(b) for b in batches])
     scores: dict[str, dict[str, Any]] = {}
@@ -456,12 +470,29 @@ async def detect_clips(
     transcript: dict[str, Any],
     target_count: int = 10,
     genre: str = "",
+    on_progress: Optional[Callable[[int, int], None]] = None,
 ) -> list[dict[str, Any]]:
-    """Full two-pass selection + filter kualitas. Returns clip dicts."""
+    """Full two-pass selection + filter kualitas. Returns clip dicts.
+
+    `on_progress(langkah, total_langkah)` melaporkan kemajuan supaya UI bisa
+    menaikkan persen selama fase "Pilih momen" (bisa 4+ menit).
+    """
     windows = build_windows(transcript)
     if not windows:
         return []
-    scored = await score_windows(windows)
+    # anggaran langkah: tiap batch skor 1 langkah + 1 langkah detail_pass
+    batch_size = int(os.environ.get("SCORE_BATCH", "24"))
+    n_batch = max(1, math.ceil(len(windows) / batch_size))
+    total_langkah = n_batch + 1
+
+    def _lapor(i: int, _n: int) -> None:
+        if on_progress:
+            try:
+                on_progress(min(i, total_langkah), total_langkah)
+            except Exception:
+                pass
+
+    scored = await score_windows(windows, on_progress=_lapor)
     # buang window sampah lebih awal (skor < 30 = basa-basi/iklan) tapi
     # sisakan minimal 4 supaya video pendek tetap dapat klip
     good = [w for w in scored if w["score"] >= 30]
@@ -484,6 +515,7 @@ async def detect_clips(
             break
         print(f"[clip_selection] detail_pass kosong (attempt {attempt + 1}/3), retry 20s…")
         await asyncio.sleep(20)
+    _lapor(total_langkah, total_langkah)
 
     out = []
     for c in clips:

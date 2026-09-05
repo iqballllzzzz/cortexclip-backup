@@ -6,6 +6,7 @@ import { Hero } from "@/components/hero";
 import { Features } from "@/components/features";
 import { Pipeline } from "@/components/pipeline";
 import { ClipShowcase } from "@/components/clip-showcase";
+import { ResultShowcase } from "@/components/result-showcase";
 import { PricingFaq } from "@/components/pricing-faq";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -64,6 +65,9 @@ function Index() {
         <Hero />
         <Features />
         <Pipeline />
+        {/* Hasil render NYATA (dari /api/showcase) diletakkan SEBELUM contoh
+            gaya subtitle: pengunjung baru mencari bukti dulu, baru variasi. */}
+        <ResultShowcase />
         <ClipShowcase />
         <PricingFaq />
       </main>

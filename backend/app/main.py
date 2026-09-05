@@ -122,6 +122,9 @@ _UUID_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 )
 
+# cache showcase landing page: (waktu_isi, payload) — lihat /api/showcase
+_SHOWCASE_CACHE: tuple[float, dict[str, Any]] | None = None
+
 
 def ensure_uuid(value: str, label: str = "Proyek") -> str:
     """ID yang dipakai di query Postgres WAJIB UUID.
@@ -1076,6 +1079,66 @@ async def api_share_accept(token: str, request: Request, authorization: str | No
         raise HTTPException(404, str(exc))
 
 
+@app.get("/api/showcase")
+async def api_showcase():
+    """Bukti hasil NYATA untuk landing page — tanpa login.
+
+    Permintaan pengguna: "tambahin preview di landing page biar user tau
+    hasilnya dan terbukti juga dan bisa dipercaya."
+
+    PRIVASI: hanya klip milik akun ADMIN yang ditampilkan. Klip pengguna lain
+    TIDAK PERNAH bocor ke halaman publik walaupun sudah dirender — pemiliknya
+    tidak pernah menyetujui itu. Admin = pemilik situs, jadi videonya memang
+    sengaja dipamerkan.
+
+    Hasil di-cache 5 menit di memori: halaman depan adalah target trafik
+    terbesar dan tidak boleh memukul PostgREST tiap kunjungan.
+    """
+    import time as _t
+    global _SHOWCASE_CACHE
+    now = _t.time()
+    if _SHOWCASE_CACHE and now - _SHOWCASE_CACHE[0] < 300:
+        return _SHOWCASE_CACHE[1]
+
+    from .premium import sb
+    try:
+        admins = await sb("GET", "profiles?select=user_id&is_admin=is.true&limit=5") or []
+        ids = [a["user_id"] for a in admins if a.get("user_id")]
+        if not ids:
+            return {"clips": []}
+        daftar = ",".join(ids)
+        jobs = await sb("GET", "render_jobs?select=clip_id,clip_title,rendered_url,"
+                               f"completed_at&status=eq.completed&user_id=in.({daftar})"
+                               "&order=completed_at.desc&limit=24") or []
+        out = []
+        lihat: set[str] = set()
+        for j in jobs:
+            cid = str(j.get("clip_id") or "")
+            if not j.get("rendered_url") or cid in lihat:
+                continue
+            lihat.add(cid)
+            klip = await sb("GET", f"clips?id=eq.{cid}&select=virality_score,"
+                                   "start_time,end_time,description,hashtags") or []
+            k = klip[0] if klip else {}
+            out.append({
+                "title": j.get("clip_title") or "Klip",
+                "url": j.get("rendered_url"),
+                "score": k.get("virality_score"),
+                "duration": round(float(k.get("end_time") or 0)
+                                  - float(k.get("start_time") or 0)),
+                "description": (k.get("description") or "")[:180],
+                "hashtags": (k.get("hashtags") or [])[:4],
+            })
+            if len(out) >= 6:
+                break
+        hasil = {"clips": out}
+        _SHOWCASE_CACHE = (now, hasil)
+        return hasil
+    except Exception as exc:
+        print(f"[showcase] gagal: {str(exc)[:140]}")
+        return {"clips": []}
+
+
 @app.get("/api/premium/plans")
 async def api_premium_plans():
     from .premium import PLANS
@@ -1284,11 +1347,19 @@ async def api_project_reprocess(
         raise HTTPException(429, quota["message"] or MSG_LIMIT_PROJECT)
 
     rows = await sb("GET", f"projects?id=eq.{project_id}&user_id=eq.{user['id']}"
-                           "&select=id,status,storage_path")
+                           "&select=id,status,storage_path,source_url,source_type")
     if not rows:
         raise HTTPException(404, "Proyek tidak ditemukan / bukan milikmu")
     proj = rows[0]
-    if not proj.get("storage_path"):
+    # SUMBER: storage_path (hasil unggahan) ATAU source_url YouTube.
+    # Dulu hanya storage_path yang diterima, jadi proyek YouTube yang baru
+    # selesai — unggahan sumber ke storage masih berjalan di belakang —
+    # ditolak 400 "belum punya file sumber" padahal videonya bisa diunduh
+    # ulang dari source_url. Terukur di E2E: proyek f11bee86 selesai
+    # (10 klip) tapi reprocess balas 400.
+    storage_path = proj.get("storage_path")
+    source_url = str(proj.get("source_url") or "")
+    if not storage_path and not source_url.startswith("http"):
         raise HTTPException(
             400,
             "Proyek lama ini belum punya file sumber di server. Unggah ulang videonya "
@@ -1307,14 +1378,24 @@ async def api_project_reprocess(
              json_body={"status": "downloading", "error_message": None})
 
     from .background import spawn
-    spawn(_reprocess_task(project_id, user["id"], proj["storage_path"], target),
-          name=f"reproses:{project_id[:8]}", key=f"proyek:{project_id}")
+    if storage_path:
+        spawn(_reprocess_task(project_id, user["id"], storage_path, target),
+              name=f"reproses:{project_id[:8]}", key=f"proyek:{project_id}")
+    else:
+        # tanpa berkas di storage → unduh ulang dari link sumber (YouTube)
+        spawn(_reprocess_youtube_task(project_id, user["id"], source_url, target),
+              name=f"reproses-yt:{project_id[:8]}", key=f"proyek:{project_id}")
     return {"ok": True, "status": "downloading", "target_clips": target}
 
 
 async def _reprocess_task(project_id: str, user_id: str, storage_path: str, target: int) -> None:
     from .youtube import run_upload_pipeline
     await run_upload_pipeline(project_id, user_id, storage_path, target)
+
+
+async def _reprocess_youtube_task(project_id: str, user_id: str, url: str, target: int) -> None:
+    from .youtube import run_youtube_pipeline
+    await run_youtube_pipeline(project_id, user_id, url, target)
 
 
 @app.get("/")

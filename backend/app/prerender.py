@@ -54,12 +54,44 @@ async def _render_satu(clip: dict[str, Any], project_id: str) -> bool:
             return False
 
 
+async def _tunggu_sumber_di_storage(project_id: str, batas_s: float = 2400) -> bool:
+    """Tunggu `projects.storage_path` terisi sebelum merender preview.
+
+    KENAPA WAJIB: pipeline YouTube menjadwalkan pra-render tepat setelah klip
+    tersimpan, sementara unggahan video sumber ke storage (termasuk kompres
+    ffmpeg) masih berjalan di belakang. Saat `storage_path` masih NULL,
+    `_source_seek_url()` balik None → `_ensure_source_local()` MENGUNDUH ULANG
+    seluruh video dari YouTube untuk SETIAP klip. Terukur pada video 43 menit
+    (600 MB): 10 klip × unduh penuh, antrean semaphore=1 → preview tidak pernah
+    selesai dan pengguna melihat "memproses" yang persennya tidak bergerak.
+
+    Dengan menunggu, satu berkas di storage dipakai bersama lewat HTTP range.
+    """
+    tunggu = 0.0
+    while tunggu < batas_s:
+        try:
+            rows = await _sb("GET", f"projects?id=eq.{project_id}&select=storage_path")
+            if rows and rows[0].get("storage_path"):
+                if tunggu:
+                    print(f"[prerender] sumber siap di storage setelah {tunggu:.0f}s")
+                return True
+        except Exception as exc:
+            print(f"[prerender] cek storage_path gagal: {str(exc)[:80]}")
+        await asyncio.sleep(10)
+        tunggu += 10
+    print(f"[prerender] proyek {project_id[:8]}: storage_path tidak muncul dalam "
+          f"{batas_s:.0f}s — preview dilewati (akan dibuat saat editor dibuka)")
+    return False
+
+
 async def prerender_project(project_id: str) -> None:
     """Render preview semua klip proyek ini, satu per satu, di belakang."""
     if project_id in _dijadwalkan:
         return
     _dijadwalkan.add(project_id)
     try:
+        if not await _tunggu_sumber_di_storage(project_id):
+            return
         clips = await _sb("GET", f"clips?project_id=eq.{project_id}"
                                  "&select=id,start_time,end_time,preview_url"
                                  "&order=start_time.asc")

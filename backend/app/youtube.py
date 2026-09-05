@@ -17,7 +17,7 @@ import re
 import time
 import asyncio
 import subprocess
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import httpx
 
@@ -216,20 +216,31 @@ def _content_length(url: str) -> int:
         return 0
 
 
-def _download_stream(url: str, out_path: str, chunk_mb: int = 8, workers: int = 6) -> None:
+def _download_stream(url: str, out_path: str, chunk_mb: int = 8, workers: int = 6,
+                     on_progress: Optional[Callable[[int, int], None]] = None) -> None:
     """Paralel range-download (bypass throttle googlevideo yang membatasi
-    koneksi full-download ~300KB/s, range 2MB/s) + verifikasi ukuran total."""
+    koneksi full-download ~300KB/s, range 2MB/s) + verifikasi ukuran total.
+
+    `on_progress(byte_selesai, byte_total)` dipanggil tiap chunk beres — dipakai
+    pipeline untuk menaikkan `projects.progress` supaya fase "Ambil media"
+    tidak membeku di satu angka selama beberapa menit (video 600 MB = 4-5
+    menit unduhan).
+    """
     import shutil
     total = _content_length(url)
     if total <= chunk_mb << 20:
         # file kecil: langsung streaming biasa
         tmp = out_path + ".part"
+        turun = 0
         with httpx.Client(timeout=httpx.Timeout(60.0, read=180.0), follow_redirects=True) as client:
             with client.stream("GET", url, headers={"User-Agent": UA_BROWSER}) as r:
                 r.raise_for_status()
                 with open(tmp, "wb") as f:
                     for chunk in r.iter_bytes(1 << 20):
                         f.write(chunk)
+                        turun += len(chunk)
+                        if on_progress:
+                            on_progress(turun, total or turun)
         os.replace(tmp, out_path)
         return
 
@@ -259,10 +270,14 @@ def _download_stream(url: str, out_path: str, chunk_mb: int = 8, workers: int = 
         async with httpx.AsyncClient(timeout=httpx.Timeout(60, read=240),
                                      follow_redirects=True, limits=limits) as client:
             sem = asyncio.Semaphore(workers)
+            selesai = [0]
 
             async def _wrap(i: int, s: int, e: int) -> None:
                 async with sem:
                     await _grab(client, i, s, e)
+                    selesai[0] += e - s + 1
+                    if on_progress:
+                        on_progress(selesai[0], total)
 
             await asyncio.gather(*[_wrap(i, s, e) for i, (s, e) in enumerate(ranges)])
 
@@ -310,16 +325,22 @@ def _verify(path: str, expected_duration: float = 0.0) -> bool:
     return True
 
 
-async def hydra_download(url: str, out_path: str) -> dict[str, Any]:
+async def hydra_download(url: str, out_path: str,
+                         on_progress: Optional[Callable[[int, int], None]] = None) -> dict[str, Any]:
     """Coba 3 provider API → direct download; gagal semua → yt-dlp.
-    Return {title, duration, provider}."""
+    Return {title, duration, provider}.
+
+    `on_progress` diteruskan ke _download_stream supaya pemanggil bisa
+    menaikkan persen fase "Ambil media" (video 600 MB butuh 4-5 menit).
+    """
     errors: list[str] = []
     for prov in (_prov_autolink, _prov_ytstream, _prov_nexray):
         name = prov.__name__.replace("_prov_", "")
         try:
             info = await prov(url)
             base = out_path.rsplit(".", 1)[0]
-            await asyncio.to_thread(_download_stream, info["url"], out_path)
+            await asyncio.to_thread(_download_stream, info["url"], out_path, 8, 6,
+                                    on_progress)
             if info.get("needs_merge") and info.get("audio_url"):
                 audio_tmp = base + "_audio.m4a"
                 await asyncio.to_thread(_download_stream, info["audio_url"], audio_tmp)
@@ -454,7 +475,7 @@ async def run_media_pipeline(project_id: str, user_id: str, src_path: str, targe
         await jobs_mod.update_project(project_id, transcript=transcript,
                                       duration_seconds=round(duration))
 
-        await jobs_mod.update_project(project_id, status="analyzing")
+        await jobs_mod.update_project(project_id, status="analyzing", progress=0)
         # GENRE video → dipakai memilih ikon/b-roll/emoji yang relate +
         # mempertajam judul/deskripsi/hashtag agar sesuai isi & genre.
         genre = ""
@@ -471,8 +492,20 @@ async def run_media_pipeline(project_id: str, user_id: str, src_path: str, targe
         # PEMILIHAN MOMEN: sukses DAN gagal dicatat (lihat premium.py — panel
         # admin harus bisa membedakan "belum ada request" dari "model gagal").
         t_clip = time.time()
+        loop2 = asyncio.get_running_loop()
+
+        def _maju_momen(langkah: int, total: int) -> None:
+            """Naikkan progress selama fase analyzing (bukan beku di 78%)."""
+            if total <= 0:
+                return
+            asyncio.run_coroutine_threadsafe(
+                jobs_mod.update_project(project_id, status="analyzing",
+                                        progress=min(99, int(langkah * 100 / total))),
+                loop2)
+
         try:
-            clips = await detect_clips(transcript, target_count, genre=genre)
+            clips = await detect_clips(transcript, target_count, genre=genre,
+                                       on_progress=_maju_momen)
         except Exception as exc:
             try:
                 from .admin import log_usage
@@ -502,7 +535,7 @@ async def run_media_pipeline(project_id: str, user_id: str, src_path: str, targe
         if not clips:
             raise RuntimeError("AI tidak menemukan klip yang layak dari video ini.")
         await jobs_mod.replace_clips(project_id, user_id, clips)
-        await jobs_mod.update_project(project_id, status="completed")
+        await jobs_mod.update_project(project_id, status="completed", progress=100)
         # Preview semua klip dirender SEKARANG di belakang, supaya editor tidak
         # perlu menunggu 40-60 detik saat dibuka (lihat prerender.py).
         from .prerender import jadwalkan
@@ -572,6 +605,36 @@ async def _persist_source_to_storage(project_id: str, user_id: str, src_path: st
     small = src_path + ".small.mp4"
     up_path = src_path
     try:
+        def _perlu_kompres() -> bool:
+            """Kompres HANYA kalau memang perlu.
+
+            Re-encode video 43 menit dengan libx264 butuh 10+ menit CPU penuh,
+            dan itu terjadi SETELAH proyek ditandai 'completed' — jadi ada
+            jendela panjang di mana `storage_path` masih NULL, preview tidak
+            bisa jalan, dan sekali service di-restart pekerjaan itu hilang
+            tanpa jejak (terukur: proyek f11bee86 tetap storage_path NULL).
+
+            Kalau berkasnya sudah H.264 <=1080p dan ukurannya wajar, unggah apa
+            adanya: storage_path terisi dalam hitungan menit, bukan belasan.
+            """
+            try:
+                if os.path.getsize(src_path) > 1_600_000_000:
+                    return True
+                out = subprocess.run(
+                    ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                     "-show_entries", "stream=codec_name,height",
+                     "-of", "csv=p=0", src_path],
+                    capture_output=True, text=True, timeout=120).stdout.strip()
+                bagian = out.split(",")
+                codec = bagian[0].strip().lower() if bagian else ""
+                tinggi = int(float(bagian[1])) if len(bagian) > 1 and bagian[1] else 0
+                if codec in ("h264", "avc1") and 0 < tinggi <= 1080:
+                    print(f"[storage] lewati kompres: sudah {codec} {tinggi}p")
+                    return False
+            except Exception as exc:
+                print(f"[storage] probe gagal, kompres saja: {str(exc)[:80]}")
+            return True
+
         def _compress() -> bool:
             try:
                 # kompres penyimpanan: maks 1080p CRF26 — cukup tajam untuk
@@ -587,8 +650,9 @@ async def _persist_source_to_storage(project_id: str, user_id: str, src_path: st
                 print(f"[storage] kompres gagal, pakai file asli: {exc}")
                 return False
 
-        if await asyncio.to_thread(_compress):
-            up_path = small
+        if await asyncio.to_thread(_perlu_kompres):
+            if await asyncio.to_thread(_compress):
+                up_path = small
 
         storage_path = f"{user_id}/{project_id}/source.mp4"
         url = f"{SUPABASE_URL}/storage/v1/object/video-uploads/{storage_path}"
@@ -640,19 +704,47 @@ async def run_youtube_pipeline(project_id: str, user_id: str, url: str, target_c
     from . import jobs as jobs_mod
 
     src_path = os.path.join(UPLOAD_DIR, f"yt_{project_id}.mp4")
+    tugas_simpan: Optional[asyncio.Task] = None
     try:
-        await jobs_mod.update_project(project_id, status="downloading")
-        info = await hydra_download(url, src_path)
+        await jobs_mod.update_project(project_id, status="downloading", progress=0)
+
+        # PERSEN FASE "Ambil media": video 600 MB butuh 4-5 menit; tanpa ini
+        # kolom progress diam di 0 dan UI membeku di 12% (keluhan pengguna
+        # "gak nambah nambah lagi persen"). Update dibatasi tiap 3% supaya
+        # tidak membanjiri PostgREST.
+        loop = asyncio.get_running_loop()
+        terakhir = [0]
+
+        def _maju(selesai: int, total: int) -> None:
+            if total <= 0:
+                return
+            pct = int(selesai * 100 / total)
+            if pct - terakhir[0] < 3 and pct < 100:
+                return
+            terakhir[0] = pct
+            asyncio.run_coroutine_threadsafe(
+                jobs_mod.update_project(project_id, status="downloading",
+                                        progress=min(99, pct)), loop)
+
+        info = await hydra_download(url, src_path, on_progress=_maju)
         title = info["title"][:120]
         try:
             from .premium import sb
             await sb("PATCH", f"projects?id=eq.{project_id}", json_body={"title": title})
         except Exception:
             pass
+        # SUMBER DISIMPAN SEKARANG, bukan setelah pipeline selesai.
+        # Dulu unggahan dijalankan setelah run_media_pipeline() — artinya proyek
+        # sudah 'completed' sementara storage_path masih NULL, sehingga
+        # pra-render preview mengunduh ulang video dari YouTube untuk SETIAP
+        # klip (10x unduh 600 MB) dan editor menampilkan "memproses" yang
+        # persennya tak bergerak. Dijalankan paralel dengan transkripsi lewat
+        # background.spawn supaya tidak menunda deteksi klip.
+        from .background import spawn as _spawn
+        tugas_simpan = _spawn(_persist_source_to_storage(project_id, user_id, src_path),
+                              name=f"simpan-sumber:{project_id[:8]}",
+                              key=f"sumber:{project_id}")
         await run_media_pipeline(project_id, user_id, src_path, target_count)
-        # Simpan video sumber ke storage supaya preview & render klip bisa jalan.
-        # (Tanpa ini storage_path null → /api/preview-clip 500 "belum punya file media".)
-        await _persist_source_to_storage(project_id, user_id, src_path)
     except Exception as exc:
         try:
             from .premium import sb
@@ -662,6 +754,14 @@ async def run_youtube_pipeline(project_id: str, user_id: str, url: str, target_c
             pass
         print(f"[youtube] pipeline gagal: {exc}")
     finally:
+        # Unggahan sumber memakai src_path yang sama — TUNGGU selesai sebelum
+        # berkasnya dihapus, kalau tidak unggahan mati di tengah jalan dan
+        # storage_path tetap NULL (preview jadi mengunduh ulang dari YouTube).
+        try:
+            if tugas_simpan is not None and not tugas_simpan.done():
+                await asyncio.wait_for(asyncio.shield(tugas_simpan), timeout=2400)
+        except Exception as exc:
+            print(f"[youtube] menunggu simpan sumber: {str(exc)[:100]}")
         try:
             if os.path.exists(src_path):
                 os.unlink(src_path)

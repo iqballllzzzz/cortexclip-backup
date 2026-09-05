@@ -395,8 +395,20 @@ async def run_youtube_pipeline(project_id: str, user_id: str, url: str, target_c
         # Sebelumnya hanya jalur sukses yang dicatat, jadi ketika semua provider
         # gagal, panel admin tampak "tidak ada request" — bukan "model gagal".
         t_clip = time.time()
+        loop2 = asyncio.get_running_loop()
+
+        def _maju_momen(langkah: int, total: int) -> None:
+            """Persen fase 'Pilih momen' — lihat youtube.py, keluhan yang sama."""
+            if total <= 0:
+                return
+            asyncio.run_coroutine_threadsafe(
+                jobs_mod.update_project(project_id, status="analyzing",
+                                        progress=min(99, int(langkah * 100 / total))),
+                loop2)
+
         try:
-            clips = await detect_clips(transcript, target_count, genre=genre)
+            clips = await detect_clips(transcript, target_count, genre=genre,
+                                       on_progress=_maju_momen)
         except Exception as exc:
             try:
                 from .admin import log_usage
@@ -426,7 +438,7 @@ async def run_youtube_pipeline(project_id: str, user_id: str, url: str, target_c
         if not clips:
             raise RuntimeError("AI tidak menemukan klip yang layak dari video ini.")
         await jobs_mod.replace_clips(project_id, user_id, clips)
-        await jobs_mod.update_project(project_id, status="completed")
+        await jobs_mod.update_project(project_id, status="completed", progress=100)
         # pra-render preview semua klip (lihat prerender.py)
         from .prerender import jadwalkan
         jadwalkan(project_id)

@@ -26,7 +26,12 @@ import { getPreset, DEFAULT_SUBTITLE_PRESET } from "@/components/subtitle-styles
 import { useAccountStatus } from "@/hooks/use-account-status";
 import type { Database } from "@/integrations/supabase/types";
 
-type Project = Database["public"]["Tables"]["projects"]["Row"];
+type Project = Database["public"]["Tables"]["projects"]["Row"] & {
+  /** kolom `progress` (smallint 0-100) ada di DB tapi belum ikut di types.ts
+   *  hasil generate — ditambahkan di sini supaya persen bisa naik di dalam
+   *  satu fase (lihat persenTampil). */
+  progress?: number | null;
+};
 type ClipBase = Database["public"]["Tables"]["clips"]["Row"];
 type Clip = ClipBase & {
   preview_url?: string | null;
@@ -59,6 +64,24 @@ const PHASES = [
   { key: "analyzing", label: "Pilih momen", pct: 78 },
   { key: "completed", label: "Selesai", pct: 100 },
 ] as const;
+
+/** Persen yang DITAMPILKAN: batas bawah fase + kemajuan di dalam fase itu.
+ *
+ *  Keluhan pengguna: "mana gak nambah nambah lagi persen dan estimasi gak
+ *  turun turun". Sebabnya `pct` dulu diambil dari tabel PHASES saja, jadi
+ *  seluruh fase "Pilih momen" — 4 menit untuk video 43 menit — membeku di
+ *  angka 78 yang sama. Sekarang kolom `projects.progress` (0-100 di dalam
+ *  fase) dipetakan ke jarak menuju fase berikutnya, sehingga angkanya naik
+ *  terus selama server bekerja.
+ */
+function persenTampil(status: string | undefined, progress: number | null | undefined): number {
+  const i = PHASES.findIndex((p) => p.key === status);
+  if (i < 0) return 0;
+  const dasar = PHASES[i]?.pct ?? 0;
+  const atas = PHASES[i + 1]?.pct ?? 100;
+  const p = typeof progress === "number" ? Math.max(0, Math.min(100, progress)) : 0;
+  return Math.round(dasar + ((atas - dasar) * p) / 100);
+}
 
 const STATUS_LABEL: Record<string, string> = {
   pending: "Menunggu",
@@ -172,11 +195,7 @@ function ProjectPage() {
     return () => clearInterval(iv);
   }, [busy, load]);
 
-  const pct = (() => {
-    const st = project?.status;
-    const found = PHASES.find((p) => p.key === st);
-    return found?.pct ?? 0;
-  })();
+  const pct = persenTampil(project?.status, project?.progress);
 
   /* --- WATCHDOG: status proses tanpa perubahan >10 menit = macet.
      (Jejak pipeline browser lama / task server crash tanpa update.)

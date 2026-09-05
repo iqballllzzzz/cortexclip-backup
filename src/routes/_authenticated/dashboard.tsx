@@ -23,8 +23,6 @@ import {
 import { PremiumDialog } from "@/components/premium-dialog";
 import { AppNav } from "@/components/app-nav";
 import { PageLoading } from "@/components/page-loading";
-import { listRenderJobs, type RenderJob } from "@/lib/backend-api";
-import { clipFileName } from "@/lib/clip-file";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -116,11 +114,6 @@ function Dashboard() {
   const [sharedLink, setSharedLink] = useState<string | null>(null);
   const [premiumOpen, setPremiumOpen] = useState(false);
   const [filter, setFilter] = useState<Filter>("semua");
-  // Hasil render terbaru (sumber: GET /api/render-jobs, sama dengan /unduh)
-  const [renders, setRenders] = useState<RenderJob[]>([]);
-  // Klip yang sedang diputar di dashboard — hanya SATU sekaligus, supaya tidak
-  // ada enam <video> memutar bersamaan dan menghabiskan bandwidth pengguna.
-  const [mainkan, setMainkan] = useState<string | null>(null);
   const [quota, setQuota] = useState<{
     plan: string;
     used: number;
@@ -211,32 +204,6 @@ function Dashboard() {
       setLoading(false);
     }
     void loadData();
-  }, [user.id]);
-
-  /* --- HASIL RENDER TERBARU (permintaan pengguna: "di dashboard kamu
-     tambahin preview nya video yang baru saja di render di halaman unduh")
-     Sumbernya endpoint yang sama dengan halaman /unduh — GET /api/render-jobs —
-     jadi tidak ada kemungkinan dashboard dan /unduh menampilkan daftar berbeda.
-     Hanya job `completed` yang punya rendered_url yang bisa jadi preview. --- */
-  useEffect(() => {
-    let hidup = true;
-    async function muat() {
-      try {
-        const semua = await listRenderJobs();
-        if (!hidup) return;
-        setRenders(semua.filter((j) => j.status === "completed" && j.rendered_url).slice(0, 6));
-      } catch {
-        /* dashboard tetap berguna tanpa bagian ini */
-      }
-    }
-    void muat();
-    // Job yang masih merender akan selesai saat pengguna membaca dashboard,
-    // jadi daftar disegarkan berkala — bukan sekali saat muat.
-    const iv = setInterval(() => void muat(), 20_000);
-    return () => {
-      hidup = false;
-      clearInterval(iv);
-    };
   }, [user.id]);
 
   async function createFromFile(file: File) {
@@ -640,103 +607,8 @@ function Dashboard() {
           </div>
         </section>
 
-        {/* ═══ HASIL RENDER TERBARU: preview yang bisa langsung diputar ═══
-             Permintaan pengguna: hasil render yang tadinya hanya ada di halaman
-             /unduh dijadikan preview di dashboard. Datanya dari endpoint yang
-             SAMA (GET /api/render-jobs) supaya tidak pernah berbeda dengan
-             halaman unduhan. Poster kosong + preload="none": tidak ada byte
-             video yang diunduh sampai pengguna menekan putar. ═══ */}
-        {renders.length > 0 ? (
-          <section className="reveal mt-12" style={{ ["--i" as string]: 3 }}>
-            <div className="flex flex-wrap items-baseline justify-between gap-3">
-              <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">
-                Baru saja dirender
-              </h2>
-              <Link
-                to="/unduh"
-                className="text-[13px] font-semibold text-accent underline-offset-2 hover:underline"
-              >
-                Semua unduhan →
-              </Link>
-            </div>
-            <p className="mt-1.5 max-w-[52ch] text-[13px] leading-relaxed text-muted-foreground">
-              Tekan salah satu untuk memutarnya di sini — persis berkas yang akan
-              kamu unduh, termasuk subtitle dan framing wajah.
-            </p>
-
-            <ul className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {renders.map((j) => {
-                const aktif = mainkan === j.id;
-                return (
-                  <li
-                    key={j.id}
-                    className="overflow-hidden rounded-2xl border border-border bg-card"
-                  >
-                    <div className="relative aspect-[9/16] w-full bg-surface">
-                      {aktif ? (
-                        <video
-                          src={j.rendered_url ?? undefined}
-                          className="size-full object-contain"
-                          controls
-                          autoPlay
-                          playsInline
-                          preload="metadata"
-                          onEnded={() => setMainkan(null)}
-                        />
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setMainkan(j.id)}
-                          className="group grid size-full place-items-center"
-                          aria-label={`Putar ${j.clip_title ?? "klip"}`}
-                        >
-                          {/* preload="none": metadata pun tidak diambil sampai
-                              diputar — dashboard tetap ringan walau ada 6 klip */}
-                          <video
-                            src={j.rendered_url ?? undefined}
-                            className="absolute inset-0 size-full object-contain opacity-60"
-                            preload="none"
-                            muted
-                            playsInline
-                            tabIndex={-1}
-                          />
-                          <span className="relative grid size-14 place-items-center rounded-full bg-black/55 backdrop-blur transition-transform group-hover:scale-105">
-                            <Play className="size-6 translate-x-0.5 text-white" />
-                          </span>
-                        </button>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 border-t border-border px-3.5 py-3">
-                      <span className="min-w-0 flex-1">
-                        <span
-                          className="block truncate text-[13px] font-semibold tracking-tight"
-                          title={j.clip_title ?? undefined}
-                        >
-                          {j.clip_title ?? "Klip tanpa judul"}
-                        </span>
-                        <span className="mt-0.5 block text-[11px] text-muted-foreground">
-                          {timeAgo(j.completed_at ?? j.created_at)}
-                        </span>
-                      </span>
-                      <a
-                        href={j.rendered_url ?? "#"}
-                        download={clipFileName(j.clip_title ?? "klip")}
-                        className="grid size-9 shrink-0 place-items-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-surface hover:text-foreground"
-                        aria-label={`Unduh ${j.clip_title ?? "klip"}`}
-                        title="Unduh"
-                      >
-                        <Download className="size-4" />
-                      </a>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        ) : null}
-
         {/* ═══ DAFTAR PROYEK ═══ */}
-        <section className="reveal mt-12" style={{ ["--i" as string]: 4 }}>
+        <section className="reveal mt-12" style={{ ["--i" as string]: 3 }}>
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">
               Proyek kamu
