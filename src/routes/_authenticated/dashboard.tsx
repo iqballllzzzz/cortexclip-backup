@@ -535,7 +535,7 @@ function Dashboard() {
         {/* ═══ RAIL FASE + FILM STRIP PROYEK ═══ */}
         <div className="mt-10 grid gap-8 lg:grid-cols-[220px_1fr] lg:items-start">
           {/* RAIL: tombol fase vertikal — mobile jadi chips horizontal */}
-          <nav aria-label="Filter tahap" className="lg:sticky lg:top-6">
+          <nav aria-label="Filter tahap" className="min-w-0 lg:sticky lg:top-6">
             <ul className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
               <li>
                 <FaseTab
