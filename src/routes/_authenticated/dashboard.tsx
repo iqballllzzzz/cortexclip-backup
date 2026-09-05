@@ -24,6 +24,7 @@ import { PremiumDialog } from "@/components/premium-dialog";
 import { AppNav } from "@/components/app-nav";
 import { PageLoading } from "@/components/page-loading";
 import { supabase } from "@/integrations/supabase/client";
+import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { shareProject, renameProject, deleteProject, processYoutube } from "@/lib/project-api";
@@ -93,6 +94,7 @@ type Filter = "semua" | Tahap;
 function Dashboard() {
   const { user } = Route.useRouteContext();
   const navigate = useNavigate();
+  const { t } = useI18n();
   const { status: account, reload: reloadAccount } = useAccountStatus();
 
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -313,7 +315,7 @@ function Dashboard() {
       setProjects((prev) =>
         prev.map((p) => (p.id === renameTarget.id ? { ...p, title: next } : p)),
       );
-      toast.success("Nama proyek diubah.");
+      toast.success(t("umum.berhasil"));
       setRenameTarget(null);
     } catch {
       toast.error("Gagal mengubah nama");
@@ -328,7 +330,7 @@ function Dashboard() {
       toast.success("Proyek dihapus sepenuhnya dari server.");
       setConfirmDelete(null);
     } catch {
-      toast.error("Gagal menghapus proyek");
+      toast.error(t("umum.gagal"));
     }
   }
 
@@ -632,11 +634,11 @@ function Dashboard() {
           </div>
 
           {loading ? (
-            <PageLoading label="Memuat proyek" />
+            <PageLoading label={t("umum.memuat")} />
           ) : terlihat.length === 0 ? (
             <div className="mt-6 rounded-2xl border border-dashed border-border px-6 py-14 text-center">
               <p className="font-display text-base font-bold">
-                {projects.length === 0 ? "Belum ada proyek" : "Tidak ada di tahap ini"}
+                {projects.length === 0 ? t("dash.belum_ada_proyek") : t("dash.belum_ada_proyek")}
               </p>
               <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
                 {projects.length === 0
@@ -650,7 +652,7 @@ function Dashboard() {
                   projects.length === 0 ? fileInput.current?.click() : setFilter("semua")
                 }
               >
-                {projects.length === 0 ? "Buat proyek pertama" : "Tampilkan semua"}
+                {projects.length === 0 ? t("dash.buat_baru") : t("dash.lihat_semua")}
               </Button>
             </div>
           ) : (
@@ -862,7 +864,7 @@ function Dashboard() {
       <Modal
         open={!!confirmDelete}
         onClose={() => setConfirmDelete(null)}
-        title="Hapus proyek ini?"
+        title={t("umum.hapus")}
         tone="danger"
       >
         <p className="text-sm leading-relaxed text-muted-foreground">
@@ -881,7 +883,7 @@ function Dashboard() {
       </Modal>
 
       {/* ===== Dialog: ubah nama ===== */}
-      <Modal open={!!renameTarget} onClose={() => setRenameTarget(null)} title="Ubah nama proyek">
+      <Modal open={!!renameTarget} onClose={() => setRenameTarget(null)} title={t("umum.ubah")}>
         <input
           value={renameValue}
           onChange={(e) => setRenameValue(e.target.value)}

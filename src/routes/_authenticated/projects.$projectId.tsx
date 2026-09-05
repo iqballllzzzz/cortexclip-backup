@@ -22,6 +22,7 @@ import { PageLoading } from "@/components/page-loading";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { buildAss, buildSrt, download } from "@/lib/srt";
+import { useI18n } from "@/lib/i18n";
 import { getPreset, DEFAULT_SUBTITLE_PRESET } from "@/components/subtitle-styles";
 import { useAccountStatus } from "@/hooks/use-account-status";
 import type { Database } from "@/integrations/supabase/types";
@@ -59,17 +60,17 @@ export const Route = createFileRoute("/_authenticated/projects/$projectId")({
 /* ---------------------------------------------------------------- tahapan */
 
 const PHASES = [
-  { key: "downloading", label: "Ambil media", pct: 12 },
-  { key: "transcribing", label: "Transkripsi", pct: 45 },
-  { key: "analyzing", label: "Pilih momen", pct: 78 },
-  { key: "completed", label: "Selesai", pct: 100 },
+  { key: "downloading", labelKey: "proyek.tahap_ambil", label: "Ambil media", pct: 12 },
+  { key: "transcribing", labelKey: "proyek.tahap_transkripsi", label: "Transkripsi", pct: 45 },
+  { key: "analyzing", labelKey: "proyek.tahap_pilih_momen", label: "Pilih momen", pct: 78 },
+  { key: "completed", labelKey: "proyek.tahap_selesai", label: "Selesai", pct: 100 },
 ] as const;
 
 /** Persen yang DITAMPILKAN: batas bawah fase + kemajuan di dalam fase itu.
  *
  *  Keluhan pengguna: "mana gak nambah nambah lagi persen dan estimasi gak
  *  turun turun". Sebabnya `pct` dulu diambil dari tabel PHASES saja, jadi
- *  seluruh fase "Pilih momen" — 4 menit untuk video 43 menit — membeku di
+ *  seluruh fase t("proyek.tahap_pilih_momen") — 4 menit untuk video 43 menit — membeku di
  *  angka 78 yang sama. Sekarang kolom `projects.progress` (0-100 di dalam
  *  fase) dipetakan ke jarak menuju fase berikutnya, sehingga angkanya naik
  *  terus selama server bekerja.
@@ -118,6 +119,7 @@ function formatClock(seconds: number) {
 /* ------------------------------------------------------------------- page */
 
 function ProjectPage() {
+  const { t } = useI18n();
   const { projectId } = Route.useParams();
   const navigate = useNavigate();
   const { status: account } = useAccountStatus();

@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { BookOpen, Crown, Download, LayoutDashboard, LogOut, Menu, ShieldCheck, X } from "lucide-react";
+import { BookOpen, Crown, Download, LayoutDashboard, LogOut, Menu, Settings, ShieldCheck, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -79,6 +79,15 @@ export function AppNav({
               <Crown className="size-3" /> Premium
             </span>
           ) : null}
+
+          <Link
+            to="/pengaturan"
+            className="hidden size-8 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-surface hover:text-foreground md:grid"
+            aria-label="Pengaturan"
+            title="Pengaturan"
+          >
+            <Settings className="size-4" />
+          </Link>
 
           {avatarUrl ? (
             <img src={avatarUrl} alt="" className="size-8 rounded-full border border-border object-cover" />

@@ -17,6 +17,7 @@ import { Route as DocsRouteImport } from './routes/docs'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as StudioRouteImport } from './routes/studio'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as AuthenticatedPengaturanRouteImport } from './routes/_authenticated/pengaturan'
 import { Route as AuthenticatedUnduhRouteImport } from './routes/_authenticated/unduh'
 import { Route as ShareTokenRouteImport } from './routes/share.$token'
 import { Route as AuthenticatedEditorClipIdRouteImport } from './routes/_authenticated/editor.$clipId'
@@ -61,6 +62,11 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedPengaturanRoute = AuthenticatedPengaturanRouteImport.update({
+  id: '/pengaturan',
+  path: '/pengaturan',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedUnduhRoute = AuthenticatedUnduhRouteImport.update({
   id: '/unduh',
   path: '/unduh',
@@ -92,6 +98,7 @@ export interface FileRoutesByFullPath {
   '/reset-password': typeof ResetPasswordRoute
   '/studio': typeof StudioRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/pengaturan': typeof AuthenticatedPengaturanRoute
   '/unduh': typeof AuthenticatedUnduhRoute
   '/share/$token': typeof ShareTokenRoute
   '/editor/$clipId': typeof AuthenticatedEditorClipIdRoute
@@ -105,6 +112,7 @@ export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
   '/studio': typeof StudioRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/pengaturan': typeof AuthenticatedPengaturanRoute
   '/unduh': typeof AuthenticatedUnduhRoute
   '/share/$token': typeof ShareTokenRoute
   '/editor/$clipId': typeof AuthenticatedEditorClipIdRoute
@@ -120,6 +128,7 @@ export interface FileRoutesById {
   '/reset-password': typeof ResetPasswordRoute
   '/studio': typeof StudioRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/pengaturan': typeof AuthenticatedPengaturanRoute
   '/_authenticated/unduh': typeof AuthenticatedUnduhRoute
   '/share/$token': typeof ShareTokenRoute
   '/_authenticated/editor/$clipId': typeof AuthenticatedEditorClipIdRoute
@@ -135,6 +144,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/studio'
     | '/dashboard'
+    | '/pengaturan'
     | '/unduh'
     | '/share/$token'
     | '/editor/$clipId'
@@ -148,6 +158,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/studio'
     | '/dashboard'
+    | '/pengaturan'
     | '/unduh'
     | '/share/$token'
     | '/editor/$clipId'
@@ -162,6 +173,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/studio'
     | '/_authenticated/dashboard'
+    | '/_authenticated/pengaturan'
     | '/_authenticated/unduh'
     | '/share/$token'
     | '/_authenticated/editor/$clipId'
@@ -237,6 +249,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/pengaturan': {
+      id: '/_authenticated/pengaturan'
+      path: '/pengaturan'
+      fullPath: '/pengaturan'
+      preLoaderRoute: typeof AuthenticatedPengaturanRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/unduh': {
       id: '/_authenticated/unduh'
       path: '/unduh'
@@ -270,6 +289,7 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedPengaturanRoute: typeof AuthenticatedPengaturanRoute
   AuthenticatedUnduhRoute: typeof AuthenticatedUnduhRoute
   AuthenticatedEditorClipIdRoute: typeof AuthenticatedEditorClipIdRoute
   AuthenticatedProjectsProjectIdRoute: typeof AuthenticatedProjectsProjectIdRoute
@@ -277,6 +297,7 @@ interface AuthenticatedRouteRouteChildren {
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedPengaturanRoute: AuthenticatedPengaturanRoute,
   AuthenticatedUnduhRoute: AuthenticatedUnduhRoute,
   AuthenticatedEditorClipIdRoute: AuthenticatedEditorClipIdRoute,
   AuthenticatedProjectsProjectIdRoute: AuthenticatedProjectsProjectIdRoute,

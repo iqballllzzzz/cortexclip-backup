@@ -1,3 +1,4 @@
+
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
@@ -17,6 +18,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { listRenderJobs, type RenderJob } from "@/lib/backend-api";
 import { clipFileName } from "@/lib/clip-file";
 import { deleteRenderJob } from "@/lib/project-api";
+import { useI18n } from "@/lib/i18n";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { PageLoading } from "@/components/page-loading";
@@ -56,6 +58,7 @@ function timeAgo(iso: string) {
 }
 
 function DownloadsPage() {
+  const { t } = useI18n();
   const [jobs, setJobs] = useState<RenderJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [projectNames, setProjectNames] = useState<Record<string, string>>({});
