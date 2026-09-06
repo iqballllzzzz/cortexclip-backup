@@ -16,6 +16,7 @@ Failover behaviour (user requirement "hydra"):
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import time
@@ -242,17 +243,28 @@ DEFAULT_MODELS: dict[str, list[str]] = {
     ],
     # DARI RISET: aktif otomatis kalau CLOUDFLARE_API_KEYS +
     # CLOUDFLARE_ACCOUNT_ID diisi (10.000 Neuron/hari gratis permanen).
+    # Diverifikasi nyata 2026-09-06 (kunci pengguna, account Agusu0764):
+    #   llama-3.3-70b-fp8-fast balas {"ok":true} dalam <1s. Vision + coder
+    #   disiapkan untuk fitur logo/manual-tracking berikutnya.
     "cloudflare": [
-        "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-        "@cf/meta/llama-3.2-11b-vision-instruct",
-        "@cf/qwen/qwen2.5-coder-32b-instruct",
+        "@cf/meta/llama-3.3-70b-instruct-fp8-fast",   # UJI: hidup, 794ms
+        "@cf/qwen/qwen2.5-coder-32b-instruct",        # UJI: hidup (content dict)
+        # @cf/meta/llama-3.2-11b-vision-instruct DIBUANG sementara: Cloudflare
+        # mensyaratkan Model Agreement yang hanya bisa diterima manual di
+        # dashboard (Workers AI -> model -> Accept). Belum bisa lewat API.
     ],
     # DARI RISET: aktif otomatis kalau NVIDIA_API_KEYS diisi (40 RPM gratis).
     # qwen2.5-vl-72b = grounding momen video terbaik yang gratis.
+    # Diuji nyata 2026-09-06 dengan kunci pengguna: hanya 4 dari 8 kandidat
+    # yang menjawab dalam waktu wajar. Yang lain TIMEOUT 150s+ atau hilang
+    # dari katalog (410 Gone) — JANGAN dipasang walau ada di katalog:
+    #   deepseek-v4-flash-0731, llama-3.2-90b-vision, gemma-4-31b -> timeout 150s+
+    #   llama-3.1-nemotron-70b-instruct -> "Function not found for account"
     "nvidia": [
-        "qwen/qwen2.5-vl-72b-instruct",
-        "deepseek-ai/deepseek-v3.2",
-        "nvidia/llama-3.3-nemotron-super-49b-v1",
+        "moonshotai/kimi-k3",                   # UJI: 200 '{"ok":true}'
+        "nvidia/nemotron-3-super-120b-a12b",    # UJI: 200 '{"ok":true}'
+        "nvidia/nemotron-3.5-lightning-30b-a3b", # UJI: 200 (reasoning)
+        "openai/gpt-oss-20b",                   # UJI: 200 '{"ok":true}'
     ],
     "unlimitedai": [
         "chat-model-reasoning",
@@ -659,6 +671,12 @@ class HydraGateway:
 
         if isinstance(content, list):
             content = "".join(p.get("text", "") for p in content if isinstance(p, dict))
+        if isinstance(content, dict):
+            # Cloudflare /ai/v1 membalas JSON literal sebagai OBJEK, bukan
+            # string ("content": {"ok": true}). Serialisasi supaya jalur
+            # pemanggil tetap menerima str (dulu: 'dict' object has no
+            # attribute 'strip' -> model dilaporkan mati padahal hidup).
+            content = json.dumps(content, ensure_ascii=False)
         # sebagian model reasoning menaruh keluaran di field reasoning: anggap kosong
         if not content or not content.strip():
             raise RespGagal(500, "empty content")
@@ -887,8 +905,8 @@ class HydraGateway:
         keluar.sort(key=lambda r: (-r["total"], r["provider"], r["model"]))
         return keluar
 
-    async def uji_semua(self, timeout: float = 25.0,
-                        paralel: int = 4) -> dict[str, Any]:
+    async def uji_semua(self, timeout: float = 180.0,
+                        paralel: int = 6) -> dict[str, Any]:
         """Tembak SETIAP endpoint chat dengan satu prompt kecil.
 
         Kenapa perlu: pool ini memakai failover, jadi model pertama hampir
