@@ -538,6 +538,32 @@ async def api_manual_track_get(clip_id: str, request: Request,
         raise HTTPException(400, str(exc)[:200])
 
 
+@app.post("/api/manual-track/{clip_id}/preview")
+async def api_manual_track_preview(clip_id: str, body: dict, request: Request,
+                                   authorization: str | None = Header(None)):
+    """PRATINJAU subjek manual tracking (tanpa menyimpan).
+
+    Body: {"scene_start","scene_end","cx","cy","t_ref"} → balik kotak subjek
+    per frame ({boxes:[{cx,cy,w}|None]}) supaya UI menggambar border yang
+    mengikuti subjek di video sebelum user mengunci.
+    """
+    user = await get_user(request, authorization)
+    ensure_uuid(clip_id, "Klip")
+    from anyio import to_thread
+
+    from . import render as render_mod
+    from .manual_track import pratinjau_manual_track
+    from .render_clip import _source_seek_url
+    try:
+        return await pratinjau_manual_track(
+            clip_id, str(user["id"]), body or {},
+            render_mod=render_mod, source_url_for=_source_seek_url,
+            run_sync=to_thread.run_sync)
+    except Exception as exc:
+        print(f"[manual-track-preview] gagal: {exc}")
+        raise HTTPException(400, str(exc)[:200])
+
+
 @app.patch("/api/clips/{clip_id}/words")
 async def api_edit_transcript(clip_id: str, body: dict, request: Request,
                               authorization: str | None = Header(None)):
