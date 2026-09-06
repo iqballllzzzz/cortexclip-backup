@@ -39,8 +39,21 @@ export function SiteHeader() {
       }`}
     >
       <div className="mx-auto flex h-16 max-w-[1180px] items-center gap-6 px-4 sm:px-6">
-        <Link to="/" className="flex shrink-0 items-center gap-2">
-          <img src="/favicon.png" alt="" className="size-7 object-contain dark:invert" />
+        <Link
+          to="/"
+          className="flex shrink-0 items-center gap-2"
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          {/* Logo BERWARNA asli — TANPA dark:invert (keluhan: "logo gak
+              terlihat di tema gelap" karena invert membuat warna kuda jadi
+              negatif). PNG RGBA berwarna terbaca baik di terang & gelap. */}
+          <img
+            src="/cortexclip-logo.png"
+            alt="CortexClip"
+            draggable={false}
+            className="size-8 select-none object-contain"
+            onContextMenu={(e) => e.preventDefault()}
+          />
           <span className="font-display text-[15px] font-bold tracking-tight">CortexClip</span>
         </Link>
 

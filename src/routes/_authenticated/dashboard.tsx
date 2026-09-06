@@ -22,6 +22,9 @@ import {
 
 import { PremiumDialog } from "@/components/premium-dialog";
 import { AppNav } from "@/components/app-nav";
+import { NumberTicker } from "@/components/magicui/number-ticker";
+import { BlurFade } from "@/components/magicui/blur-fade";
+import { DotPattern } from "@/components/magicui/dot-pattern";
 import { supabase } from "@/integrations/supabase/client";
 import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
@@ -446,9 +449,13 @@ function Dashboard() {
 
         <section
           aria-label={t("dash.mulai_klip_baru")}
-          className="mt-8 overflow-hidden rounded-3xl border border-border bg-gradient-to-br from-card via-card to-surface"
+          className="relative mt-8 overflow-hidden rounded-3xl border border-border bg-gradient-to-br from-card via-card to-surface"
         >
-          <div className="grid lg:grid-cols-[1fr_auto]">
+          {/* DotPattern MagicUI — latar titik halus khas MagicUI */}
+          <DotPattern
+            className="[mask-image:radial-gradient(380px_circle_at_50%_0%,white,transparent)] opacity-60 dark:opacity-30"
+          />
+          <div className="relative grid lg:grid-cols-[1fr_auto]">
             {/* jalur 1: YouTube */}
             <div className="px-5 py-5 sm:px-7 sm:py-6">
               <div className="flex items-center gap-2">
@@ -535,7 +542,8 @@ function Dashboard() {
         {/* ═══ RAIL FASE + FILM STRIP PROYEK ═══ */}
         <div className="mt-10 grid gap-8 lg:grid-cols-[220px_1fr] lg:items-start">
           {/* RAIL: tombol fase vertikal — mobile jadi chips horizontal */}
-          <nav aria-label="Filter tahap" className="min-w-0 lg:sticky lg:top-6">
+          <BlurFade delay={0.12} inView className="min-w-0 lg:sticky lg:top-6">
+          <nav aria-label="Filter tahap">
             <ul className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
               <li>
                 <FaseTab
@@ -561,8 +569,10 @@ function Dashboard() {
               ))}
             </ul>
           </nav>
+          </BlurFade>
 
           {/* STRIP: baris kartu scroll horizontal ala gulungan film */}
+          <BlurFade delay={0.2} inView>
           <section aria-label="Proyek kamu" className="min-w-0">
             <div className="flex items-baseline justify-between gap-3">
               <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">
@@ -728,6 +738,7 @@ function Dashboard() {
               </ul>
             )}
           </section>
+          </BlurFade>
         </div>
 
         <p className="mt-14 max-w-prose border-t border-border pt-6 text-[13px] leading-relaxed text-muted-foreground">
@@ -954,7 +965,8 @@ function FaseTab({
       <span
         className={`stat-figure shrink-0 text-[20px] leading-none ${aktif ? "text-accent" : "text-muted-foreground"}`}
       >
-        {nilai}
+        {/* NumberTicker MagicUI — angka menghitung naik saat berubah */}
+        <NumberTicker value={nilai} className="tabular-nums" />
       </span>
     </button>
   );

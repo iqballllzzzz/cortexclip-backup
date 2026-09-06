@@ -370,3 +370,30 @@
   .conveyor { animation: none; opacity: 0.5; }
   .shine::after { display: none; }
 }
+
+/* ── ANTI-ZOOM HALAMAN (permintaan pengguna 2026-09-06) ──────────────────
+   viewport meta sudah mematikan pinch-zoom di mobile. Ini lapisan kedua
+   untuk desktop: ctrl+wheel / ctrl+plus akan dibatalkan, dan gesture
+   pinch di iOS (gesturestart) dicegah. Editor logo nanti punya zoom
+   sendiri per-objek — zoom halaman penuh hanya merusak tata letak. */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    -moz-text-size-adjust: none;
+    -webkit-text-size-adjust: none;
+    text-size-adjust: none;
+    touch-action: pan-x pan-y;
+  }
+}
+
+/* ── AnimatedThemeToggler (MagicUI) — view transition tema ──────────────
+   Komponen menyetel --magicui-theme-toggle-vt-duration + data-attribute
+   di <html> hanya selama pergantian tema, supaya animasi clip-path
+   sinkron dengan grup view-transition tanpa mengganggu transisi lain. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+html[data-magicui-theme-vt="active"]::view-transition-group(root) {
+  animation-duration: var(--magicui-theme-toggle-vt-duration);
+}

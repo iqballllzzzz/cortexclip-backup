@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import logo from "@/assets/cortexclip-logo.png";
 
 const title = "Reset Password — CortexClip";
 const description = "Atur password baru untuk akun CortexClip kamu.";
@@ -105,7 +104,7 @@ function ResetPasswordPage() {
             alt="Logo CortexClip"
             width={36}
             height={36}
-            className="h-9 w-9 dark:invert"
+            className="h-9 w-9"
           />
           <span className="font-display text-xl font-bold tracking-tight">CortexClip</span>
         </div>

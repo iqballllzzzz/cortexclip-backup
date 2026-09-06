@@ -48,8 +48,18 @@ export function AppNav({
   return (
     <header className="sticky top-0 z-[var(--z-sticky)] border-b border-border bg-background/88 backdrop-blur-xl">
       <div className="mx-auto flex max-w-[1180px] items-center gap-4 px-4 py-3 sm:px-6">
-        <Link to="/dashboard" className="flex min-w-0 items-center gap-2">
-          <img src="/favicon.png" alt="" className="size-7 shrink-0 object-contain" />
+        <Link
+          to="/dashboard"
+          className="flex min-w-0 items-center gap-2"
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <img
+            src="/cortexclip-logo.png"
+            alt="CortexClip"
+            draggable={false}
+            className="size-8 shrink-0 select-none object-contain"
+            onContextMenu={(e) => e.preventDefault()}
+          />
           <span className="truncate font-display text-[15px] font-bold tracking-tight">
             CortexClip
           </span>

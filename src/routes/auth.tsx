@@ -11,7 +11,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import logo from "@/assets/cortexclip-logo.png";
 
 const title = "Masuk atau Daftar — CortexClip";
 const description =
@@ -260,7 +259,7 @@ function AuthPage() {
       >
         <div className="flex justify-center">
           <Link to="/" className="flex items-center gap-2">
-            <img src={logo} alt="Logo CortexClip" width={28} height={28} className="h-7 w-7 dark:invert" />
+            <img src="/cortexclip-logo.png" onContextMenu={(e) => e.preventDefault()} draggable={false} alt="Logo CortexClip" width={28} height={28} className="h-7 w-7" />
             <span className="font-display text-lg font-bold tracking-tight">
               Cortex<span className="text-foreground">Clip</span>
             </span>
