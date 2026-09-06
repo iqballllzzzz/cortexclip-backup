@@ -670,7 +670,7 @@ function ProjectPage() {
               </div>
             </div>
           ) : (
-            <ul className="mt-6 flex snap-x gap-5 overflow-x-auto pb-5 [scrollbar-width:thin]">
+            <ul className="snap-strip mt-6 flex gap-5 overflow-x-auto pb-5 [scrollbar-width:thin]">
               {clips.map((clip, i) => (
                 <DeckCard key={clip.id} clip={clip} onSave={saveClip} index={i} />
               ))}

@@ -19,6 +19,15 @@ import { Route as StudioRouteImport } from './routes/studio'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedPengaturanRouteImport } from './routes/_authenticated/pengaturan'
 import { Route as AuthenticatedUnduhRouteImport } from './routes/_authenticated/unduh'
+import { Route as DocsBatasRouteImport } from './routes/docs/batas'
+import { Route as DocsCustomLogoRouteImport } from './routes/docs/custom-logo'
+import { Route as DocsEditorRouteImport } from './routes/docs/editor'
+import { Route as DocsHargaRouteImport } from './routes/docs/harga'
+import { Route as DocsKeamananRouteImport } from './routes/docs/keamanan'
+import { Route as DocsManualTrackingRouteImport } from './routes/docs/manual-tracking'
+import { Route as DocsMasalahRouteImport } from './routes/docs/masalah'
+import { Route as DocsMulaiCepatRouteImport } from './routes/docs/mulai-cepat'
+import { Route as DocsWhatIsCortexclipaiRouteImport } from './routes/docs/what-is-cortexclipai'
 import { Route as ShareTokenRouteImport } from './routes/share.$token'
 import { Route as AuthenticatedEditorClipIdRouteImport } from './routes/_authenticated/editor.$clipId'
 import { Route as AuthenticatedProjectsProjectIdRouteImport } from './routes/_authenticated/projects.$projectId'
@@ -72,6 +81,51 @@ const AuthenticatedUnduhRoute = AuthenticatedUnduhRouteImport.update({
   path: '/unduh',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const DocsBatasRoute = DocsBatasRouteImport.update({
+  id: '/batas',
+  path: '/batas',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsCustomLogoRoute = DocsCustomLogoRouteImport.update({
+  id: '/custom-logo',
+  path: '/custom-logo',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsEditorRoute = DocsEditorRouteImport.update({
+  id: '/editor',
+  path: '/editor',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsHargaRoute = DocsHargaRouteImport.update({
+  id: '/harga',
+  path: '/harga',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsKeamananRoute = DocsKeamananRouteImport.update({
+  id: '/keamanan',
+  path: '/keamanan',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsManualTrackingRoute = DocsManualTrackingRouteImport.update({
+  id: '/manual-tracking',
+  path: '/manual-tracking',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsMasalahRoute = DocsMasalahRouteImport.update({
+  id: '/masalah',
+  path: '/masalah',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsMulaiCepatRoute = DocsMulaiCepatRouteImport.update({
+  id: '/mulai-cepat',
+  path: '/mulai-cepat',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsWhatIsCortexclipaiRoute = DocsWhatIsCortexclipaiRouteImport.update({
+  id: '/what-is-cortexclipai',
+  path: '/what-is-cortexclipai',
+  getParentRoute: () => DocsRoute,
+} as any)
 const ShareTokenRoute = ShareTokenRouteImport.update({
   id: '/share/$token',
   path: '/share/$token',
@@ -94,12 +148,21 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/auth': typeof AuthRoute
-  '/docs': typeof DocsRoute
+  '/docs': typeof DocsRouteWithChildren
   '/reset-password': typeof ResetPasswordRoute
   '/studio': typeof StudioRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/pengaturan': typeof AuthenticatedPengaturanRoute
   '/unduh': typeof AuthenticatedUnduhRoute
+  '/docs/batas': typeof DocsBatasRoute
+  '/docs/custom-logo': typeof DocsCustomLogoRoute
+  '/docs/editor': typeof DocsEditorRoute
+  '/docs/harga': typeof DocsHargaRoute
+  '/docs/keamanan': typeof DocsKeamananRoute
+  '/docs/manual-tracking': typeof DocsManualTrackingRoute
+  '/docs/masalah': typeof DocsMasalahRoute
+  '/docs/mulai-cepat': typeof DocsMulaiCepatRoute
+  '/docs/what-is-cortexclipai': typeof DocsWhatIsCortexclipaiRoute
   '/share/$token': typeof ShareTokenRoute
   '/editor/$clipId': typeof AuthenticatedEditorClipIdRoute
   '/projects/$projectId': typeof AuthenticatedProjectsProjectIdRoute
@@ -108,12 +171,21 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
   '/auth': typeof AuthRoute
-  '/docs': typeof DocsRoute
+  '/docs': typeof DocsRouteWithChildren
   '/reset-password': typeof ResetPasswordRoute
   '/studio': typeof StudioRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/pengaturan': typeof AuthenticatedPengaturanRoute
   '/unduh': typeof AuthenticatedUnduhRoute
+  '/docs/batas': typeof DocsBatasRoute
+  '/docs/custom-logo': typeof DocsCustomLogoRoute
+  '/docs/editor': typeof DocsEditorRoute
+  '/docs/harga': typeof DocsHargaRoute
+  '/docs/keamanan': typeof DocsKeamananRoute
+  '/docs/manual-tracking': typeof DocsManualTrackingRoute
+  '/docs/masalah': typeof DocsMasalahRoute
+  '/docs/mulai-cepat': typeof DocsMulaiCepatRoute
+  '/docs/what-is-cortexclipai': typeof DocsWhatIsCortexclipaiRoute
   '/share/$token': typeof ShareTokenRoute
   '/editor/$clipId': typeof AuthenticatedEditorClipIdRoute
   '/projects/$projectId': typeof AuthenticatedProjectsProjectIdRoute
@@ -124,12 +196,21 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/admin': typeof AdminRoute
   '/auth': typeof AuthRoute
-  '/docs': typeof DocsRoute
+  '/docs': typeof DocsRouteWithChildren
   '/reset-password': typeof ResetPasswordRoute
   '/studio': typeof StudioRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/pengaturan': typeof AuthenticatedPengaturanRoute
   '/_authenticated/unduh': typeof AuthenticatedUnduhRoute
+  '/docs/batas': typeof DocsBatasRoute
+  '/docs/custom-logo': typeof DocsCustomLogoRoute
+  '/docs/editor': typeof DocsEditorRoute
+  '/docs/harga': typeof DocsHargaRoute
+  '/docs/keamanan': typeof DocsKeamananRoute
+  '/docs/manual-tracking': typeof DocsManualTrackingRoute
+  '/docs/masalah': typeof DocsMasalahRoute
+  '/docs/mulai-cepat': typeof DocsMulaiCepatRoute
+  '/docs/what-is-cortexclipai': typeof DocsWhatIsCortexclipaiRoute
   '/share/$token': typeof ShareTokenRoute
   '/_authenticated/editor/$clipId': typeof AuthenticatedEditorClipIdRoute
   '/_authenticated/projects/$projectId': typeof AuthenticatedProjectsProjectIdRoute
@@ -146,6 +227,15 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/pengaturan'
     | '/unduh'
+    | '/docs/batas'
+    | '/docs/custom-logo'
+    | '/docs/editor'
+    | '/docs/harga'
+    | '/docs/keamanan'
+    | '/docs/manual-tracking'
+    | '/docs/masalah'
+    | '/docs/mulai-cepat'
+    | '/docs/what-is-cortexclipai'
     | '/share/$token'
     | '/editor/$clipId'
     | '/projects/$projectId'
@@ -160,6 +250,15 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/pengaturan'
     | '/unduh'
+    | '/docs/batas'
+    | '/docs/custom-logo'
+    | '/docs/editor'
+    | '/docs/harga'
+    | '/docs/keamanan'
+    | '/docs/manual-tracking'
+    | '/docs/masalah'
+    | '/docs/mulai-cepat'
+    | '/docs/what-is-cortexclipai'
     | '/share/$token'
     | '/editor/$clipId'
     | '/projects/$projectId'
@@ -175,6 +274,15 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard'
     | '/_authenticated/pengaturan'
     | '/_authenticated/unduh'
+    | '/docs/batas'
+    | '/docs/custom-logo'
+    | '/docs/editor'
+    | '/docs/harga'
+    | '/docs/keamanan'
+    | '/docs/manual-tracking'
+    | '/docs/masalah'
+    | '/docs/mulai-cepat'
+    | '/docs/what-is-cortexclipai'
     | '/share/$token'
     | '/_authenticated/editor/$clipId'
     | '/_authenticated/projects/$projectId'
@@ -185,7 +293,7 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AdminRoute: typeof AdminRoute
   AuthRoute: typeof AuthRoute
-  DocsRoute: typeof DocsRoute
+  DocsRoute: typeof DocsRouteWithChildren
   ResetPasswordRoute: typeof ResetPasswordRoute
   StudioRoute: typeof StudioRoute
   ShareTokenRoute: typeof ShareTokenRoute
@@ -263,6 +371,69 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedUnduhRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/docs/batas': {
+      id: '/docs/batas'
+      path: '/batas'
+      fullPath: '/docs/batas'
+      preLoaderRoute: typeof DocsBatasRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/custom-logo': {
+      id: '/docs/custom-logo'
+      path: '/custom-logo'
+      fullPath: '/docs/custom-logo'
+      preLoaderRoute: typeof DocsCustomLogoRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/editor': {
+      id: '/docs/editor'
+      path: '/editor'
+      fullPath: '/docs/editor'
+      preLoaderRoute: typeof DocsEditorRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/harga': {
+      id: '/docs/harga'
+      path: '/harga'
+      fullPath: '/docs/harga'
+      preLoaderRoute: typeof DocsHargaRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/keamanan': {
+      id: '/docs/keamanan'
+      path: '/keamanan'
+      fullPath: '/docs/keamanan'
+      preLoaderRoute: typeof DocsKeamananRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/manual-tracking': {
+      id: '/docs/manual-tracking'
+      path: '/manual-tracking'
+      fullPath: '/docs/manual-tracking'
+      preLoaderRoute: typeof DocsManualTrackingRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/masalah': {
+      id: '/docs/masalah'
+      path: '/masalah'
+      fullPath: '/docs/masalah'
+      preLoaderRoute: typeof DocsMasalahRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/mulai-cepat': {
+      id: '/docs/mulai-cepat'
+      path: '/mulai-cepat'
+      fullPath: '/docs/mulai-cepat'
+      preLoaderRoute: typeof DocsMulaiCepatRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/what-is-cortexclipai': {
+      id: '/docs/what-is-cortexclipai'
+      path: '/what-is-cortexclipai'
+      fullPath: '/docs/what-is-cortexclipai'
+      preLoaderRoute: typeof DocsWhatIsCortexclipaiRouteImport
+      parentRoute: typeof DocsRoute
+    }
     '/share/$token': {
       id: '/share/$token'
       path: '/share/$token'
@@ -306,12 +477,38 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
 const AuthenticatedRouteRouteWithChildren =
   AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
 
+interface DocsRouteChildren {
+  DocsBatasRoute: typeof DocsBatasRoute
+  DocsCustomLogoRoute: typeof DocsCustomLogoRoute
+  DocsEditorRoute: typeof DocsEditorRoute
+  DocsHargaRoute: typeof DocsHargaRoute
+  DocsKeamananRoute: typeof DocsKeamananRoute
+  DocsManualTrackingRoute: typeof DocsManualTrackingRoute
+  DocsMasalahRoute: typeof DocsMasalahRoute
+  DocsMulaiCepatRoute: typeof DocsMulaiCepatRoute
+  DocsWhatIsCortexclipaiRoute: typeof DocsWhatIsCortexclipaiRoute
+}
+
+const DocsRouteChildren: DocsRouteChildren = {
+  DocsBatasRoute: DocsBatasRoute,
+  DocsCustomLogoRoute: DocsCustomLogoRoute,
+  DocsEditorRoute: DocsEditorRoute,
+  DocsHargaRoute: DocsHargaRoute,
+  DocsKeamananRoute: DocsKeamananRoute,
+  DocsManualTrackingRoute: DocsManualTrackingRoute,
+  DocsMasalahRoute: DocsMasalahRoute,
+  DocsMulaiCepatRoute: DocsMulaiCepatRoute,
+  DocsWhatIsCortexclipaiRoute: DocsWhatIsCortexclipaiRoute,
+}
+
+const DocsRouteWithChildren = DocsRoute._addFileChildren(DocsRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AdminRoute: AdminRoute,
   AuthRoute: AuthRoute,
-  DocsRoute: DocsRoute,
+  DocsRoute: DocsRouteWithChildren,
   ResetPasswordRoute: ResetPasswordRoute,
   StudioRoute: StudioRoute,
   ShareTokenRoute: ShareTokenRoute,

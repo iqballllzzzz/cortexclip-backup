@@ -262,10 +262,16 @@ export interface HasilUjiModel {
   }[];
 }
 
-/** Tembak setiap model chat dengan satu prompt kecil.
- *
- *  Perlu karena pool memakai failover: tanpa ini model cadangan tidak pernah
- *  dipanggil, jadi angka sukses/gagalnya akan 0 selamanya di panel admin. */
-export async function ujiSemuaModel(): Promise<HasilUjiModel> {
-  return json<HasilUjiModel>(await authFetch("/api/admin/uji-model", { method: "POST" }));
+/** Picu uji semua model di LATAR BELAKANG — balas seketika. */
+export async function picuUjiModel(): Promise<{ jalan: boolean; sudah_berjalan?: boolean }> {
+  return json(await authFetch("/api/admin/uji-model", { method: "POST" }));
+}
+
+/** Poll status uji latar belakang sampai selesai. */
+export async function statusUjiModel(): Promise<{
+  jalan: boolean;
+  detik_berjalan: number | null;
+  hasil: HasilUjiModel | { error: string } | null;
+}> {
+  return json(await authFetch("/api/admin/uji-model/status"));
 }

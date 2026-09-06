@@ -1,6 +1,6 @@
 "use client";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowLeft,
@@ -10,6 +10,7 @@ import {
   Film,
   Loader2,
   PackageOpen,
+  Play,
   RefreshCw,
   Trash2,
   XCircle,
@@ -82,6 +83,10 @@ function DownloadsPage() {
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
+  /* PREVIEW SATU-AKTIF (permintaan pengguna): ketuk video → jalan;
+     ketuk unduhan lain → yang lama berhenti, yang baru jalan. */
+  const [playingJob, setPlayingJob] = useState<string | null>(null);
+  const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
 
   const refresh = useCallback(async () => {
     try {
@@ -258,18 +263,47 @@ function DownloadsPage() {
                     )}
 
                     <div className="flex items-stretch gap-4 p-3.5 sm:p-4">
-                      {/* thumbnail 9:16 — video diputar di tempat */}
+                      {/* thumbnail 9:16 — KETUK untuk main; hanya SATU video
+                          aktif (permintaan pengguna: "kalau user mencet klip
+                          unduhan lain maka klip yang tadi berhenti"). */}
                       <div className="relative aspect-[9/16] w-[72px] shrink-0 overflow-hidden rounded-xl bg-surface sm:w-[84px]">
                         {job.status === "completed" && job.rendered_url ? (
-                          <video
-                            src={`${job.rendered_url}#t=0.5`}
-                            className="absolute inset-0 size-full object-cover"
-                            preload="metadata"
-                            muted
-                            playsInline
-                            controls
-                            aria-label={title}
-                          />
+                          <>
+                            <video
+                              ref={(el) => { videoRefs.current[job.id] = el; }}
+                              src={`${job.rendered_url}#t=0.5`}
+                              className="absolute inset-0 size-full cursor-pointer object-cover"
+                              preload="metadata"
+                              muted
+                              playsInline
+                              aria-label={title}
+                              onClick={() => {
+                                const el = videoRefs.current[job.id];
+                                if (!el) return;
+                                if (playingJob === job.id && !el.paused) {
+                                  el.pause();
+                                  setPlayingJob(null);
+                                  return;
+                                }
+                                // hentikan yang lain — satu aktif
+                                for (const [id, v] of Object.entries(videoRefs.current)) {
+                                  if (id !== job.id && v && !v.paused) v.pause();
+                                }
+                                void el.play().then(() => setPlayingJob(job.id))
+                                  .catch(() => setPlayingJob(null));
+                              }}
+                              onEnded={() => setPlayingJob((p) => (p === job.id ? null : p))}
+                              onPause={() => setPlayingJob((p) => (p === job.id && videoRefs.current[job.id]?.paused ? null : p))}
+                            />
+                            {/* lencana play kecil — seluruh bidang adalah ketuk */}
+                            {playingJob !== job.id ? (
+                              <span className="pointer-events-none absolute inset-0 grid place-items-center">
+                                <span className="grid size-7 place-items-center rounded-full bg-black/55 backdrop-blur">
+                                  <Play className="size-3.5 translate-x-px text-white" />
+                                </span>
+                              </span>
+                            ) : null}
+                          </>
                         ) : (
                           <div className="absolute inset-0 grid place-items-center">
                             <meta.Icon className={`size-6 ${meta.tone} ${meta.spin ? "animate-spin" : ""}`} />

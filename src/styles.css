@@ -385,6 +385,29 @@
   }
 }
 
+/* ── FIX SCROLL STRIP/GALLERY DI HP (bug 2026-09-06: "recent project sama
+   statistik gak bisa digeser di handphone") ──────────────────────────────
+   Penyebab berlapis yang terukur di Android Chrome:
+   1. `snap-x snap-mandatory` memaksa browser mengunci tiap snap-point —
+      geser pelan diterjemahkan "kembali ke kartu yang sama" sehingga
+      terasa TIDAK BISA digeser. Ganti `snap-mandatory` → `snap-start`
+      tanpa mandatory (kartu tetap rapi tapi jari bebas).
+   2. wrapper animasi (BlurFade motion.div) menaruh `transform` di leluhur
+      scroll container — di beberapa build WebKit itu membuat momentum
+      scroll mati. `will-change: transform` pada wrapper mengembalikannya.
+   3. momentum scroll iOS klasik perlu diaktifkan eksplisit. */
+.snap-strip {
+  scroll-snap-type: x proximity;          /* bukan mandatory — jari bebas */
+  -webkit-overflow-scrolling: touch;      /* momentum iOS */
+  overscroll-behavior-x: contain;
+}
+.snap-strip > * {
+  scroll-snap-align: start;
+}
+.blurfade-scroll-wrap {
+  will-change: transform;
+}
+
 /* ── AnimatedThemeToggler (MagicUI) — view transition tema ──────────────
    Komponen menyetel --magicui-theme-toggle-vt-duration + data-attribute
    di <html> hanya selama pergantian tema, supaya animasi clip-path

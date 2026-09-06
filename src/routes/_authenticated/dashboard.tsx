@@ -25,6 +25,7 @@ import { AppNav } from "@/components/app-nav";
 import { NumberTicker } from "@/components/magicui/number-ticker";
 import { BlurFade } from "@/components/magicui/blur-fade";
 import { DotPattern } from "@/components/magicui/dot-pattern";
+import { getAccessToken } from "@/lib/backend-api";
 import { supabase } from "@/integrations/supabase/client";
 import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
@@ -134,6 +135,9 @@ function Dashboard() {
   const [sharedLink, setSharedLink] = useState<string | null>(null);
   const [premiumOpen, setPremiumOpen] = useState(false);
   const [filter, setFilter] = useState<Filter>("semua");
+  /* BANNER PROJECT (permintaan pengguna): tiap kartu proyek menampilkan
+     screenshot otomatis dari salah satu klipnya sebagai background. */
+  const [banners, setBanners] = useState<Record<string, string>>({});
   const [quota, setQuota] = useState<{
     plan: string;
     used: number;
@@ -222,6 +226,28 @@ function Dashboard() {
       if (profileRes.data) setProfile(profileRes.data);
       if (projectsRes.data) setProjects(projectsRes.data);
       setLoading(false);
+
+      // BANNER: minta banner otomatis untuk semua proyek (sekali per
+      // kunjungan; backend idempoten + antre thumb di background).
+      try {
+        const token = await getAccessToken();
+        const hasil: Record<string, string> = {};
+        await Promise.all(
+          (projectsRes.data ?? []).map(async (p) => {
+            try {
+              const res = await fetch(`/api/projects/${p.id}/banner`, {
+                method: "POST",
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (res.ok) {
+                const d = await res.json();
+                if (d.url) hasil[p.id] = d.url;
+              }
+            } catch { /* offline per-proyek ok */ }
+          }),
+        );
+        if (Object.keys(hasil).length) setBanners(hasil);
+      } catch { /* banner opsional */ }
     }
     void loadData();
   }, [user.id]);
@@ -542,9 +568,9 @@ function Dashboard() {
         {/* ═══ RAIL FASE + FILM STRIP PROYEK ═══ */}
         <div className="mt-10 grid gap-8 lg:grid-cols-[220px_1fr] lg:items-start">
           {/* RAIL: tombol fase vertikal — mobile jadi chips horizontal */}
-          <BlurFade delay={0.12} inView className="min-w-0 lg:sticky lg:top-6">
+          <BlurFade delay={0.12} inView className="blurfade-scroll-wrap min-w-0 lg:sticky lg:top-6">
           <nav aria-label="Filter tahap">
-            <ul className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
+            <ul className="snap-strip flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
               <li>
                 <FaseTab
                   aktif={filter === "semua"}
@@ -598,7 +624,7 @@ function Dashboard() {
 
             {loading ? (
               /* SKELETON berbentuk strip — meniru struktur akhir */
-              <ul className="mt-5 flex snap-x gap-4 overflow-x-auto pb-4" aria-busy="true">
+              <ul className="snap-strip mt-5 flex gap-4 overflow-x-auto pb-4" aria-busy="true">
                 {[0, 1, 2, 3, 4].map((k) => (
                   <li
                     key={k}
@@ -635,7 +661,7 @@ function Dashboard() {
                 </Button>
               </div>
             ) : (
-              <ul className="mt-5 flex snap-x snap-mandatory gap-4 overflow-x-auto pb-4 [scrollbar-width:thin]">
+              <ul className="snap-strip mt-5 flex gap-4 overflow-x-auto pb-4 [scrollbar-width:thin]">
                 {terlihat.map((p, i) => {
                   const st = statusOf(p);
                   const fase = tahapOf(p);
@@ -657,6 +683,20 @@ function Dashboard() {
                           aria-label={`Buka ${p.title}`}
                         >
                           <span className="relative flex h-[140px] items-center justify-center overflow-hidden bg-surface">
+                            {/* BANNER OTOMATIS — screenshot dari klip proyek
+                                (permintaan pengguna), gradasi supaya ikon
+                                tetap terbaca di atasnya. */}
+                            {banners[p.id] ? (
+                              <>
+                                <img
+                                  src={banners[p.id]}
+                                  alt=""
+                                  loading="lazy"
+                                  className="absolute inset-0 size-full object-cover"
+                                />
+                                <span aria-hidden className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/25 to-black/45" />
+                              </>
+                            ) : null}
                             {/* lubang sprocket di atas & bawah — motif film */}
                             <span aria-hidden className="absolute inset-x-0 top-0 flex h-3 justify-around">
                               {Array.from({ length: 9 }).map((_, k) => (

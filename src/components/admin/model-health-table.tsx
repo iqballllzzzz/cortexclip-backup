@@ -11,7 +11,7 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, Check, Cpu, KeyRound, Loader2, Timer, X, Zap } from "lucide-react";
 
-import { ujiSemuaModel, type ModelStat } from "@/lib/admin-api";
+import { picuUjiModel, statusUjiModel, type ModelStat } from "@/lib/admin-api";
 import { Button } from "@/components/ui/button";
 
 function waktuRelatif(epoch: number): string {
@@ -44,15 +44,27 @@ export function ModelHealthTable({
   const [menguji, setMenguji] = useState(false);
   const [hasilUji, setHasilUji] = useState<string | null>(null);
 
+  /* Uji berjalan di server sebagai task LATAR BELAKANG; di sini kita hanya
+     memicunya lalu mem-poll status tiap 5 detik. Versi lama menunggu satu
+     fetch 180 detik — koneksi terputus dan panel menampilkan "Failed to
+     fetch" padahal ujinya sebenarnya berjalan. */
   async function jalankanUji() {
     setMenguji(true);
-    setHasilUji(null);
+    setHasilUji("Menguji model di server…");
     try {
-      const r = await ujiSemuaModel();
-      setHasilUji(
-        `${r.hidup} hidup / ${r.mati} mati dari ${r.diuji} model diuji (${r.detik}s)`,
-      );
-      onSelesaiUji?.();
+      await picuUjiModel();
+      for (let putaran = 0; putaran < 120; putaran++) {
+        await new Promise((r) => setTimeout(r, 5000));
+        const st = await statusUjiModel();
+        if (st.jalan) continue;
+        const h = st.hasil;
+        if (h && "error" in h) setHasilUji(`Uji gagal: ${h.error.slice(0, 120)}`);
+        else if (h) {
+          setHasilUji(`${h.hidup} hidup / ${h.mati} mati dari ${h.diuji} model diuji (${h.detik}s)`);
+          onSelesaiUji?.();
+        } else setHasilUji("Uji selesai tanpa hasil.");
+        break;
+      }
     } catch (e) {
       setHasilUji(e instanceof Error ? e.message : "Uji model gagal");
     } finally {

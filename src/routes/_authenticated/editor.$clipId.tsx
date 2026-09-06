@@ -187,42 +187,83 @@ function EditorPage() {
     clipStart: startNum,
   });
 
-  /* --- memori editor per-klip --- */
+  /* --- memori editor per-klip: SERVER dulu, localStorage cadangan ---
+     Permintaan pengguna: semua pengaturan tersimpan di SERVER — keluar dari
+     editor, ganti perangkat, semuanya ikut. localStorage tetap dipakai
+     sebagai cache instan supaya layar tidak "kedip" saat menunggu jaringan. */
   const memKey = `cc_editor_mem_${clipId}`;
+  const prefsServerRef = useRef(false);   // sudah muat dari server?
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(memKey);
-      if (!raw) return;
-      const m = JSON.parse(raw) as Record<string, unknown>;
+    let mati = false;
+    (async () => {
+      // 1) instan: cache lokal dulu (kalau ada)
+      try {
+        const raw = localStorage.getItem(memKey);
+        if (raw) {
+          const m = JSON.parse(raw) as Record<string, unknown>;
+          terapkanMem(m);
+        }
+      } catch { /* korup → abaikan */ }
+      // 2) sumber kebenaran: server
+      try {
+        const token = await getAccessToken();
+        const res = await fetch(`/api/editor-prefs/${clipId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok && !mati) {
+          const d = await res.json();
+          const m = (d.prefs ?? {}) as Record<string, unknown>;
+          if (Object.keys(m).length > 0) {
+            terapkanMem(m);
+          }
+        }
+      } catch { /* offline: pakai cache lokal */ }
+      if (!mati) prefsServerRef.current = true;
+    })();
+    function terapkanMem(m: Record<string, unknown>) {
       if (typeof m["presetId"] === "string") setPresetId(m["presetId"]);
       if (typeof m["fontScale"] === "number") setFontScale(m["fontScale"]);
       if (typeof m["position"] === "number") setPosition(m["position"]);
       if (typeof m["opacity"] === "number") setOpacity(m["opacity"]);
       if (typeof m["brollEnabled"] === "boolean") {
         setBrollEnabled(m["brollEnabled"]);
-        if (m["brollEnabled"] && Array.isArray(m["livePlacements"]))
-          setLivePlacements(m["livePlacements"] as Placement[]);
       }
       if (typeof m["iconsEnabled"] === "boolean") setIconsEnabled(m["iconsEnabled"]);
       if (typeof m["emojiEnabled"] === "boolean") setEmojiEnabled(m["emojiEnabled"]);
-    } catch {
-      /* korup → abaikan */
+      if (Array.isArray(m["livePlacements"]) && (m["iconsEnabled"] || m["brollEnabled"]))
+        setLivePlacements(m["livePlacements"] as Placement[]);
     }
+    return () => { mati = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memKey]);
 
+  /* AUTO-SAVE: debounce 1.5s — tulis cache lokal + kirim ke server.
+     Jangan spam server saat slider digeser; jangan kirim sebelum muat
+     pertama selesai (supaya prefs lama tidak tertimpa nilai default). */
   useEffect(() => {
     const t = setTimeout(() => {
+      const isi = {
+        presetId, fontScale, position, opacity,
+        brollEnabled, iconsEnabled, emojiEnabled, livePlacements,
+        savedAt: Date.now(),
+      };
       try {
-        localStorage.setItem(
-          memKey,
-          JSON.stringify({ presetId, fontScale, position, opacity, brollEnabled, iconsEnabled, emojiEnabled, livePlacements, savedAt: Date.now() }),
-        );
-      } catch {
-        /* storage penuh → abaikan */
-      }
-    }, 800);
+        localStorage.setItem(memKey, JSON.stringify(isi));
+      } catch { /* storage penuh → server tetap dapat */ }
+      if (!prefsServerRef.current) return; // belum siap — jangan timpa
+      (async () => {
+        try {
+          const token = await getAccessToken();
+          await fetch(`/api/editor-prefs/${clipId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify(isi),
+          });
+        } catch { /* offline: cache lokal sudah cukup */ }
+      })();
+    }, 1500);
     return () => clearTimeout(t);
-  }, [memKey, presetId, fontScale, position, opacity, brollEnabled, iconsEnabled, emojiEnabled, livePlacements]);
+  }, [memKey, clipId, presetId, fontScale, position, opacity, brollEnabled, iconsEnabled, emojiEnabled, livePlacements]);
 
   /* --- load clip + project + sumber (preview INSTAN) --- */
   useEffect(() => {
@@ -1134,38 +1175,10 @@ function EditorPage() {
             </div>
           </div>
 
-          {/* ————— PITA KATA: kata = scrubber (tinggi & mudah disentuh) ————— */}
-          {totalWords > 0 ? (
-            <div
-              className="relative w-full max-w-[560px] shrink-0 [mask-image:linear-gradient(to_right,transparent,black_10px,black_calc(100%-18px),transparent)]"
-              data-editor-scroll
-            >
-              <div className="flex gap-1 overflow-x-auto pb-1 pl-1.5 pr-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                {words.map((w, wi) => {
-                  const aktif = time >= w.start && time < w.end;
-                  const lewat = time >= w.end;
-                  return (
-                    <button
-                      key={wi}
-                      type="button"
-                      onClick={() => seek(w.start + 0.01)}
-                      title={`${w.word} · ${clock(w.start)}`}
-                      aria-label={`Lompat ke ${w.word}`}
-                      className={`h-8 shrink-0 rounded-lg px-2 text-[12.5px] font-medium leading-none transition-colors duration-150 ${
-                        aktif
-                          ? "bg-accent text-accent-foreground shadow"
-                          : lewat
-                            ? "bg-accent/15 text-foreground/55 hover:bg-accent/25"
-                            : "bg-card text-foreground/85 hover:bg-accent/20 hover:text-foreground"
-                      }`}
-                    >
-                      {w.word}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
+          {/* PITA KATA DIHAPUS (permintaan pengguna: "dibawah progress bar dan
+              pause/unpause itu ada transkrip panjang, hapus aja karena menuh
+              menuhin tempat — transkrip bisa diakses lewat tombol Transkrip").
+              Semua fitur kini murni lewat tab tool di panel kanan. */}
         </div>
 
         {/* ————— KOLOM KANAN (desktop) / PANEL BAWAH (mobile): tool ————— */}
@@ -1273,19 +1286,35 @@ function EditorPage() {
                     </ToolPane>
                   ) : (
                     <ToolPane key="broll">
-                      {/* CARD RINGKAS (permintaan pengguna): tanpa penjelasan
-                          panjang — label saja, toggle dirapatkan. Supaya muat
-                          2 tombol baru (Ikon & B-Roll terpisah) tanpa scroll. */}
-                      <ToggleRow
-                        label="Ikon"
-                        enabled={iconsEnabled}
-                        onChange={(v) => void toggleIcons(v)}
-                      />
-                      <ToggleRow
-                        label="B-Roll"
-                        enabled={brollEnabled}
-                        onChange={(v) => void toggleBroll(v)}
-                      />
+                      {/* 4 TOGGLE DALAM GRID 2 KOLOM (permintaan: "biar di satu
+                          baris bisa nyimpen 2 tombol toggle dan bikin lebih
+                          terlihat semua tombolnya") — semua toggle terlihat
+                          sekaligus tanpa scroll. */}
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <ToggleRow
+                          label="Ikon"
+                          enabled={iconsEnabled}
+                          onChange={(v) => void toggleIcons(v)}
+                        />
+                        <ToggleRow
+                          label="B-Roll"
+                          enabled={brollEnabled}
+                          onChange={(v) => void toggleBroll(v)}
+                        />
+                        <ToggleRow
+                          label="Emoji"
+                          enabled={emojiEnabled}
+                          onChange={setEmojiEnabled}
+                        />
+                        <ToggleRow
+                          label="Auto Split"
+                          enabled={layoutEnabled}
+                          onChange={(v) => {
+                            setLayoutEnabled(v);
+                            void simpanLayout(v);
+                          }}
+                        />
+                      </div>
                       {brollSearching ? (
                         <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-accent/30 bg-accent/5 px-2 py-1 text-[10px] text-accent">
                           <Loader2 className="size-3 animate-spin" /> Mencari momen ikon…
@@ -1328,37 +1357,20 @@ function EditorPage() {
                           ) : null}
                         </>
                       ) : null}
-                      <div className="mt-1.5">
-                        <ToggleRow
-                          label="Emoji pada subtitle"
-                          enabled={emojiEnabled}
-                          onChange={setEmojiEnabled}
-                        />
-                      </div>
 
-                      {/* AUTO SPLIT */}
-                      <div className="mt-1.5">
-                        <ToggleRow
-                          label="Auto Split"
-                          enabled={layoutEnabled}
-                          onChange={(v) => {
-                            setLayoutEnabled(v);
-                            void simpanLayout(v);
-                          }}
-                        />
-
-                        {layoutEnabled ? (
-                          <>
-                            <p className="mt-1.5 flex items-center gap-1.5 text-[10px] leading-tight text-muted-foreground">
-                              {layoutSaving ? (
-                                <>
-                                  <Loader2 className="size-3 shrink-0 animate-spin text-accent" />
-                                  Menyimpan &amp; menyiapkan preview…
-                                </>
-                              ) : (
-                                "Sistem memilih sendiri momennya — subtitle ikut pindah ke tengah."
-                              )}
-                            </p>
+                      {/* detail AUTO SPLIT (toggle sudah di grid atas) */}
+                      {layoutEnabled ? (
+                        <>
+                          <p className="mt-1.5 flex items-center gap-1.5 text-[10px] leading-tight text-muted-foreground">
+                            {layoutSaving ? (
+                              <>
+                                <Loader2 className="size-3 shrink-0 animate-spin text-accent" />
+                                Menyimpan &amp; menyiapkan preview…
+                              </>
+                            ) : (
+                              "Sistem memilih sendiri momennya — subtitle ikut pindah ke tengah."
+                            )}
+                          </p>
 
                             {layoutPlan && layoutPlan.length > 0 ? (
                               <>
@@ -1407,7 +1419,6 @@ function EditorPage() {
                             )}
                           </>
                         ) : null}
-                      </div>
                     </ToolPane>
                   )}
             </AnimatePresence>
@@ -1464,6 +1475,7 @@ function EditorPage() {
           clipId={clip.id}
           sourceUrl={sourceUrl}
           duration={duration}
+          clipStart={startNum}
           onClose={() => setMoreDialog(null)}
           onApplied={() => {
             // preview reset oleh backend → paksa render ulang lewat polling
@@ -1553,10 +1565,11 @@ function ToggleRow({ label, desc, enabled, onChange }: {
   onChange: (v: boolean) => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-2 rounded-xl border border-border bg-background px-2.5 py-1.5">
-      <p className="min-w-0 truncate text-[12.5px] font-medium leading-tight">{label}</p>
-      {/* Toggle DIRAPATKAN ke label (permintaan pengguna) — jarak pas,
-          gak berdempetan: label flex-1 kiri, switch langsung di kanan. */}
+    <div className="flex items-center justify-between gap-2.5 rounded-xl border border-border bg-background px-3 py-2">
+      <p className="min-w-0 truncate text-[12px] font-medium leading-tight">{label}</p>
+      {/* LABEL↔TOGGLE DIRAPATKAN (permintaan pengguna: "jarak antara nama
+          dengan toggle kamu deketin biar di satu baris bisa nyimpen 2 tombol
+          toggle") — px-3 (bukan 2.5) supaya 2 baris muat di kolom 340px. */}
       <button
         type="button"
         role="switch"

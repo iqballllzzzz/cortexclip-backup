@@ -5,19 +5,22 @@
  * Alur sesuai permintaan:
  *  1. Pilih gambar → preview.
  *  2. Tombol "Hapus Background" → POST /api/logo/removebg
- *     (backend failover v1 → v2 api.nexray.eu.cc otomatis).
+ *     (backend: gambar → URL catbox.moe → API removebg v1 → gagal → v2).
  *  3. "Setuju" → POST /api/logo/{clip_id} → logo muncul di preview,
  *     bisa di-DRAG langsung di preview (posisi tersimpan per klip).
  *
- * Gating premium di backend (402) — UI menampilkan tulisan "Khusus
- * Premium" dan tombol upgrade saat ditolak.
+ * GATING PREMIUM (permintaan: "kalau user bukan premium mencet tambah logo
+ * custom maka langsung muncul GUI premium"): cek status saat dialog dibuka —
+ * non-premium langsung disodori PremiumDialog (harga + versi iklan), bukan
+ * cuma ditolak saat menekan Setuju.
  */
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { Crown, Eraser, ImageIcon, Loader2, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 import { getAccessToken } from "@/lib/backend-api";
+import { PremiumDialog } from "@/components/premium-dialog";
 
 export function CustomLogoDialog({
   clipId,
@@ -34,6 +37,28 @@ export function CustomLogoDialog({
   const [versi, setVersi] = useState<string | null>(null);
   const [proses, setProses] = useState<"idle" | "removebg" | "setuju">("idle");
   const [butuhPremium, setButuhPremium] = useState(false);
+  const [statusCek, setStatusCek] = useState<"cek" | "premium" | "free">("cek");
+
+  /* cek status premium SEKALI saat dialog dibuka */
+  useEffect(() => {
+    (async () => {
+      try {
+        const token = await getAccessToken();
+        const res = await fetch("/api/ads/premium", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const d = await res.json();
+          const prem = !!d.premium_until && new Date(d.premium_until) > new Date();
+          setStatusCek(prem || d.ad_premium?.active ? "premium" : "free");
+          if (!prem) setButuhPremium(true);
+          return;
+        }
+      } catch { /* offline */ }
+      setStatusCek("free");
+      setButuhPremium(true);
+    })();
+  }, []);
 
   function pilihFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
@@ -89,7 +114,7 @@ export function CustomLogoDialog({
       });
       if (res.status === 402) {
         setButuhPremium(true);
-        throw new Error("Custom Logo khusus Premium — upgrade dulu");
+        throw new Error("Custom Logo khusus Premium");
       }
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || "Gagal menyimpan logo");
       const d = await res.json();
@@ -101,6 +126,26 @@ export function CustomLogoDialog({
     } finally {
       setProses("idle");
     }
+  }
+
+  /* NON-PREMIUM → langsung GUI beli premium (harga + versi iklan) */
+  if (butuhPremium) {
+    return (
+      <PremiumDialog
+        open
+        onClose={onClose}
+      />
+    );
+  }
+
+  if (statusCek === "cek") {
+    return (
+      <div className="fixed inset-0 z-[var(--z-modal)] grid place-items-center p-4">
+        <div className="flex items-center gap-2 rounded-2xl border border-border bg-card px-5 py-4 text-[13px] text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" /> Memeriksa status akun…
+        </div>
+      </div>
+    );
   }
 
   const tampil = hasil ?? asli;

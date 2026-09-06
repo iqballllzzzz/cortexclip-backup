@@ -29,6 +29,11 @@ BUCKET = "video-uploads"
 REMOVEBG_V1 = "https://api.nexray.eu.cc/tools/v1/removebg"
 REMOVEBG_V2 = "https://api.nexray.eu.cc/tools/v2/removebg"
 
+# UA mobile persis resep pengguna (catbox.moe menolak client non-browser)
+UA_CATBOX = ("Mozilla/5.0 (Linux; Android 15; SM-F958 Build/AP3A.240905.015) "
+             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.86 "
+             "Mobile Safari/537.36")
+
 # batas wajar (sama dengan upload video: 25 MB)
 MAX_BYTES = 25 * 1024 * 1024
 
@@ -56,24 +61,85 @@ async def premium_aktif(user_id: str) -> bool:
     return bool(await is_premium(user_id))
 
 
+async def _unggah_catbox(content: bytes) -> str:
+    """Ubah bytes gambar → URL publik (catbox.moe).
+
+    API removebg nexray hanya menerima IMAGE URL, jadi gambar dari user
+    harus di-host dulu. Implementasi persis resep pengguna (catbox.moe
+    user/api.php, form multipart + cookie sesi + UA mobile).
+    """
+    import uuid as _uuid
+
+    # multipart manual (httpx tidak bawa form-data builder berkas)
+    batas = f"----cc{_uuid.uuid4().hex[:16]}"
+    nama = f"{int(__import__('time').time())}_cc.png"
+    bagian: list[bytes] = []
+    for k, v in (("userhash", ""), ("reqtype", "fileupload")):
+        bagian.append(
+            f"--{batas}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n".encode())
+    bagian.append(
+        f"--{batas}\r\nContent-Disposition: form-data; name=\"fileToUpload\"; "
+        f"filename=\"{nama}\"\r\nContent-Type: image/png\r\n\r\n".encode())
+    bagian.append(content)
+    bagian.append(f"\r\n--{batas}--\r\n".encode())
+    body = b"".join(bagian)
+
+    async with httpx.AsyncClient(timeout=60, follow_redirects=True) as c:
+        # sesi: ambil cookie dulu (resep pengguna)
+        await c.get("https://catbox.moe/",
+                    headers={"user-agent": UA_CATBOX})
+        r = await c.post(
+            "https://catbox.moe/user/api.php",
+            content=body,
+            headers={
+                "Content-Type": f"multipart/form-data; boundary={batas}",
+                "origin": "https://catbox.moe",
+                "referer": "https://catbox.moe/",
+                "user-agent": UA_CATBOX,
+                "x-requested-with": "XMLHttpRequest",
+            })
+    url = (r.text or "").strip()
+    if r.status_code != 200 or not url.startswith("http"):
+        raise RuntimeError(f"catbox gagal ({r.status_code}): {r.text[:120]}")
+    return url
+
+
 async def removebg(content: bytes, apikey: str) -> tuple[bytes, str]:
     """Hapus background: v1 → gagal → v2 (failover berantai eksplisit).
 
+    API nexray menerima IMAGE URL (bukan upload) → gambar di-host dulu di
+    catbox.moe (resep pengguna), lalu URL dikirim sebagai image_url.
     Balik (bytes PNG hasil, versi yang sukses).
     """
+    url_gambar = await _unggah_catbox(content)
     kesalahan: list[str] = []
     for versi, url in (("v1", REMOVEBG_V1), ("v2", REMOVEBG_V2)):
         try:
-            async with httpx.AsyncClient(timeout=90) as c:
+            async with httpx.AsyncClient(timeout=120) as c:
                 r = await c.post(
                     url,
                     headers={"Authorization": f"Bearer {apikey}"} if apikey else {},
-                    files={"image_file": ("logo.png", content, "image/png")},
+                    json={"image_url": url_gambar},
                 )
-            if r.status_code == 200 and len(r.content) > 1000:
+            if r.status_code == 200:
+                # bisa berupa biner PNG langsung atau JSON berisi url/bytes
                 ct = r.headers.get("content-type", "")
-                if "image" in ct or r.content[:8].startswith(b"\x89PNG"):
+                if "image" in ct and len(r.content) > 1000:
                     return r.content, versi
+                try:
+                    d = r.json()
+                    u = d.get("image_url") or d.get("url") or d.get("result")
+                    if isinstance(u, str) and u.startswith("http"):
+                        async with httpx.AsyncClient(timeout=60) as c2:
+                            g = await c2.get(u)
+                        if g.status_code == 200 and len(g.content) > 1000:
+                            return g.content, versi
+                    b64 = d.get("image") or d.get("b64") or d.get("data")
+                    if isinstance(b64, str) and len(b64) > 100:
+                        import base64 as _b64
+                        return _b64.b64decode(b64), versi
+                except ValueError:
+                    pass
             kesalahan.append(f"{versi}:{r.status_code} {r.text[:80]}")
         except Exception as exc:
             kesalahan.append(f"{versi}:{exc.__class__.__name__}")

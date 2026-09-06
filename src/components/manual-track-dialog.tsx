@@ -28,6 +28,7 @@ interface TrackBox {
   cx: number;
   cy: number;
   w: number;
+  h: number;
 }
 
 function fmt(t: number) {
@@ -40,12 +41,14 @@ export function ManualTrackDialog({
   clipId,
   sourceUrl,
   duration,
+  clipStart = 0,
   onClose,
   onApplied,
 }: {
   clipId: string;
   sourceUrl: string | null;
   duration: number;
+  clipStart?: number;
   onClose: () => void;
   onApplied: () => void;
 }) {
@@ -56,7 +59,8 @@ export function ManualTrackDialog({
   const [saved, setSaved] = useState<{ start: number; end: number }[]>([]);
   const [klik, setKlik] = useState<{ x: number; y: number } | null>(null);
 
-  // player buatan sendiri
+  // player buatan sendiri — WAKTU ABSOLUT video sumber. Klip dimulai di
+  // clipStart (mis. 3:00); semua tampilan waktu & seek relatif ke klip.
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
   const [muted, setMuted] = useState(true);
@@ -103,24 +107,34 @@ export function ManualTrackDialog({
 
   const scene = scenes?.[selScene] ?? null;
 
-  /* seek ke awal adegan saat ganti pilihan */
+  /* seek ke awal adegan saat ganti pilihan — ABSOLUT (klipStart + relatif).
+     FIX bug: sebelumnya video dimulai dari 0:00 video SUMBER padahal klip
+     bisa mulai di 3:00 — "preview di manual tracking beda klipnya". */
   useEffect(() => {
     const v = vidRef.current;
     if (!v || !scene || !sourceUrl) return;
-    try { v.currentTime = scene.start; } catch { /* belum siap */ }
+    try { v.currentTime = clipStart + scene.start; } catch { /* belum siap */ }
     setBoxes(null);
     setKlik(null);
-    setTime(scene.start);
-  }, [selScene, scene, sourceUrl]);
+    setTime(clipStart + scene.start);
+  }, [selScene, scene, sourceUrl, clipStart]);
 
-  /* jam player: rAF loop */
+  /* metadata siap → seek langsung ke awal klip (bukan 0:00 sumber!) */
+  function handleLoadedMetadata() {
+    const v = vidRef.current;
+    if (!v || !scene) return;
+    try { v.currentTime = clipStart + scene.start; } catch { /* ok */ }
+    setTime(clipStart + scene.start);
+  }
+
+  /* jam player: rAF loop — waktu ABSOLUT sumber */
   useEffect(() => {
     const tick = () => {
       const v = vidRef.current;
       if (v && !v.paused && v.readyState >= 2) {
         const t = v.currentTime;
         setTime(t);
-        if (scene && t >= scene.end) {
+        if (scene && t >= clipStart + scene.end) {
           v.pause();
           setPlaying(false);
         }
@@ -129,35 +143,41 @@ export function ManualTrackDialog({
     };
     rafRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [scene]);
+  }, [scene, clipStart]);
 
   const togglePlay = useCallback(() => {
     const v = vidRef.current;
     if (!v) return;
-    if (v.paused) { void v.play().then(() => setPlaying(true)).catch(() => {}); }
-    else { v.pause(); setPlaying(false); }
-  }, []);
+    if (v.paused) {
+      if (scene && v.currentTime < clipStart + scene.start - 0.2) {
+        try { v.currentTime = clipStart + scene.start; } catch { /* ok */ }
+      }
+      void v.play().then(() => setPlaying(true)).catch(() => {});
+    } else {
+      v.pause();
+      setPlaying(false);
+    }
+  }, [scene, clipStart]);
 
-  const seek = useCallback((t: number) => {
+  const seek = useCallback((tAbs: number) => {
     const v = vidRef.current;
     if (!v || !scene) return;
-    const c = Math.max(scene.start, Math.min(scene.end - 0.05, t));
+    const c = Math.max(clipStart + scene.start,
+                       Math.min(clipStart + scene.end - 0.05, tAbs));
     try { v.currentTime = c; } catch { /* ok */ }
     setTime(c);
-  }, [scene]);
+  }, [scene, clipStart]);
 
   /* KLIK SUBJEK → ambil kotak tracking dari backend (preview tanpa simpan) */
   async function handleKlikVideo(e: React.MouseEvent<HTMLDivElement>) {
     const v = vidRef.current;
     if (!v || !scene) return;
-    const r = e.currentTarget.getBoundingClientRect();
-    // koordinat klik terhadap KOTAK VIDEO (bukan kontainer): hitung ulang
-    // dari rect video — object-contain bisa membuat letterbox.
     const vr = v.getBoundingClientRect();
     const x = (e.clientX - vr.left) / vr.width;
     const y = (e.clientY - vr.top) / vr.height;
     if (x < 0 || x > 1 || y < 0 || y > 1) return;
-    const tRef = v.currentTime;
+    const tRefRel = Math.max(scene.start,
+      Math.min(scene.end - 0.05, v.currentTime - clipStart));
     setKlik({ x, y });
     setMencari(true);
     try {
@@ -169,7 +189,7 @@ export function ManualTrackDialog({
           scene_start: scene.start,
           scene_end: scene.end,
           cx: x, cy: y,
-          t_ref: tRef,
+          t_ref: tRefRel,
         }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || "AI tidak menemukan subjek di situ");
@@ -180,7 +200,7 @@ export function ManualTrackDialog({
       // mainkan otomatis supaya border langsung terlihat mengikuti subjek
       const vv = vidRef.current;
       if (vv) {
-        try { vv.currentTime = scene.start; } catch { /* ok */ }
+        try { vv.currentTime = clipStart + scene.start; } catch { /* ok */ }
         void vv.play().then(() => setPlaying(true)).catch(() => {});
       }
     } catch (e2) {
@@ -191,13 +211,14 @@ export function ManualTrackDialog({
     }
   }
 
-  /* kotak yang tampil pada waktu `time` */
+  /* kotak yang tampil pada waktu `time` (relative ke klip) */
   const boxSekarang = useMemo<TrackBox | null>(() => {
     if (!boxes || boxes.length === 0) return null;
-    const idx = Math.round((time - boxStart) * boxesFps);
+    const rel = Math.max(0, time - clipStart);
+    const idx = Math.round((rel - boxStart) * boxesFps);
     if (idx < 0 || idx >= boxes.length) return null;
     return boxes[idx] ?? null;
-  }, [boxes, boxesFps, boxStart, time]);
+  }, [boxes, boxesFps, boxStart, time, clipStart]);
 
   async function terapkan() {
     if (!scene || !klik) {
@@ -215,7 +236,8 @@ export function ManualTrackDialog({
           scene_start: scene.start,
           scene_end: scene.end,
           cx: klik.x, cy: klik.y,
-          t_ref: v ? Math.max(scene.start, v.currentTime) : undefined,
+          t_ref: v ? Math.max(scene.start,
+            Math.min(scene.end - 0.05, v.currentTime - clipStart)) : undefined,
         }),
       });
       if (!res.ok) {
@@ -283,6 +305,7 @@ export function ManualTrackDialog({
                   playsInline
                   muted={muted}
                   preload="auto"
+                  onLoadedMetadata={handleLoadedMetadata}
                   className="block max-h-[54dvh] w-full object-contain"
                 />
               ) : (
@@ -291,15 +314,18 @@ export function ManualTrackDialog({
                 </div>
               )}
 
-              {/* BORDER TRACKING — mengikuti subjek per frame */}
+              {/* BORDER TRACKING — mengikuti subjek per frame; UKURAN sesuai
+                  objek (w×h deteksi AI, bukan kotak 1:1) — klik kepala =
+                  sebesar kepala, klik botol = panjang/tinggi botol. */}
               {boxSekarang ? (
                 <div
                   className="pointer-events-none absolute z-10 rounded-lg border-[2.5px] border-white shadow-[0_0_0_2px_rgba(0,0,0,0.55)]"
                   style={{
                     left: `${boxSekarang.cx * 100}%`,
                     top: `${boxSekarang.cy * 100}%`,
-                    width: `${Math.max(boxSekarang.w, 0.06) * 130}%`,
-                    aspectRatio: "1 / 1",
+                    // +28% margin supaya kotak tidak menempel persis wajah
+                    width: `${Math.max(boxSekarang.w, 0.05) * 128}%`,
+                    height: `${Math.max(boxSekarang.h ?? boxSekarang.w, 0.05) * 128}%`,
                     transform: "translate(-50%, -50%)",
                   }}
                 >
@@ -372,15 +398,15 @@ export function ManualTrackDialog({
 
               <div className="ml-1 min-w-0 flex-1">
                 <div className="flex items-center justify-between text-[10.5px] font-medium tabular-nums text-muted-foreground">
-                  <span>{fmt(time)}</span>
+                  <span>{fmt(Math.max(0, time - clipStart))}</span>
                   <span>{fmt(scene?.end ?? duration)}</span>
                 </div>
                 <input
                   type="range"
-                  min={scene?.start ?? 0}
-                  max={scene?.end ?? duration}
+                  min={clipStart + (scene?.start ?? 0)}
+                  max={clipStart + (scene?.end ?? duration) - 0.05}
                   step={0.05}
-                  value={Math.min(time, scene?.end ?? duration)}
+                  value={Math.min(time, clipStart + (scene?.end ?? duration) - 0.05)}
                   onChange={(e) => seek(Number(e.target.value))}
                   className="mt-0.5 h-1.5 w-full cursor-pointer appearance-none rounded-full bg-border accent-[var(--color-accent)]"
                   aria-label="Garis waktu video sumber"

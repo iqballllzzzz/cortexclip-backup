@@ -90,6 +90,18 @@ export function AppNav({
             </span>
           ) : null}
 
+          {/* TOMBOL UNDUHAN langsung di nav (permintaan: "tombol unduhan bisa
+              diakses di dashboard, gak hanya di hamburger menu") — ikon selalu
+              terlihat di HP & desktop. */}
+          <Link
+            to="/unduh"
+            className="grid size-8 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-surface hover:text-foreground"
+            aria-label="Unduhan"
+            title="Unduhan"
+          >
+            <Download className="size-4" />
+          </Link>
+
           <Link
             to="/pengaturan"
             className="hidden size-8 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-surface hover:text-foreground md:grid"

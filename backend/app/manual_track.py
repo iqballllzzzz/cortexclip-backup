@@ -224,8 +224,10 @@ def kotak_subjek(frames: list[dict[str, Any]], fps: float,
         f = faces[best_i]
         cur_cx = float(f.get("cx", cur_cx))
         cur_cy = float(f.get("cy", cur_cy))
+        w_f = float(f.get("w_frac", 0) or 0)
+        h_f = float(f.get("h_frac", 0) or 0) or w_f
         boxes.append({"cx": round(cur_cx, 4), "cy": round(cur_cy, 4),
-                      "w": round(float(f.get("w_frac", 0) or 0), 4)})
+                      "w": round(w_f, 4), "h": round(h_f, 4)})
     return {"fps": float(fps), "start": float(scene_start), "boxes": boxes}
 
 

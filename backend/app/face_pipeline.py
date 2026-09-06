@@ -241,6 +241,11 @@ def analyze(src: str, start: float, end: float, *, probe_size, run_ffmpeg,
                 # frame yang jelas memuat dua orang).
                 "w_frac": round(float(d.get("fw") or d.get("w") or 0)
                                 / max(1, aw), 4),
+                # TINGGI wajah (untuk border tracking manual berukuran
+                # sesuai objek — bukan kotak aspek 1:1). fh tersedia dari
+                # YuNet; kalau tidak ada, fallback = lebar (wajah ≈ persegi).
+                "h_frac": round(float(d.get("fh") or d.get("fw") or d.get("w") or 0)
+                                / max(1, ah), 4),
                 # SKOR MENTAH, bukan boolean. Ambang "aktif" untuk auto layout
                 # BEDA dari ambang "sedang bicara" untuk memilih kamera: layout
                 # split juga pantas muncul saat orang kedua tertawa atau bilang

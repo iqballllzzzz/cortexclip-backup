@@ -624,6 +624,64 @@ async def api_edit_transcript(clip_id: str, body: dict, request: Request,
         raise HTTPException(400, str(exc)[:200])
 
 
+@app.put("/api/editor-prefs/{clip_id}")
+async def api_editor_prefs_put(clip_id: str, body: dict, request: Request,
+                               authorization: str | None = Header(None)):
+    """SIMPAN pengaturan editor ke SERVER (bukan localStorage saja).
+
+    Permintaan pengguna: "semua proses user di editor — pengaturan subtitle,
+    ikon, tracking, custom logo, edit transkrip — tersimpan langsung di
+    server; kalau user keluar dari editor, semuanya masih kesimpan dan gak
+    perlu diatur ulang". Body = prefs JSON apa adanya.
+    """
+    user = await get_user(request, authorization)
+    ensure_uuid(clip_id, "Klip")
+    import httpx as _httpx
+    try:
+        async with _httpx.AsyncClient(timeout=15) as c:
+            r = await c.get(
+                f"{SUPABASE_URL}/rest/v1/clips?id=eq.{clip_id}&select=id,user_id",
+                headers={"apikey": SUPABASE_SERVICE_KEY,
+                         "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+            rows = r.json() if r.status_code == 200 else []
+            if not rows or str(rows[0].get("user_id")) != str(user["id"]):
+                raise RuntimeError("klip tidak ditemukan")
+            async with _httpx.AsyncClient(timeout=15) as c2:
+                await c2.patch(
+                    f"{SUPABASE_URL}/rest/v1/clips?id=eq.{clip_id}",
+                    headers={"apikey": SUPABASE_SERVICE_KEY,
+                             "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                             "Content-Type": "application/json"},
+                    json={"editor_prefs": body or {}})
+        return {"ok": True}
+    except Exception as exc:
+        print(f"[editor-prefs] gagal simpan: {exc}")
+        raise HTTPException(400, str(exc)[:200])
+
+
+@app.get("/api/editor-prefs/{clip_id}")
+async def api_editor_prefs_get(clip_id: str, request: Request,
+                               authorization: str | None = Header(None)):
+    """Muat pengaturan editor tersimpan milik klip ini."""
+    user = await get_user(request, authorization)
+    ensure_uuid(clip_id, "Klip")
+    import httpx as _httpx
+    try:
+        async with _httpx.AsyncClient(timeout=15) as c:
+            r = await c.get(
+                f"{SUPABASE_URL}/rest/v1/clips?id=eq.{clip_id}"
+                "&select=id,user_id,editor_prefs",
+                headers={"apikey": SUPABASE_SERVICE_KEY,
+                         "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+        rows = r.json() if r.status_code == 200 else []
+        if not rows or str(rows[0].get("user_id")) != str(user["id"]):
+            raise RuntimeError("klip tidak ditemukan")
+        return {"prefs": rows[0].get("editor_prefs") or {}}
+    except Exception as exc:
+        print(f"[editor-prefs] gagal muat: {exc}")
+        raise HTTPException(400, str(exc)[:200])
+
+
 @app.post("/api/logo/removebg")
 async def api_logo_removebg(request: Request,
                             authorization: str | None = Header(None)):
@@ -805,6 +863,75 @@ async def api_project_thumbnails(project_id: str, request: Request,
     # bisa dibuang garbage collector di tengah jalan.
     spawn(_kerjakan(), name=f"thumbs:{project_id}", key=f"thumbs:{project_id}")
     return {"ok": True, "queued": len(ids)}
+
+
+@app.post("/api/projects/{project_id}/banner")
+async def api_project_banner(project_id: str, request: Request,
+                            authorization: str | None = Header(None)):
+    """BANNER PROJECT (permintaan pengguna): sistem otomatis mengambil
+    screenshot dari salah satu klip proyek untuk dipakai sebagai banner
+    background kartu proyek di dashboard.
+
+    Pakai klip pertama yang punya thumb_url; kalau belum ada, antre
+    pastikan_thumb untuk klip pertama (background). Idempoten: kalau
+    banner_url sudah ada, langsung balik.
+    """
+    user = await get_user(request, authorization)
+    ensure_uuid(project_id, "Proyek")
+    from .clip_thumb import pastikan_thumb
+    from .render_clip import _source_seek_url
+    from .background import spawn
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.get(
+            f"{SUPABASE_URL}/rest/v1/projects?id=eq.{project_id}"
+            "&select=id,user_id,banner_url",
+            headers={"apikey": SUPABASE_SERVICE_KEY,
+                     "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+    rows = r.json() if r.status_code == 200 else []
+    if not rows or str(rows[0].get("user_id")) != str(user["id"]):
+        raise HTTPException(404, "proyek tidak ditemukan")
+    if rows[0].get("banner_url"):
+        return {"ok": True, "url": rows[0]["banner_url"], "cached": True}
+
+    # cari thumb yang sudah ada
+    async with httpx.AsyncClient(timeout=30) as client:
+        r2 = await client.get(
+            f"{SUPABASE_URL}/rest/v1/clips?project_id=eq.{project_id}"
+            "&select=id,thumb_url&order=created_at.asc&limit=3",
+            headers={"apikey": SUPABASE_SERVICE_KEY,
+                     "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+    klips = r2.json() if r2.status_code == 200 else []
+    kandidat = next((k["thumb_url"] for k in klips if k.get("thumb_url")), None)
+
+    if kandidat:
+        async with httpx.AsyncClient(timeout=30) as client:
+            await client.patch(
+                f"{SUPABASE_URL}/rest/v1/projects?id=eq.{project_id}",
+                headers={"apikey": SUPABASE_SERVICE_KEY,
+                         "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                         "Content-Type": "application/json"},
+                json={"banner_url": kandidat})
+        return {"ok": True, "url": kandidat, "cached": False}
+
+    # belum ada thumb → buat satu di background
+    if klips:
+        async def _kerjakan() -> None:
+            try:
+                d = await pastikan_thumb(str(klips[0]["id"]), str(user["id"]),
+                                         source_url_for=_source_seek_url)
+                if d.get("url"):
+                    async with httpx.AsyncClient(timeout=30) as c:
+                        await c.patch(
+                            f"{SUPABASE_URL}/rest/v1/projects?id=eq.{project_id}",
+                            headers={"apikey": SUPABASE_SERVICE_KEY,
+                                     "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                                     "Content-Type": "application/json"},
+                            json={"banner_url": d["url"]})
+            except Exception as exc:
+                print(f"[banner] {project_id[:8]} gagal: {exc}")
+        spawn(_kerjakan(), name=f"banner:{project_id}", key=f"banner:{project_id}")
+    return {"ok": True, "url": None, "queued": True}
 
 
 @app.get("/api/preview-clip/status/{clip_id}")

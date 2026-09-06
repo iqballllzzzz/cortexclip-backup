@@ -100,11 +100,13 @@ function ResetPasswordPage() {
       >
         <div className="flex items-center justify-center gap-2">
           <img
-            src={logo}
+            src="/cortexclip-logo.png"
             alt="Logo CortexClip"
             width={36}
             height={36}
-            className="h-9 w-9"
+            draggable={false}
+            onContextMenu={(e) => e.preventDefault()}
+            className="h-9 w-9 select-none"
           />
           <span className="font-display text-xl font-bold tracking-tight">CortexClip</span>
         </div>
