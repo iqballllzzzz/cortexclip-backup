@@ -50,11 +50,19 @@ def _keys_from_env(name: str) -> list[str]:
 
 
 BASE_URLS = {
-    # PRIORITAS 1 (kunci pengguna, model kuat): OpenAI-compatible justwoker.
-    # Dipakai untuk memilih momen viral — pekerjaan yang paling menentukan
-    # kualitas hasil, jadi tidak boleh jatuh ke model free yang ngawur.
+    # justwoker: provider berbayar milik pengguna. Diuji 2026-09-06: balas
+    # halaman HTML Cloudflare (provider down) → TIDAK boleh lagi jadi
+    # PRIORITAS_TINGGI, kalau tidak setiap panggilan chat membuang waktu
+    # gagal di sini dulu. Tetap terdaftar supaya otomatis dipakai lagi
+    # begitu providernya hidup.
     "justwoker": "https://api.justwoker.icu/v1",
     "groq": "https://api.groq.com/openai/v1",
+    # DARI RISET 2026-09-05 (docs/riset-ai-gratis-2026-09.md):
+    # Cloudflare Workers AI = 10.000 Neuron/hari gratis permanen, edge latency
+    # 200-600ms. NVIDIA NIM = 40 RPM gratis termasuk VLM Qwen2.5-VL-72B.
+    # Keduanya aktif otomatis begitu env key diisi (lihat KEY_ENV).
+    "cloudflare": "https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1",
+    "nvidia": "https://integrate.api.nvidia.com/v1",
     "opencode": "https://opencode.ai/zen/v1",
     "openrouter": "https://openrouter.ai/api/v1",
     "tokenrouter": "https://api.tokenrouter.com/v1",
@@ -66,6 +74,8 @@ BASE_URLS = {
 KEY_ENV = {
     "justwoker": "JUSTWOKER_API_KEYS",
     "groq": "GROQ_API_KEYS",
+    "cloudflare": "CLOUDFLARE_API_KEYS",
+    "nvidia": "NVIDIA_API_KEYS",
     "opencode": "OPENCODE_API_KEYS",
     "openrouter": "OPENROUTER_API_KEYS",
     "tokenrouter": "TOKENROUTER_API_KEYS",
@@ -75,59 +85,100 @@ KEY_ENV = {
 }
 
 # Provider yang DIUTAMAKAN untuk pekerjaan penting (pemilihan momen viral).
-# Diverifikasi 2026-09-05: HTTP 200, balas JSON rapi.
-PRIORITAS_TINGGI = ("justwoker",)
+# Ditetapkan dari UJI NYATA `backend/test-model-hidup.py` (2026-09-06):
+# 30 dari 48 (provider, model) menjawab. groq tercepat (0,6-1,4s, JSON rapi,
+# 14.400 req/hari) dan gemini paling pintar untuk penilaian momen — keduanya
+# dicoba lebih dulu. justwoker DIKELUARKAN: providernya balas HTML Cloudflare.
+PRIORITAS_TINGGI = ("groq", "gemini")
 
-# Order matters within a provider. Free models first.
+# Order matters within a provider: model TERBAIK dulu, lalu cadangan.
+#
+# DAFTAR INI HASIL UJI NYATA, bukan tebakan katalog.
+# `backend/test-model-hidup.py` menembak satu prompt JSON ke setiap
+# (provider, model) dan hanya yang balas HTTP 200 + isi non-kosong yang
+# ditulis di sini. Hasil 2026-09-06: 30 hidup dari 48 kandidat.
+# Model yang TERBUKTI MATI sudah dibuang beserta alasannya:
+#   opencode/hy3-free, laguna-s-2.1-free      -> "Model is not supported"
+#   opencode/deepseek-v4-flash-free, mimo-v2.5-free -> upstream error/timeout
+#   openrouter/thinkingmachines/inkling*      -> "agentic harnesses only"
+#   openrouter/google/gemma-4-*:free          -> 429 rate-limited permanen
+#   openrouter/z-ai/glm-5.2:free              -> 429 (dipakai model chat lain)
+#   openrouter/inclusionai/ling-3.0-flash-sante:free -> timeout
+#   tokenrouter/*                             -> kredit $0
+#   justwoker/*                               -> provider balas HTML Cloudflare
+# Jalankan ulang test-model-hidup.py sebelum mengubah daftar ini.
 DEFAULT_MODELS: dict[str, list[str]] = {
+    # justwoker tetap ada supaya otomatis kepakai lagi kalau providernya hidup;
+    # karena bukan PRIORITAS_TINGGI lagi, kegagalannya tidak melambatkan pool.
     "justwoker": [
         "claude-opus-5",
     ],
+    # groq: TERCEPAT (0,6-1,4s), semua balas JSON rapi, 14.400 req/hari.
     "groq": [
-        "qwen/qwen3.8-27b",
-        "openai/gpt-oss-20b",
-        "openai/gpt-oss-120b",
-        "qwen/qwen3.6-27b",
-        "groq/compound-mini",
-        "whisper-large-v3-turbo",   # audio
-        "whisper-large-v3",         # audio
+        "qwen/qwen3.8-27b",          # 0,8s json — kualitas terbaik di groq
+        "openai/gpt-oss-120b",       # 0,7s json
+        "openai/gpt-oss-20b",        # 0,9s json
+        "groq/compound",             # 1,4s json
+        "groq/compound-mini",        # 1,2s json
+        "qwen/qwen3.6-27b",          # 1,3s
+        "allam-2-7b",                # 0,6s json (cadangan paling ringan)
+        "whisper-large-v3-turbo",    # audio
+        "whisper-large-v3",          # audio
     ],
-    "opencode": [
-        "big-pickle",
-        "ling-3.0-flash-fin-free",
-        "deepseek-v4-flash-free",
-        "nemotron-3.5-lightning-free",
-        "mimo-v2.5-free",
-        "hy3-free",
-        "laguna-s-2.1-free",
+    # gemini: 8 model flash hidup — satu-satunya yang bisa baca VIDEO utuh
+    # (File API), jadi paling berharga untuk penilaian momen.
+    "gemini": [
+        "gemini-3.8-flash",
+        "gemini-3.7-flash",
+        "gemini-3.6-flash",
+        "gemini-3.5-flash",
+        "gemini-flash-latest",
+        "gemini-3-flash-preview",
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite",
+        "gemini-flash-lite-latest",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
     ],
+    # openrouter :free — 12 hidup. Urut dari tercepat/terpintar.
     "openrouter": [
-        "z-ai/glm-5.2:free",
         "minimax/minimax-m3:free",
-        "minimax/minimax-m2.7:free",
-        "nvidia/nemotron-3-super-120b-a12b:free",
         "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "nvidia/nemotron-3-super-120b-a12b:free",
+        "minimax/minimax-m2.7:free",
         "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-        "nvidia/nemotron-3.5-lightning:free",
-        "google/gemma-4-31b-it:free",
-        "google/gemma-4-26b-a4b-it:free",
         "inclusionai/ling-3.0-flash-fin:free",
-        "liquid/lfm-2.5-2.6b:free",
-        "thinkingmachines/inkling:free",
-        "thinkingmachines/inkling-small:free",
         "poolside/laguna-s-2.1:free",
         "poolside/laguna-xs-2.1:free",
-        "cohere/north-mini-code:free",
         "dots-studio/dots-3-note-preview:free",
+        "cohere/north-mini-code:free",
+        "liquid/lfm-2.5-2.6b:free",
+        "nvidia/nemotron-3.5-lightning:free",
     ],
+    "opencode": [
+        "big-pickle",                    # 4,7s json
+        "ling-3.0-flash-fin-free",       # 2,3s json
+        "nemotron-3.5-lightning-free",   # 17,6s (lambat, cadangan akhir)
+    ],
+    # tokenrouter: kredit $0 sekarang; disimpan supaya langsung jalan kalau
+    # pengguna top-up (kegagalan → cooldown, tidak mengganggu).
     "tokenrouter": [
         "qwen/qwen3.8-flash",
         "qwen/qwen3.7-max",
-        "google/gemini-3.5-flash-lite",
     ],
-    "gemini": [
-        "gemini-3.6-flash",
-        "gemini-3.5-flash",
+    # DARI RISET: aktif otomatis kalau CLOUDFLARE_API_KEYS +
+    # CLOUDFLARE_ACCOUNT_ID diisi (10.000 Neuron/hari gratis permanen).
+    "cloudflare": [
+        "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+        "@cf/meta/llama-3.2-11b-vision-instruct",
+        "@cf/qwen/qwen2.5-coder-32b-instruct",
+    ],
+    # DARI RISET: aktif otomatis kalau NVIDIA_API_KEYS diisi (40 RPM gratis).
+    # qwen2.5-vl-72b = grounding momen video terbaik yang gratis.
+    "nvidia": [
+        "qwen/qwen2.5-vl-72b-instruct",
+        "deepseek-ai/deepseek-v3.2",
+        "nvidia/llama-3.3-nemotron-super-49b-v1",
     ],
     "unlimitedai": [
         "chat-model-reasoning",
@@ -136,6 +187,7 @@ DEFAULT_MODELS: dict[str, list[str]] = {
         "publicai-chat",
     ],
 }
+
 
 AUDIO_CAPABLE = {"groq": {"whisper-large-v3", "whisper-large-v3-turbo"}}
 AUDIO_CHAT_CAPABLE = {"gemini"}  # multimodal chat providers that accept input_audio
@@ -167,15 +219,27 @@ class HydraGateway:
 
     def build(self) -> None:
         eps: list[Endpoint] = []
+        cf_account = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
         for provider, models in DEFAULT_MODELS.items():
             keys = _keys_from_env(KEY_ENV[provider])
+            base = BASE_URLS[provider]
+            if provider == "cloudflare":
+                # base_url Workers AI memuat account id. Tanpa itu endpoint
+                # tidak bisa dibentuk — lewati provider ini, jangan bikin
+                # endpoint rusak yang selalu gagal.
+                if not cf_account:
+                    if keys:
+                        print("[hydra] cloudflare: CLOUDFLARE_ACCOUNT_ID kosong "
+                              "-> provider dilewati")
+                    continue
+                base = base.replace("{account}", cf_account)
             print(f"[hydra] {provider}: {len(keys)} key(s) from env")
             for key in keys:
                 for model in models:
                     kind = "audio" if provider == "groq" and model.startswith("whisper") else "chat"
                     eps.append(Endpoint(
                         provider=provider, key=key, model=model,
-                        base_url=BASE_URLS[provider], kind=kind,
+                        base_url=base, kind=kind,
                     ))
         self._endpoints = eps
         self._built = True

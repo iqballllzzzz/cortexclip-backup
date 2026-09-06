@@ -487,6 +487,68 @@ async def api_layout_plan(clip_id: str, request: Request,
         raise HTTPException(400, str(exc)[:200])
 
 
+@app.post("/api/clips/{clip_id}/thumbnail")
+async def api_clip_thumbnail(clip_id: str, request: Request,
+                             refresh: bool = False,
+                             authorization: str | None = Header(None)):
+    """Thumbnail (gambar potongan) klip ini — dibuat sekali lalu di-cache.
+
+    Kartu klip di halaman proyek memakai gambar ini, bukan angka skor di
+    kotak polos. Frame diambil lewat ffmpeg HTTP-range (tidak mengunduh
+    video penuh) dan di-crop mengikuti jalur kamera face tracking yang sudah
+    tersimpan, jadi wajahnya masuk bingkai.
+    """
+    user = await get_user(request, authorization)
+    ensure_uuid(clip_id, "Klip")
+    from .clip_thumb import pastikan_thumb
+    from .render_clip import _source_seek_url
+    try:
+        return await pastikan_thumb(clip_id, str(user["id"]),
+                                    source_url_for=_source_seek_url,
+                                    paksa=bool(refresh))
+    except Exception as exc:
+        print(f"[thumb] gagal {clip_id}: {exc}")
+        raise HTTPException(400, str(exc)[:200])
+
+
+@app.post("/api/projects/{project_id}/thumbnails")
+async def api_project_thumbnails(project_id: str, request: Request,
+                                 authorization: str | None = Header(None)):
+    """Buat thumbnail untuk SEMUA klip proyek yang belum punya (latar belakang).
+
+    Dipanggil sekali saat halaman proyek dibuka; klien tidak perlu menunggu.
+    Dibatasi 12 klip per panggilan supaya tidak memborong CPU render.
+    """
+    user = await get_user(request, authorization)
+    ensure_uuid(project_id, "Proyek")
+    from .clip_thumb import pastikan_thumb
+    from .render_clip import _source_seek_url
+    from .background import spawn
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.get(
+            f"{SUPABASE_URL}/rest/v1/clips?project_id=eq.{project_id}"
+            "&thumb_url=is.null&select=id&limit=12",
+            headers={"apikey": SUPABASE_SERVICE_KEY,
+                     "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+    ids = [str(row["id"]) for row in (r.json() if r.status_code == 200 else [])]
+    if not ids:
+        return {"ok": True, "queued": 0}
+
+    async def _kerjakan() -> None:
+        for cid in ids:
+            try:
+                await pastikan_thumb(cid, str(user["id"]),
+                                     source_url_for=_source_seek_url)
+            except Exception as exc:
+                print(f"[thumb] batch {cid[:8]} gagal: {exc}")
+
+    # background.spawn WAJIB (bukan asyncio.create_task): task tanpa referensi
+    # bisa dibuang garbage collector di tengah jalan.
+    spawn(_kerjakan(), name=f"thumbs:{project_id}", key=f"thumbs:{project_id}")
+    return {"ok": True, "queued": len(ids)}
+
+
 @app.get("/api/preview-clip/status/{clip_id}")
 async def api_preview_status(clip_id: str, request: Request,
                              authorization: str | None = Header(None)):

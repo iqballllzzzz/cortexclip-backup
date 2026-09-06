@@ -44,6 +44,7 @@ export const dict: Record<string, string> = {
   // Proyek
   "proyek.kembali": "Semua proyek",
   "proyek.klip_terdeteksi": "Klip terdeteksi",
+  "proyek.urut_skor": "diurutkan dari skor tertinggi",
   "proyek.belum_ada": "belum ada",
   "proyek.tahap_ambil": "Ambil media",
   "proyek.tahap_transkripsi": "Transkripsi",

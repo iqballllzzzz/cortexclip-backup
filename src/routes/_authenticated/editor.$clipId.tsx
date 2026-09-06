@@ -12,6 +12,8 @@ import {
   Loader2,
   Pause,
   Play,
+  SkipBack,
+  SkipForward,
   Sparkles,
   Subtitles,
   Sticker,
@@ -120,8 +122,10 @@ function EditorPage() {
   const [playing, setPlaying] = useState(false);
   const [fit, setFit] = useState({ w: 216, h: 384 });
 
-  // tools — sheet mengambang, null = tertutup
-  const [activeTool, setActiveTool] = useState<ToolId | null>(null);
+  // tools — panel SELALU TERBUKA (keluhan: "tombol tombol gak kelihatan sama
+  // sekali"). Dulu null = tertutup, jadi pengguna harus menebak untuk mengetuk
+  // chip dulu sebelum ada kontrol yang muncul. Sekarang tab default terpilih.
+  const [activeTool, setActiveTool] = useState<ToolId>("subtitle");
   const [presetId, setPresetId] = useState(DEFAULT_SUBTITLE_PRESET);
   const [fontScale, setFontScale] = useState(1);
   const [position, setPosition] = useState<number | null>(null);
@@ -427,7 +431,14 @@ function EditorPage() {
     [clip],
   );
 
-  /* --- fit canvas 9:16 ke area hub --- */
+  /* --- fit canvas 9:16 --- KELUHAN PENGGUNA: "previewnya gede banget hampir
+     menuhin layar jadi tombol tombol tak terlihat". Dulu tingginya = seluruh
+     ruang tersisa, jadi preview memakan layar dan kontrol terdorong keluar.
+     Sekarang tinggi preview DIBATASI TEGAS oleh plafon viewport:
+       mobile  : maks 44dvh  (sisanya untuk panel tool yang selalu terbuka)
+       desktop : maks 62vh   (panel tool jadi kolom kanan permanen)
+     Plafon dihitung dari innerHeight, bukan dari tinggi kontainer, supaya
+     kontainer tidak bisa "menang" dan mengembalikan preview jadi raksasa. */
   useEffect(() => {
     const el = fitRef.current;
     if (!el) return;
@@ -435,14 +446,26 @@ function EditorPage() {
       const availW = el.clientWidth;
       const availH = el.clientHeight;
       if (availW < 40 || availH < 40) return;
-      const h = Math.min(availH - 8, (availW * 16) / 9);
+      const vh = window.innerHeight || 800;
+      const desktop = window.innerWidth >= 1024;
+      // desktop: plafon 62vh menahan preview agar panel kanan tetap lega.
+      // mobile: kolom kiri sudah dipatok 47dvh lewat CSS, jadi plafon di sini
+      // hanya jaring pengaman (58dvh) — availH yang menentukan.
+      const plafon = desktop ? vh * 0.62 : vh * 0.58;
+      const h = Math.min(availH - 8, (availW * 16) / 9, plafon);
       const w = (h * 9) / 16;
       setFit({ w: Math.round(w), h: Math.round(h) });
     };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
-    return () => ro.disconnect();
+    window.addEventListener("resize", update);
+    window.addEventListener("orientationchange", update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
+    };
   }, [loading]);
 
   /* --- WAKTU VIDEO: rAF loop (anti-stuck) — basis turunan dari preview_url --- */
@@ -749,7 +772,7 @@ function EditorPage() {
             className="inline-flex shrink-0 items-center gap-1 rounded-full bg-accent px-2.5 py-1.5 text-[11px] font-semibold text-accent-foreground transition-transform hover:-translate-y-px sm:gap-1.5 sm:px-3.5 sm:text-[12px]"
           >
             <BadgeX className="size-3.5 shrink-0" />
-            <span className="hidden max-w-[96px] truncate md:inline">Hapus watermark</span>
+            <span className="hidden whitespace-nowrap md:inline">Hapus watermark</span>
             <span className="shrink-0 rounded-full bg-black/15 px-1.5 py-0.5 text-[10px] tabular-nums">{adsWatched}/4</span>
           </button>
         )}
@@ -757,22 +780,37 @@ function EditorPage() {
         <Button
           variant="accent"
           size="sm"
-          className="shrink-0 rounded-full px-3.5"
+          className="shrink-0 rounded-full px-2.5 xs:px-3.5"
           onClick={handleDownload}
           disabled={submitting || downloadLocked}
         >
           {submitting ? <Loader2 className="size-4 animate-spin" /> : downloadLocked ? <Clock className="size-4" /> : <Download className="size-4" />}
-          {downloadLocked ? "Merender…" : "Unduh"}
+          {/* teks disembunyikan di HP sempit supaya judul klip tidak terpotong */}
+          <span className="hidden xs:inline">{downloadLocked ? "Merender…" : "Unduh"}</span>
         </Button>
       </header>
 
-      {/* ═══ HUB: canvas 9:16 di tengah, tool sheet mengambang ═══ */}
-      <div className="relative flex min-h-0 flex-1 items-stretch justify-center overflow-hidden">
-        {/* area canvas — selalu center */}
-        <div ref={fitRef} className="relative flex min-w-0 flex-1 justify-center overflow-hidden p-2 lg:p-4">
-          <div className="flex flex-col items-center justify-center gap-3">
+      {/* ═══ RUANG KERJA — dua kolom di desktop, dua baris di mobile.
+           KELUHAN: "preview menguasai hampir sepenuhnya layar jadi tombol
+           tombol tak terlihat" + "tombol tombol fitur nya kecil banget".
+           Perbaikan struktural:
+             · preview dijepit plafon 44dvh (mobile) / 62vh (desktop)
+             · panel tool JADI KOLOM PERMANEN (desktop 340px) dan PANEL BAWAH
+               permanen di mobile — tidak lagi sheet yang harus dibuka
+             · tab tool jadi baris tinggi 44px (target sentuh Apple/Google),
+               teks 13px, bukan chip 11px
+             · pita kata jadi 32px tinggi dengan teks 12.5px
+           ═══ */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
+        {/* ————— KOLOM KIRI: preview + transport + pita kata ————— */}
+        {/* MOBILE: tinggi kolom kiri DIPATOK 54dvh supaya (a) preview punya
+            ruang nyata — dulu `shrink-0` + anak `flex-1` menghasilkan tinggi
+            konten 38px alias preview mini — dan (b) panel tool dapat sisa
+            layar yang pasti. DESKTOP: kolom mengisi sisa lebar seperti biasa. */}
+        <div className="flex h-[54dvh] shrink-0 flex-col items-center gap-2 border-b border-border bg-surface/30 px-2 py-2 lg:h-auto lg:min-h-0 lg:min-w-0 lg:flex-1 lg:border-b-0 lg:border-r lg:px-4 lg:py-4">
+          <div ref={fitRef} className="flex min-h-0 w-full flex-1 items-center justify-center overflow-hidden">
             <div
-              className="relative shrink-0 overflow-hidden rounded-[1.4rem] border border-border bg-black shadow-2xl shadow-black/40 ring-1 ring-white/5"
+              className="relative shrink-0 overflow-hidden rounded-2xl border border-border bg-black shadow-xl shadow-black/30"
               style={{ width: fit.w, height: fit.h }}
             >
               {urlTampil ? (
@@ -930,108 +968,148 @@ function EditorPage() {
                 </div>
               ) : null}
 
+              {/* Tombol play besar ada di TRANSPORT BAR di bawah preview.
+                  Di atas video: seluruh bidang jadi target ketuk (perilaku
+                  pemutar yang lazim) dengan lencana kecil di sudut kiri-bawah.
+                  Lencana TIDAK di tengah supaya tidak menutupi subtitle —
+                  justru subtitle itu yang sedang dinilai penggunanya saat
+                  memilih gaya. */}
               <button
                 type="button"
                 onClick={togglePlay}
-                className={`absolute left-1/2 top-1/2 z-20 flex size-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 backdrop-blur transition-all duration-200 hover:scale-105 hover:bg-black/60 ${playing ? "opacity-0 focus-visible:opacity-100" : "opacity-100"}`}
+                className="absolute inset-0 z-20 cursor-pointer bg-transparent"
                 aria-label={playing ? "Jeda" : "Putar"}
               >
-                {playing ? <Pause className="size-6 text-white" /> : <Play className="size-6 translate-x-0.5 text-white" />}
+                <span
+                  className={`absolute bottom-2 left-2 grid size-9 place-items-center rounded-full bg-black/55 backdrop-blur transition-opacity duration-200 ${
+                    playing ? "opacity-0" : "opacity-100"
+                  }`}
+                >
+                  <Play className="size-4 translate-x-px text-white" />
+                </span>
               </button>
             </div>
+          </div>
 
-            {/* ═══ PITA KATA: transcript-as-timeline — kata = scrubber ═══ */}
-            <div className="w-full max-w-[520px] px-1" data-editor-scroll>
-              {/* bar waktu tipis di atas pita */}
-              <div className="mb-1.5 flex items-center justify-between text-[10px] tabular-nums text-muted-foreground">
+          {/* ————— TRANSPORT BAR: tombol BESAR, selalu terlihat ————— */}
+          <div className="flex w-full max-w-[560px] shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => nudge(-5)}
+              className="grid size-11 shrink-0 place-items-center rounded-xl border border-border bg-card text-foreground transition-colors hover:border-accent/60 hover:text-accent active:scale-95"
+              aria-label="Mundur 5 detik"
+            >
+              <SkipBack className="size-5" />
+            </button>
+            <button
+              type="button"
+              onClick={togglePlay}
+              className="grid size-12 shrink-0 place-items-center rounded-xl bg-accent text-accent-foreground shadow-md shadow-accent/25 transition-transform hover:brightness-105 active:scale-95"
+              aria-label={playing ? "Jeda" : "Putar"}
+            >
+              {playing ? <Pause className="size-6" /> : <Play className="size-6 translate-x-0.5" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => nudge(5)}
+              className="grid size-11 shrink-0 place-items-center rounded-xl border border-border bg-card text-foreground transition-colors hover:border-accent/60 hover:text-accent active:scale-95"
+              aria-label="Maju 5 detik"
+            >
+              <SkipForward className="size-5" />
+            </button>
+
+            {/* scrubber + jam */}
+            <div className="ml-1 min-w-0 flex-1">
+              <div className="flex items-center justify-between text-[11px] font-medium tabular-nums text-muted-foreground">
                 <span>{clock(time)}</span>
-                <span className={playing ? "inline-block size-1.5 animate-pulse rounded-full bg-accent" : "text-muted-foreground/70"}>{playing ? "" : "jeda"}</span>
                 <span>{clock(duration)}</span>
               </div>
-              <div className="relative h-1.5 overflow-hidden rounded-full bg-border">
-                <div
-                  className="h-full rounded-full bg-accent transition-[width] duration-150"
-                  style={{ width: `${(time / duration) * 100}%` }}
-                />
-              </div>
-              {totalWords > 0 ? (
-                <div className="mt-2 flex gap-[3px] overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  {words.map((w, wi) => {
-                    const aktif = time >= w.start && time < w.end;
-                    const lewat = time >= w.end;
-                    return (
-                      <button
-                        key={wi}
-                        type="button"
-                        onClick={() => seek(w.start + 0.01)}
-                        title={`${w.word} · ${clock(w.start)}`}
-                        aria-label={`Lompat ke ${w.word}`}
-                        className={`shrink-0 rounded-[4px] px-1.5 py-1 text-[11px] font-medium leading-none transition-all duration-150 ${
-                          aktif
-                            ? "scale-110 bg-accent text-accent-foreground shadow"
-                            : lewat
-                              ? "bg-accent/15 text-foreground/50 hover:bg-accent/25"
-                              : "bg-surface text-foreground/80 hover:bg-accent/20 hover:text-foreground"
-                        }`}
-                      >
-                        {w.word}
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : null}
-            </div>
-
-            {/* ═══ DOCK: 4 chip tool mengambang di bawah ═══ */}
-            <div className="flex w-full max-w-[520px] items-center justify-center gap-1.5 px-1">
-              {TOOLS.map((t) => {
-                const aktif = activeTool === t.id;
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={aktif}
-                    onClick={() => setActiveTool(aktif ? null : t.id)}
-                    className={`group flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11.5px] font-medium transition-all duration-200 sm:px-3.5 sm:text-[12.5px] ${
-                      aktif
-                        ? "border-accent bg-accent text-accent-foreground shadow-md shadow-accent/20"
-                        : "border-border bg-card text-muted-foreground hover:border-accent/50 hover:text-foreground"
-                    }`}
-                  >
-                    <t.Icon className="size-3.5" />
-                    <span>{t.label}</span>
-                  </button>
-                );
-              })}
+              <input
+                type="range"
+                min={0}
+                max={duration}
+                step={0.05}
+                value={Math.min(time, duration)}
+                onChange={(e) => seek(Number(e.target.value))}
+                className="mt-1 h-2 w-full cursor-pointer appearance-none rounded-full bg-border accent-[var(--color-accent)]"
+                aria-label="Garis waktu klip"
+              />
             </div>
           </div>
+
+          {/* ————— PITA KATA: kata = scrubber (tinggi & mudah disentuh) ————— */}
+          {totalWords > 0 ? (
+            <div
+              className="relative w-full max-w-[560px] shrink-0 [mask-image:linear-gradient(to_right,transparent,black_10px,black_calc(100%-18px),transparent)]"
+              data-editor-scroll
+            >
+              <div className="flex gap-1 overflow-x-auto pb-1 pl-1.5 pr-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {words.map((w, wi) => {
+                  const aktif = time >= w.start && time < w.end;
+                  const lewat = time >= w.end;
+                  return (
+                    <button
+                      key={wi}
+                      type="button"
+                      onClick={() => seek(w.start + 0.01)}
+                      title={`${w.word} · ${clock(w.start)}`}
+                      aria-label={`Lompat ke ${w.word}`}
+                      className={`h-8 shrink-0 rounded-lg px-2 text-[12.5px] font-medium leading-none transition-colors duration-150 ${
+                        aktif
+                          ? "bg-accent text-accent-foreground shadow"
+                          : lewat
+                            ? "bg-accent/15 text-foreground/55 hover:bg-accent/25"
+                            : "bg-card text-foreground/85 hover:bg-accent/20 hover:text-foreground"
+                      }`}
+                    >
+                      {w.word}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
         </div>
 
-        {/* ═══ SHEET TOOL mengambang (desktop: dock kanan; mobile: sheet bawah) ═══ */}
-        <AnimatePresence>
-          {activeTool ? (
-            <motion.aside
-              initial={{ opacity: 0, x: 24 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 24 }}
-              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-              className="absolute inset-x-0 bottom-0 z-30 max-h-[52dvh] overflow-hidden rounded-t-3xl border border-border bg-card shadow-2xl shadow-black/25 md:inset-x-auto md:bottom-4 md:right-4 md:top-4 md:max-h-none md:w-[300px] md:rounded-3xl md:border"
-            >
-              <div className="flex items-center justify-between border-b border-border px-4 py-3">
-                <p className="text-[13px] font-semibold tracking-tight">
-                  {TOOLS.find((t) => t.id === activeTool)?.label}
-                </p>
+        {/* ————— KOLOM KANAN (desktop) / PANEL BAWAH (mobile): tool ————— */}
+        <aside className="flex min-h-0 flex-1 flex-col bg-card lg:w-[340px] lg:flex-none">
+          {/* TAB BESAR: tinggi 44px, ikon + label, indikator garis bawah */}
+          <div className="grid shrink-0 grid-cols-4 border-b border-border" role="tablist">
+            {TOOLS.map((t) => {
+              const aktif = activeTool === t.id;
+              return (
                 <button
+                  key={t.id}
                   type="button"
-                  onClick={() => setActiveTool(null)}
-                  className="grid size-7 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-surface hover:text-foreground"
-                  aria-label="Tutup panel"
+                  role="tab"
+                  aria-selected={aktif}
+                  onClick={() => setActiveTool(t.id)}
+                  /* Ikon DI ATAS label di semua ukuran: di desktop kolom tool
+                     hanya 340px (85px per tab) sehingga "Deskripsi" sebaris
+                     dengan ikon selalu terpotong. Susunan dua baris membuat
+                     keempat label utuh dari 360px sampai layar lebar. */
+                  className={`relative flex h-12 flex-col items-center justify-center gap-0.5 px-0.5 text-[11.5px] font-semibold leading-none transition-colors sm:text-[12.5px] ${
+                    aktif ? "text-accent" : "text-muted-foreground hover:bg-surface hover:text-foreground"
+                  }`}
                 >
-                  <X className="size-4" />
+                  <t.Icon className="size-4 shrink-0" />
+                  <span className="max-w-full truncate">{t.label}</span>
+                  <span
+                    aria-hidden
+                    className={`absolute inset-x-2 bottom-0 h-[2.5px] rounded-full transition-colors ${
+                      aktif ? "bg-accent" : "bg-transparent"
+                    }`}
+                  />
                 </button>
-              </div>
-              <div className="min-h-0 overflow-y-auto overscroll-contain p-4" data-editor-scroll>
+              );
+            })}
+          </div>
+
+          {/* satu-satunya area yang scroll */}
+          <div
+            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3.5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] pt-3.5"
+            data-editor-scroll
+          >
                 <AnimatePresence mode="wait">
                   {activeTool === "info" ? (
                     <ToolPane key="info">
@@ -1230,11 +1308,9 @@ function EditorPage() {
                       </div>
                     </ToolPane>
                   )}
-                </AnimatePresence>
-              </div>
-            </motion.aside>
-          ) : null}
-        </AnimatePresence>
+            </AnimatePresence>
+          </div>
+        </aside>
       </div>
 
       {/* ===== modal konfirmasi unduh ===== */}

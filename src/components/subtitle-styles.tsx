@@ -260,8 +260,8 @@ export function SubtitleStyleCard({
       </div>
       <span
         className={cn(
-          "w-full truncate text-center text-[9.5px] font-medium leading-none",
-          active ? "text-accent" : "text-muted-foreground group-hover:text-foreground",
+          "w-full text-center text-[11px] font-medium leading-tight",
+          active ? "text-accent" : "text-foreground/70 group-hover:text-foreground",
         )}
       >
         {preset.label}
@@ -270,7 +270,13 @@ export function SubtitleStyleCard({
   );
 }
 
-/** Baris pilihan gaya subtitle — KOMPAK, satu layar tanpa scroll. */
+/** Kisi pilihan gaya subtitle.
+ *
+ *  Dulu `sm:grid-cols-10` — 10 kartu berjejer dalam satu baris. Di kolom tool
+ *  editor yang lebarnya 340px itu berarti ±31px per kartu: labelnya menyusut
+ *  jadi satu huruf ("D…", "H…") dan contoh teksnya terpotong, jadi gayanya
+ *  tidak bisa dibedakan tanpa coba-coba. Tiga kolom memberi ±100px per kartu
+ *  sehingga "Clean Minimal" dan "Sermon Elegan" terbaca utuh. */
 export function SubtitleStylePicker({
   value,
   onChange,
@@ -279,7 +285,7 @@ export function SubtitleStylePicker({
   onChange: (id: string) => void;
 }) {
   return (
-    <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-10">
+    <div className="grid grid-cols-3 gap-1.5">
       {SUBTITLE_PRESETS.map((p) => (
         <SubtitleStyleCard
           key={p.id}

@@ -34,6 +34,8 @@ type ClipBase = Database["public"]["Tables"]["clips"]["Row"];
 type Clip = ClipBase & {
   preview_url?: string | null;
   preview_ready?: boolean;
+  /** gambar potongan klip (dibuat backend via ffmpeg range-read) */
+  thumb_url?: string | null;
 };
 
 const title = "Proyek Klip — CortexClip";
@@ -203,6 +205,52 @@ function ProjectPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  /* --- THUMBNAIL KARTU KLIP ---
+     Permintaan pengguna: kartu klip jangan kotak polos dengan angka skor —
+     isi dengan gambar potongan klipnya. Backend mengambil satu frame lewat
+     ffmpeg HTTP-range (tidak mengunduh video penuh) lalu menyimpan URL-nya
+     ke clips.thumb_url. Di sini kita cuma MEMICU pembuatan lalu memuat ulang
+     daftar klip ketika sudah jadi. Sekali saja per kunjungan; kalau semua
+     klip sudah punya thumb, backend balas queued:0 dan tidak ada polling. */
+  const thumbMintaRef = useRef(false);
+  useEffect(() => {
+    if (loading || clips.length === 0 || thumbMintaRef.current) return;
+    const kurang = clips.filter((c) => !c.thumb_url).length;
+    if (kurang === 0) return;
+    thumbMintaRef.current = true;
+    let batal = false;
+    let iv: ReturnType<typeof setInterval> | null = null;
+    void (async () => {
+      try {
+        const { getAccessToken } = await import("@/lib/backend-api");
+        const token = await getAccessToken();
+        const res = await fetch(`/api/projects/${projectId}/thumbnails`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const d = (await res.json()) as { queued?: number };
+        if (!d.queued || batal) return;
+        // muat ulang berkala sampai thumbnail muncul (maks ~1 menit)
+        let putaran = 0;
+        iv = setInterval(() => {
+          putaran += 1;
+          if (batal || putaran > 12) {
+            if (iv) clearInterval(iv);
+            return;
+          }
+          void load();
+        }, 5000);
+      } catch {
+        /* thumbnail hanya hiasan — kegagalan tidak boleh mengganggu halaman */
+      }
+    })();
+    return () => {
+      batal = true;
+      if (iv) clearInterval(iv);
+    };
+  }, [loading, clips, projectId, load]);
 
   const busy =
     project?.status === "downloading" ||
@@ -508,64 +556,80 @@ function ProjectPage() {
           </div>
         ) : null}
 
-        {/* ==== KLIP TERKUAT: POSTER DEPAN besar 9:16 ==== */}
+        {/* ==== KLIP TERKUAT — DIKECILKAN.
+             KELUHAN: "momen terkuat menurut ai itu dikecilin lagi karena
+             gaenak banget gede banget di handphone". Dulu posternya 300px
+             lebar penuh 9:16 (≈533px tinggi) dan mendominasi layar HP.
+             Sekarang: baris ringkas — thumbnail kecil 9:16 (72px mobile /
+             84px desktop) di kiri, judul + waktu + aksi di kanan. Gambarnya
+             memakai thumb_url yang sama dengan kartu deck. ==== */}
         {clips.length > 0 && best ? (
-          <section className="mt-10" aria-label="Klip terkuat">
+          <section className="mt-8" aria-label="Klip terkuat">
             <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
               <Flame className="size-3.5 text-accent" /> Momen terkuat menurut AI
             </p>
-            <div className="mt-4 grid gap-6 lg:grid-cols-[300px_1fr] lg:items-center">
-              {/* poster 9:16 dengan skor raksasa */}
-              <motion.div
-                initial={{ opacity: 0, scale: 0.94, rotate: -1 }}
-                animate={{ opacity: 1, scale: 1, rotate: 0 }}
-                transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-                className="relative mx-auto w-full max-w-[300px] overflow-hidden rounded-3xl border border-accent/30 bg-card shadow-xl shadow-black/10"
-                style={{ aspectRatio: "9/16" }}
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+              className="mt-3 flex max-w-xl items-stretch gap-3.5 rounded-2xl border border-accent/30 bg-accent/5 p-3 sm:gap-4 sm:p-3.5"
+            >
+              {/* thumbnail 9:16 kecil */}
+              <Link
+                to="/editor/$clipId"
+                params={{ clipId: best.id }}
+                className="relative aspect-[9/16] w-[72px] shrink-0 overflow-hidden rounded-xl border border-border bg-surface sm:w-[84px]"
+                aria-label={`Buka ${best.title}`}
               >
-                <div className="absolute inset-0 bg-gradient-to-br from-accent/12 via-transparent to-accent/6" />
-                <div className="absolute inset-x-0 top-6 flex flex-col items-center">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-accent">
-                    skor viral
+                {best.thumb_url ? (
+                  <img
+                    src={best.thumb_url}
+                    alt=""
+                    loading="lazy"
+                    className="absolute inset-0 size-full object-cover"
+                  />
+                ) : (
+                  <span className="absolute inset-0 grid place-items-center">
+                    <Clapperboard className="size-5 text-muted-foreground/50" />
                   </span>
-                  <span className="stat-figure mt-1 text-[84px] leading-none text-accent">
-                    {best.virality_score}
-                  </span>
-                </div>
-                <div className="absolute inset-x-0 bottom-0 space-y-2 bg-gradient-to-t from-background/95 via-background/70 to-transparent px-5 pb-5 pt-16">
-                  <p className="line-clamp-3 font-display text-[15px] font-bold leading-snug tracking-tight">
+                )}
+                <span className="absolute inset-x-0 bottom-0 h-0.5 bg-accent" />
+              </Link>
+
+              <div className="flex min-w-0 flex-1 flex-col justify-between py-0.5">
+                <div className="min-w-0">
+                  <p className="line-clamp-2 font-display text-[14px] font-bold leading-snug tracking-tight sm:text-[15.5px]">
                     {best.title}
                   </p>
-                  <p className="font-mono text-[12px] text-muted-foreground">
+                  <p className="mt-1 font-mono text-[11.5px] text-muted-foreground">
                     {formatClock(best.start_time)} – {formatClock(best.end_time)} ·{" "}
-                    {(best.end_time - best.start_time).toFixed(0)} detik
+                    {Math.floor(best.end_time - best.start_time)}s
                   </p>
                 </div>
-              </motion.div>
-
-              <div className="min-w-0">
-                <p className="max-w-prose text-[14px] leading-relaxed text-muted-foreground">
-                  Buka satu klip untuk menyetel gaya subtitle, ukuran, dan posisi. Preview memakai
-                  pipeline yang sama dengan hasil unduhan, jadi apa yang kamu lihat itulah hasilnya.
-                </p>
-                <div className="mt-5 flex flex-wrap gap-2">
-                  <Button variant="accent" className="rounded-full" asChild>
+                <div className="mt-2.5 flex flex-wrap gap-1.5">
+                  <Button variant="accent" size="sm" className="rounded-full" asChild>
                     <Link to="/editor/$clipId" params={{ clipId: best.id }}>
-                      <Clapperboard className="size-4" /> Edit klip terkuat
+                      <Clapperboard className="size-3.5" /> Edit
                     </Link>
                   </Button>
-                  <Button variant="outline" className="rounded-full" onClick={runPipeline} disabled={running}>
-                    {running ? <Loader2 className="size-4 animate-spin" /> : <Wand2 className="size-4" />}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="rounded-full"
+                    onClick={runPipeline}
+                    disabled={running}
+                  >
+                    {running ? <Loader2 className="size-3.5 animate-spin" /> : <Wand2 className="size-3.5" />}
                     Proses ulang
                   </Button>
-                  <Button variant="outline" className="rounded-full" asChild>
+                  <Button variant="outline" size="sm" className="rounded-full" asChild>
                     <Link to="/unduh">
-                      <Download className="size-4" /> Riwayat unduhan
+                      <Download className="size-3.5" /> Unduhan
                     </Link>
                   </Button>
                 </div>
               </div>
-            </div>
+            </motion.div>
           </section>
         ) : null}
 
@@ -576,7 +640,7 @@ function ProjectPage() {
               {t("proyek.klip_terdeteksi")}
             </h2>
             <span className="text-[13px] text-muted-foreground">
-              {clips.length > 0 ? "diurutkan dari skor tertinggi" : t("proyek.belum_ada")}
+              {clips.length > 0 ? t("proyek.urut_skor") : t("proyek.belum_ada")}
             </span>
           </div>
 
@@ -618,7 +682,17 @@ function ProjectPage() {
   );
 }
 
-/* ------------------------------- DECK CARD: poster 9:16 + ring skor */
+/* ------------------- DECK CARD: poster 9:16 berisi GAMBAR klip
+
+   KELUHAN PENGGUNA: "skor yang ditengah itu kamu hapus terus isi background
+   polosan itu dengan gambar potongan klip itu ... yang dihilangkan cuma
+   skor nya, tulisan hot sama deskripsi dibagian bawah masih ada".
+
+   Jadi: angka skor besar di tengah DIHAPUS; latar poster kini gambar frame
+   klip (clips.thumb_url, dibuat backend lewat ffmpeg range-read). Badge
+   "hot", rentang waktu, hook_type, dan judul di bawah TETAP.
+   Saat thumbnail belum jadi: kotak shimmer (bukan angka), lalu gambar muncul
+   sendiri setelah halaman memuat ulang daftar klip.                       */
 
 function DeckCard({
   clip,
@@ -637,60 +711,76 @@ function DeckCard({
       initial={{ opacity: 0, y: 24 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: Math.min(index * 0.05, 0.45), ease: [0.16, 1, 0.3, 1] }}
-      className="group w-[190px] shrink-0 snap-start sm:w-[210px]"
+      className="group w-[168px] shrink-0 snap-start sm:w-[200px]"
     >
       <div
-        className={`relative flex h-full flex-col overflow-hidden rounded-3xl border bg-card transition-[transform,border-color,box-shadow] duration-300 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-black/10 ${
+        className={`relative flex h-full flex-col overflow-hidden rounded-2xl border bg-card transition-[transform,border-color,box-shadow] duration-300 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-black/10 ${
           hot ? "border-accent/40 hover:border-accent/70" : "border-border hover:border-accent/40"
         }`}
       >
-        {/* poster 9:16 dengan angka skor besar */}
+        {/* poster 9:16 — GAMBAR potongan klip */}
         <Link
           to="/editor/$clipId"
           params={{ clipId: clip.id }}
-          className="relative block overflow-hidden"
+          className="relative block overflow-hidden bg-surface"
           style={{ aspectRatio: "9/16" }}
           aria-label={`Buka editor ${clip.title}`}
         >
-          <span className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-background/85" />
+          {clip.thumb_url ? (
+            <img
+              src={clip.thumb_url}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              className="absolute inset-0 size-full object-cover transition-transform duration-500 group-hover:scale-[1.06]"
+            />
+          ) : (
+            /* thumbnail belum jadi: shimmer berbentuk poster, bukan angka */
+            <span className="absolute inset-0 grid animate-pulse place-items-center bg-border/40">
+              <Clapperboard className="size-6 text-muted-foreground/50" />
+            </span>
+          )}
+
+          {/* gradien bawah supaya teks terbaca di atas gambar apa pun */}
           <span
-            className={`stat-figure absolute left-1/2 top-[38%] -translate-x-1/2 -translate-y-1/2 text-[44px] leading-none transition-transform duration-300 group-hover:scale-110 ${
-              hot ? "text-accent" : "text-foreground/80"
-            }`}
-          >
-            {clip.virality_score}
-          </span>
+            aria-hidden
+            className="absolute inset-x-0 bottom-0 h-[58%] bg-gradient-to-t from-background via-background/75 to-transparent"
+          />
+
           {hot ? (
-            <span className="absolute left-3 top-3 rounded-full bg-accent px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-accent-foreground">
+            <span className="absolute left-2.5 top-2.5 rounded-full bg-accent px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-accent-foreground shadow">
               hot
             </span>
           ) : null}
-          <span className="absolute inset-x-0 bottom-0 px-3.5 pb-3.5 pt-10">
-            <span className="flex items-center gap-1.5 font-mono text-[11.5px] text-muted-foreground">
+
+          <span className="absolute inset-x-0 bottom-0 px-3 pb-3">
+            <span className="flex items-center gap-1.5 font-mono text-[11px] text-foreground/80">
               {formatClock(clip.start_time)} – {formatClock(clip.end_time)}
               <span className="opacity-40">·</span>
-              {duration.toFixed(0)}s
+              {Math.floor(duration)}s
             </span>
             {clip.hook_type ? (
-              <Badge variant="secondary" className="mt-2 text-[10px]">
+              <Badge variant="secondary" className="mt-1.5 text-[10px]">
                 {clip.hook_type}
               </Badge>
             ) : null}
           </span>
-          {/* tombol play mengambang saat hover */}
-          <span className="absolute left-1/2 top-1/2 grid size-12 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-border bg-background/85 text-foreground opacity-0 backdrop-blur transition-all duration-300 group-hover:scale-110 group-hover:opacity-100">
+
+          {/* isyarat play saat hover/sentuh */}
+          <span className="absolute left-1/2 top-[42%] grid size-11 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-black/45 text-white opacity-0 backdrop-blur transition-all duration-300 group-hover:scale-110 group-hover:opacity-100">
             <Clapperboard className="size-5" />
           </span>
         </Link>
 
-        <div className="flex flex-1 flex-col px-3.5 pb-3.5 pt-3">
+        <div className="flex flex-1 flex-col px-3 pb-3 pt-2.5">
           <input
             value={clip.title}
             onChange={(e) => onSave(clip, { title: e.target.value })}
             aria-label="Judul klip"
-            className="min-w-0 bg-transparent text-[13px] font-semibold leading-snug tracking-tight outline-none transition-colors focus:text-accent"
+            title={clip.title}
+            className="min-w-0 bg-transparent text-[12.5px] font-semibold leading-snug tracking-tight outline-none transition-colors focus:text-accent"
           />
-          <Button variant="outline" size="sm" asChild className="mt-3 w-full rounded-full">
+          <Button variant="outline" size="sm" asChild className="mt-2.5 w-full rounded-full">
             <Link to="/editor/$clipId" params={{ clipId: clip.id }}>
               <Clapperboard className="size-4" /> Buka editor
             </Link>
