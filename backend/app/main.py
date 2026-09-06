@@ -487,6 +487,238 @@ async def api_layout_plan(clip_id: str, request: Request,
         raise HTTPException(400, str(exc)[:200])
 
 
+@app.post("/api/manual-track/{clip_id}")
+async def api_manual_track(clip_id: str, body: dict, request: Request,
+                           authorization: str | None = Header(None)):
+    """MANUAL TRACKING — user klik subjek, kamera mengikuti di rentang scene.
+
+    Body: {"scene_start": s, "scene_end": e, "cx": 0..1, "cy": 0..1}
+    (cx/cy = titik klik pada video SUMBER 16:9, dinormalisasi).
+    Menyimpan trajektori ke clips.camera_track.manual + reset preview.
+    """
+    user = await get_user(request, authorization)
+    ensure_uuid(clip_id, "Klip")
+    from anyio import to_thread
+
+    from . import render as render_mod
+    from .manual_track import simpan_manual_track
+    from .render_clip import _source_seek_url
+    try:
+        return await simpan_manual_track(
+            clip_id, str(user["id"]), body or {},
+            render_mod=render_mod, source_url_for=_source_seek_url,
+            run_sync=to_thread.run_sync)
+    except Exception as exc:
+        print(f"[manual-track] gagal: {exc}")
+        raise HTTPException(400, str(exc)[:200])
+
+
+@app.get("/api/manual-track/{clip_id}")
+async def api_manual_track_get(clip_id: str, request: Request,
+                              authorization: str | None = Header(None)):
+    """Daftar scene manual tracking klip ini (untuk ditampilkan di editor)."""
+    user = await get_user(request, authorization)
+    ensure_uuid(clip_id, "Klip")
+    import httpx as _httpx
+    try:
+        async with _httpx.AsyncClient(timeout=15) as c:
+            r = await c.get(
+                f"{SUPABASE_URL}/rest/v1/clips?id=eq.{clip_id}"
+                "&select=id,user_id,camera_track",
+                headers={"apikey": SUPABASE_SERVICE_KEY,
+                         "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+        rows = r.json() if r.status_code == 200 else []
+        if not rows or str(rows[0].get("user_id")) != str(user["id"]):
+            raise RuntimeError("klip tidak ditemukan")
+        ct = rows[0].get("camera_track") or {}
+        manual = (ct.get("manual") or {}) if isinstance(ct, dict) else {}
+        return {"scenes": manual.get("scenes") or []}
+    except Exception as exc:
+        print(f"[manual-track GET] gagal: {exc}")
+        raise HTTPException(400, str(exc)[:200])
+
+
+@app.patch("/api/clips/{clip_id}/words")
+async def api_edit_transcript(clip_id: str, body: dict, request: Request,
+                              authorization: str | None = Header(None)):
+    """EDIT TRANSKRIP — perbaiki kata yang salah baca STT.
+
+    Body: {"words": [{"word": "teks baru", "start": s, "end": e}, ...]}
+    — array BARU menggantikan seluruh caption_words (klien editor
+    mengirim versi lengkap hasil edit; start/end per kata WAJIB tetap
+    supaya karaoke tetap sinkron). Preview tidak direset: subtitle
+    digambar LIVE di browser dari words ini, dan render unduhan memakai
+    caption_words yang sama — keduanya otomatis konsisten.
+    """
+    user = await get_user(request, authorization)
+    ensure_uuid(clip_id, "Klip")
+    words = (body or {}).get("words")
+    if not isinstance(words, list) or not words:
+        raise HTTPException(400, "words wajib array tidak kosong")
+    bersih: list[dict] = []
+    for w in words:
+        if not isinstance(w, dict):
+            continue
+        teks = str(w.get("word", "")).strip()
+        if not teks:
+            continue
+        try:
+            s = float(w.get("start", 0) or 0)
+            e = float(w.get("end", s) or s)
+        except (TypeError, ValueError):
+            continue
+        if e < s:
+            s, e = e, s
+        bersih.append({"word": teks[:80], "start": s, "end": e})
+    if not bersih:
+        raise HTTPException(400, "tidak ada kata valid")
+    import httpx as _httpx
+    try:
+        async with _httpx.AsyncClient(timeout=15) as c:
+            r = await c.get(
+                f"{SUPABASE_URL}/rest/v1/clips?id=eq.{clip_id}"
+                "&select=id,user_id",
+                headers={"apikey": SUPABASE_SERVICE_KEY,
+                         "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+            rows = r.json() if r.status_code == 200 else []
+            if not rows or str(rows[0].get("user_id")) != str(user["id"]):
+                raise RuntimeError("klip tidak ditemukan")
+            async with _httpx.AsyncClient(timeout=15) as c2:
+                await c2.patch(
+                    f"{SUPABASE_URL}/rest/v1/clips?id=eq.{clip_id}",
+                    headers={"apikey": SUPABASE_SERVICE_KEY,
+                             "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                             "Content-Type": "application/json"},
+                    json={"caption_words": bersih})
+        return {"ok": True, "count": len(bersih)}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"[edit-transkrip] gagal: {exc}")
+        raise HTTPException(400, str(exc)[:200])
+
+
+@app.post("/api/logo/removebg")
+async def api_logo_removebg(request: Request,
+                            authorization: str | None = Header(None)):
+    """Hapus background logo — v1 → gagal → v2 (failover berantai).
+
+    Multipart: file gambar. Balik PNG hasil (Content-Type image/png).
+    Fitur logo penuh premium, tapi removebg dibiarkan untuk semua supaya
+    pengguna free bisa MELIHAT hasilnya dulu (gating ada di tombol Setuju).
+    """
+    user = await get_user(request, authorization)
+    from .custom_logo import removebg
+    try:
+        form = await request.form()
+        up = form.get("file")
+        if up is None or not hasattr(up, "read"):
+            raise HTTPException(400, "file wajib diunggah")
+        data = await up.read()
+        if len(data) > 25 * 1024 * 1024:
+            raise HTTPException(400, "gambar maksimal 25 MB")
+        png, versi = await removebg(data, os.getenv("NEXRAY_API_KEY", ""))
+        from fastapi.responses import Response
+        return Response(
+            content=png, media_type="image/png",
+            headers={"X-Removebg-Version": versi})
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"[logo-removebg] gagal: {exc}")
+        raise HTTPException(400, str(exc)[:200])
+
+
+@app.post("/api/logo/{clip_id}")
+async def api_logo_set(clip_id: str, body: dict, request: Request,
+                        authorization: str | None = Header(None)):
+    """Simpan logo klip (URL + posisi + skala). KHUSUS PREMIUM.
+
+    Body: {"png_b64": "...", "cx": 0..1, "cy": 0..1, "scale": 0.05..1}
+    — png_b64 = PNG hasil removebg (atau gambar asli) dari klien.
+    """
+    user = await get_user(request, authorization)
+    ensure_uuid(clip_id, "Klip")
+    import base64
+
+    from .custom_logo import premium_aktif, set_logo_klip, simpan_logo
+    try:
+        if not await premium_aktif(str(user["id"])):
+            raise HTTPException(402, "Custom logo hanya untuk pengguna Premium")
+        body = body or {}
+        b64 = str(body.get("png_b64", "")).split(",", 1)[-1]
+        if not b64:
+            raise HTTPException(400, "png_b64 wajib diisi")
+        png = base64.b64decode(b64, validate=False)
+        if len(png) < 100:
+            raise HTTPException(400, "gambar tidak valid")
+        url = await simpan_logo(clip_id, str(user["id"]), png)
+        hasil = await set_logo_klip(
+            clip_id, str(user["id"]), url,
+            float(body.get("cx", 0.87) or 0.87),
+            float(body.get("cy", 0.05) or 0.05),
+            float(body.get("scale", 0.18) or 0.18))
+        return hasil
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"[logo-set] gagal: {exc}")
+        raise HTTPException(400, str(exc)[:200])
+
+
+@app.patch("/api/logo/{clip_id}/pos")
+async def api_logo_pos(clip_id: str, body: dict, request: Request,
+                       authorization: str | None = Header(None)):
+    """Update posisi/skala logo (dipakai drag di preview) — tanpa re-upload.
+
+    Body: {"cx": 0..1, "cy": 0..1, "scale": 0.05..1}. KHUSUS PREMIUM.
+    """
+    user = await get_user(request, authorization)
+    ensure_uuid(clip_id, "Klip")
+    from .custom_logo import premium_aktif, set_logo_klip
+    try:
+        if not await premium_aktif(str(user["id"])):
+            raise HTTPException(402, "Custom logo hanya untuk pengguna Premium")
+        import httpx as _httpx
+        async with _httpx.AsyncClient(timeout=15) as c:
+            r = await c.get(
+                f"{SUPABASE_URL}/rest/v1/clips?id=eq.{clip_id}"
+                "&select=id,user_id,camera_track",
+                headers={"apikey": SUPABASE_SERVICE_KEY,
+                         "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+        rows = r.json() if r.status_code == 200 else []
+        if not rows or str(rows[0].get("user_id")) != str(user["id"]):
+            raise RuntimeError("klip tidak ditemukan")
+        ct = rows[0].get("camera_track") or {}
+        logo = (ct.get("logo") or {}) if isinstance(ct, dict) else {}
+        if not logo.get("url"):
+            raise HTTPException(400, "belum ada logo — unggah dulu")
+        return await set_logo_klip(
+            clip_id, str(user["id"]), str(logo["url"]),
+            float((body or {}).get("cx", logo.get("cx", 0.87))),
+            float((body or {}).get("cy", logo.get("cy", 0.05))),
+            float((body or {}).get("scale", logo.get("scale", 0.18))))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"[logo-pos] gagal: {exc}")
+        raise HTTPException(400, str(exc)[:200])
+
+
+@app.delete("/api/logo/{clip_id}")
+async def api_logo_delete(clip_id: str, request: Request,
+                          authorization: str | None = Header(None)):
+    """Hapus logo dari klip."""
+    user = await get_user(request, authorization)
+    ensure_uuid(clip_id, "Klip")
+    from .custom_logo import hapus_logo
+    try:
+        return await hapus_logo(clip_id, str(user["id"]))
+    except Exception as exc:
+        print(f"[logo-del] gagal: {exc}")
+        raise HTTPException(400, str(exc)[:200])
+
+
 @app.post("/api/clips/{clip_id}/thumbnail")
 async def api_clip_thumbnail(clip_id: str, request: Request,
                              refresh: bool = False,
@@ -927,17 +1159,47 @@ async def hydra_status(request: Request, authorization: str | None = Header(None
     return {"endpoints": gateway.katalog() if katalog else gateway.status()}
 
 
+# hasil uji model terakhir (diisi task latar, dibaca endpoint status)
+_UJI_MODEL_STATE: dict[str, Any] = {"jalan": False, "hasil": None, "mulai": 0.0}
+
 @app.post("/api/admin/uji-model")
 async def api_admin_uji_model(request: Request, authorization: str | None = Header(None)):
-    """Tembak SETIAP model chat dengan satu prompt kecil, lalu catat hasilnya.
+    """Jalankan uji SEMUA model di LATAR BELAKANG. Balas seketika.
 
-    Alasan endpoint ini ada: pool AI memakai failover, jadi model pertama nyaris
-    selalu menang dan model cadangan tidak pernah dipanggil — tanpa uji manual,
-    panel admin akan menampilkan 0 sukses / 0 gagal untuk hampir semua model
-    selamanya. Hasil uji masuk ke statistik yang sama seperti pemakaian nyata.
+    Dulu endpoint ini menunggu seluruh uji selesai (174-180 detik karena
+    ada model reasoning yang lambat). Permintaan selama itu menggantung —
+    browser/proxy memutusnya dan panel menampilkan "Failed to fetch".
+    Sekarang POST hanya MEMICU tugas latar dan langsung balas {jalan:true};
+    panel mem-poll /api/admin/uji-model/status sampai selesai.
     """
     await require_admin_user(request, authorization)
-    return await gateway.uji_semua()
+    if _UJI_MODEL_STATE["jalan"]:
+        return {"jalan": True, "sudah_berjalan": True}
+    _UJI_MODEL_STATE.update(jalan=True, mulai=time.time(), hasil=None)
+
+    async def _uji() -> None:
+        try:
+            _UJI_MODEL_STATE["hasil"] = await gateway.uji_semua()
+        except Exception as exc:
+            _UJI_MODEL_STATE["hasil"] = {"error": str(exc)[:300]}
+        finally:
+            _UJI_MODEL_STATE["jalan"] = False
+
+    from .background import spawn
+    spawn(_uji(), name="uji:model")
+    return {"jalan": True}
+
+
+@app.get("/api/admin/uji-model/status")
+async def api_admin_uji_model_status(request: Request, authorization: str | None = Header(None)):
+    """Status uji model latar belakang: jalan? hasil terakhir?"""
+    await require_admin_user(request, authorization)
+    return {
+        "jalan": _UJI_MODEL_STATE["jalan"],
+        "detik_berjalan": round(time.time() - _UJI_MODEL_STATE["mulai"], 1)
+                           if _UJI_MODEL_STATE["jalan"] else None,
+        "hasil": _UJI_MODEL_STATE["hasil"],
+    }
 
 
 @app.get("/api/admin/resources")

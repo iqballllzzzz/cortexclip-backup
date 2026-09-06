@@ -108,8 +108,14 @@ def set_gagal(clip_id: str, pesan: str) -> None:
     endpoint status membalas status="failed" + pesan, dan klien berhenti
     mengulang serta menampilkan penyebabnya.
     """
-    row = _state.get(clip_id) or {}
-    row.update({"gagal": True, "pesan": pesan[:300], "t_gagal": time.time()})
+    # WAJIB isi "ts" (dan "mulai"): set_gagal bisa jalan SEBELUM set_progress
+    # pernah terpanggil (render gagal di awal) → row tanpa "ts" →
+    # get_progress() KeyError 'ts' → endpoint status 500 selamanya.
+    now = time.time()
+    row = _state.get(clip_id) or {"pct": 0, "tahap": "Gagal",
+                                  "titik": [], "mulai": now}
+    row.update({"ts": row.get("ts", now), "mulai": row.get("mulai", now),
+                "gagal": True, "pesan": pesan[:300], "t_gagal": now})
     _state[clip_id] = row
 
 

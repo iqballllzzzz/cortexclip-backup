@@ -29,6 +29,11 @@ import { BrollPip } from "@/components/broll-pip";
 import { PreviewLoading } from "@/components/preview-loading";
 import { PageLoading } from "@/components/page-loading";
 import { AdFullscreen } from "@/components/ad-fullscreen";
+import { EditorMoreMenu, type MoreAction } from "@/components/editor-more-menu";
+import { ManualTrackDialog } from "@/components/manual-track-dialog";
+import { EditTranscriptDialog } from "@/components/edit-transcript-dialog";
+import { CustomLogoDialog } from "@/components/custom-logo-dialog";
+import { DraggableLogoLayer, type LogoState } from "@/components/draggable-logo-layer";
 import { useCameraFraming, useCameraTrack } from "@/lib/camera-framing";
 import { LiveCaptionOverlay, type LiveCaptionStyle, type LiveWord } from "@/components/live-caption-overlay";
 import { startRenderJob, getAccessToken } from "@/lib/backend-api";
@@ -130,6 +135,10 @@ function EditorPage() {
   const [fontScale, setFontScale] = useState(1);
   const [position, setPosition] = useState<number | null>(null);
   const [opacity, setOpacity] = useState(1);
+  // PISAH (permintaan pengguna): ikon & b-roll jadi dua tombol berbeda —
+  // "takutnya ada yang cuma suka ikon dan ada yang cuma suka b-roll".
+  // iconsEnabled = ikon PNG animasi; brollEnabled = video b-roll PiP.
+  const [iconsEnabled, setIconsEnabled] = useState(false);
   const [brollEnabled, setBrollEnabled] = useState(false);
   const [brollSearching, setBrollSearching] = useState(false);
   const [emojiEnabled, setEmojiEnabled] = useState(false);
@@ -158,6 +167,12 @@ function EditorPage() {
   const [prevStage, setPrevStage] = useState<string>("");
   const [prevEta, setPrevEta] = useState<number | null>(null);
   const [prevElapsed, setPrevElapsed] = useState(0);
+
+  // MENU TITIK-TIGA (di kanan preview): manual tracking / edit transkrip /
+  // custom logo — plus logo draggable di atas preview.
+  const [moreDialog, setMoreDialog] = useState<MoreAction | null>(null);
+  const [logo, setLogo] = useState<LogoState | null>(null);
+  const [wordsOverride, setWordsOverride] = useState<LiveWord[] | null>(null);
 
   const cameraTrack = useCameraTrack(clipId, getAccessToken);
 
@@ -188,6 +203,7 @@ function EditorPage() {
         if (m["brollEnabled"] && Array.isArray(m["livePlacements"]))
           setLivePlacements(m["livePlacements"] as Placement[]);
       }
+      if (typeof m["iconsEnabled"] === "boolean") setIconsEnabled(m["iconsEnabled"]);
       if (typeof m["emojiEnabled"] === "boolean") setEmojiEnabled(m["emojiEnabled"]);
     } catch {
       /* korup → abaikan */
@@ -199,14 +215,14 @@ function EditorPage() {
       try {
         localStorage.setItem(
           memKey,
-          JSON.stringify({ presetId, fontScale, position, opacity, brollEnabled, emojiEnabled, livePlacements, savedAt: Date.now() }),
+          JSON.stringify({ presetId, fontScale, position, opacity, brollEnabled, iconsEnabled, emojiEnabled, livePlacements, savedAt: Date.now() }),
         );
       } catch {
         /* storage penuh → abaikan */
       }
     }, 800);
     return () => clearTimeout(t);
-  }, [memKey, presetId, fontScale, position, opacity, brollEnabled, emojiEnabled, livePlacements]);
+  }, [memKey, presetId, fontScale, position, opacity, brollEnabled, iconsEnabled, emojiEnabled, livePlacements]);
 
   /* --- load clip + project + sumber (preview INSTAN) --- */
   useEffect(() => {
@@ -221,6 +237,9 @@ function EditorPage() {
       }
       const c = data as Clip;
       setClip(c);
+      // logo tersimpan? (camera_track.logo) → tampilkan di preview
+      const ct = (c as unknown as { camera_track?: { logo?: LogoState } }).camera_track;
+      if (ct?.logo?.url) setLogo(ct.logo);
       if (c.project_id) {
         const { data: p } = await supabase.from("projects").select("*").eq("id", c.project_id).single();
         if (!cancelled && p) {
@@ -275,9 +294,18 @@ function EditorPage() {
     }
   }, [clip]);
 
-  /* --- AUTO SPLIT: muat status tersimpan + rentang split --- */
+  /* --- AUTO SPLIT: sinkron status tersimpan HANYA SEKALI per klip ---
+     BUG "toggle balik ke OFF sendiri": simpanLayout sukses lalu setClip(...)
+     membuat objek clip baru, useEffect[clip] berjalan lagi dan membaca
+     layout_prefs LAMA (stale — klien tidak pernah menulis hasil PATCH),
+     lalu menimpa toggle menjadi false padahal barusan dinyalakan.
+     Sekarang: sinkron hanya sekali per id klip; setelah itu state lokal
+     yang memegang kebenaran (user sudah jelas melihat toggle yang ia klik). */
+  const splitSyncRef = useRef<string | null>(null);
   useEffect(() => {
     if (!clip) return;
+    if (splitSyncRef.current === clip.id) return; // sudah disinkron untuk klip ini
+    splitSyncRef.current = clip.id;
     const prefs = (clip as unknown as { layout_prefs?: { enabled?: boolean } } | null)
       ?.layout_prefs;
     const aktif = !!prefs?.enabled;
@@ -302,9 +330,14 @@ function EditorPage() {
           toast.error("Gagal menyimpan Auto Split");
           return;
         }
-        const d = await res.json();
+        const d = (await res.json()) as { preview_direset?: boolean; layout_prefs?: { enabled?: boolean } };
+        // tulis prefs hasil PATCH ke state clip supaya data lokal tidak stale
+        setClip((c) => (c
+          ? { ...c,
+              layout_prefs: d.layout_prefs ?? { enabled },
+              ...(d.preview_direset ? { preview_url: null, preview_ready: false } : {}) }
+          : c));
         if (d.preview_direset) {
-          setClip((c) => (c ? { ...c, preview_url: null, preview_ready: false } : c));
           setPrevPct(0);
           setPrevStage("Menyiapkan");
           toast.success(enabled ? "Auto Split aktif — preview dibuat ulang" : "Auto Split mati");
@@ -425,10 +458,12 @@ function EditorPage() {
 
   const words = useMemo<LiveWord[]>(
     () =>
-      ((clip?.caption_words as unknown as { word: string; start: number; end: number }[]) ?? []).map(
+      (wordsOverride ??
+        ((clip?.caption_words as unknown as { word: string; start: number; end: number }[]) ?? [])
+      ).map(
         (w) => ({ word: w.word, start: Number(w.start), end: Number(w.end) }),
       ),
-    [clip],
+    [clip, wordsOverride],
   );
 
   /* --- fit canvas 9:16 --- KELUHAN PENGGUNA: "previewnya gede banget hampir
@@ -451,7 +486,10 @@ function EditorPage() {
       // desktop: plafon 62vh menahan preview agar panel kanan tetap lega.
       // mobile: kolom kiri sudah dipatok 47dvh lewat CSS, jadi plafon di sini
       // hanya jaring pengaman (58dvh) — availH yang menentukan.
-      const plafon = desktop ? vh * 0.62 : vh * 0.58;
+      // Desktop 80vh / HP 72vh dari tinggi layar (permintaan pengguna:
+      // "preview harus lebih besar, yang sekarang terlalu kecil") — masih
+      // menyisakan ruang transport bar + pita kata + panel tool.
+      const plafon = desktop ? vh * 0.80 : vh * 0.72;
       const h = Math.min(availH - 8, (availW * 16) / 9, plafon);
       const w = (h * 9) / 16;
       setFit({ w: Math.round(w), h: Math.round(h) });
@@ -593,7 +631,12 @@ function EditorPage() {
       emoji: emojiEnabled || preset.style.emoji,
       uppercase: preset.style.uppercase ?? false,
       opacity,
-      broll: brollEnabled,
+      // PARITY RENDER: kirim keduanya supaya render unduhan tahu persis
+      // mana yang aktif (ikon, b-roll, atau keduanya).
+      broll: iconsEnabled || brollEnabled ? {
+        icons: iconsEnabled,
+        broll: brollEnabled,
+      } : false,
     };
   }
 
@@ -697,9 +740,18 @@ function EditorPage() {
 
   async function toggleBroll(v: boolean) {
     setBrollEnabled(v);
-    if (v && clip) {
+    if (v && clip && livePlacements.length === 0) {
       await loadPlacements(false);
-    } else {
+    } else if (!v && !iconsEnabled) {
+      setLivePlacements([]);
+    }
+  }
+
+  async function toggleIcons(v: boolean) {
+    setIconsEnabled(v);
+    if (v && clip && livePlacements.length === 0) {
+      await loadPlacements(false);
+    } else if (!v && !brollEnabled) {
       setLivePlacements([]);
     }
   }
@@ -720,8 +772,20 @@ function EditorPage() {
   }, [videoSrc]);
   const videoSiapBaru = () => {
     if (urlBaruRef.current && urlBaruRef.current !== urlTampil) {
+      const urlLama = urlTampil;
       setUrlTampil(urlBaruRef.current);
       urlBaruRef.current = null;
+      // AUTO-REFRESH (permintaan pengguna): preview baru (mis. setelah Auto
+      // Split dinyalakan) langsung diputar dari awal — pengguna tidak perlu
+      // memuat ulang halaman lagi untuk melihat hasil splitnya.
+      if (urlLama) {
+        const v = videoRef.current;
+        if (v) {
+          v.currentTime = 0;
+          v.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+        }
+        toast.success("Preview diperbarui");
+      }
     }
   };
 
@@ -803,16 +867,21 @@ function EditorPage() {
            ═══ */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
         {/* ————— KOLOM KIRI: preview + transport + pita kata ————— */}
-        {/* MOBILE: tinggi kolom kiri DIPATOK 54dvh supaya (a) preview punya
+        {/* MOBILE: tinggi kolom kiri DIPATOK 66dvh supaya (a) preview punya
             ruang nyata — dulu `shrink-0` + anak `flex-1` menghasilkan tinggi
             konten 38px alias preview mini — dan (b) panel tool dapat sisa
             layar yang pasti. DESKTOP: kolom mengisi sisa lebar seperti biasa. */}
-        <div className="flex h-[54dvh] shrink-0 flex-col items-center gap-2 border-b border-border bg-surface/30 px-2 py-2 lg:h-auto lg:min-h-0 lg:min-w-0 lg:flex-1 lg:border-b-0 lg:border-r lg:px-4 lg:py-4">
-          <div ref={fitRef} className="flex min-h-0 w-full flex-1 items-center justify-center overflow-hidden">
-            <div
-              className="relative shrink-0 overflow-hidden rounded-2xl border border-border bg-black shadow-xl shadow-black/30"
-              style={{ width: fit.w, height: fit.h }}
-            >
+        <div className="flex h-[74dvh] shrink-0 flex-col items-center gap-2 border-b border-border bg-surface/30 px-2 py-2 lg:h-auto lg:min-h-0 lg:min-w-0 lg:flex-1 lg:border-b-0 lg:border-r lg:px-4 lg:py-4">
+          {/* PREVIEW + TOMBOL TITIK-TIGA DI KANANNYA (di luar kotak video):
+              permintaan pengguna: "kasih tombol titik tiga di kanan nya
+              preview alias diluar preview" — tombol edit di kolom sempit
+              di sebelah kanan kotak 9:16, selalu terlihat. */}
+          <div className="flex min-h-0 w-full flex-1 items-stretch justify-center gap-2">
+            <div ref={fitRef} className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden">
+              <div
+                className="relative shrink-0 overflow-hidden rounded-2xl border border-border bg-black shadow-xl shadow-black/30"
+                style={{ width: fit.w, height: fit.h }}
+              >
               {urlTampil ? (
                 <>
                   {videoSrc && videoSrc !== urlTampil ? (
@@ -886,7 +955,7 @@ function EditorPage() {
                 />
               ) : null}
 
-              {/* B-ROLL PiP — parity dengan render unduhan */}
+              {/* B-ROLL PiP — parity dengan render unduhan (toggle sendiri) */}
               {brollEnabled
                 ? livePlacements
                     .filter((p) => !!p.broll_url)
@@ -911,8 +980,10 @@ function EditorPage() {
                     })
                 : null}
 
-              {/* Ikon & b-roll live */}
-              {brollEnabled && livePlacements.length > 0
+              {/* IKON live — toggle sendiri "Ikon" (bukan lagi satu paket
+                  dengan b-roll): pengguna bisa suka ikon saja atau b-roll
+                  saja; keduanya nyala → keduanya tampil. */}
+              {iconsEnabled && livePlacements.length > 0
                 ? livePlacements.map((p, idx) => {
                     const active = time >= p.time_start && time <= p.time_end;
                     const dist = fit.w * 0.7;
@@ -988,6 +1059,32 @@ function EditorPage() {
                   <Play className="size-4 translate-x-px text-white" />
                 </span>
               </button>
+
+              {/* LOGO CUSTOM (premium) — draggable + resize di atas preview.
+                  z di atas tombol play supaya bisa dipegang. */}
+              {logo && !sedangDiproses ? (
+                <DraggableLogoLayer
+                  clipId={clip.id}
+                  boxW={fit.w}
+                  boxH={fit.h}
+                  logo={logo}
+                  onChange={setLogo}
+                />
+              ) : null}
+            </div>
+            </div>
+
+            {/* TOMBOL TITIK-TIGA di kanan preview (di luar kotak video) */}
+            <div className="flex shrink-0 flex-col items-center justify-center gap-2">
+              <EditorMoreMenu
+                onAction={(a) => {
+                  if (a === "manual-track" && !sourceUrl) {
+                    toast.error("Video sumber belum siap — coba lagi sebentar");
+                    return;
+                  }
+                  setMoreDialog(a);
+                }}
+              />
             </div>
           </div>
 
@@ -1176,9 +1273,16 @@ function EditorPage() {
                     </ToolPane>
                   ) : (
                     <ToolPane key="broll">
+                      {/* CARD RINGKAS (permintaan pengguna): tanpa penjelasan
+                          panjang — label saja, toggle dirapatkan. Supaya muat
+                          2 tombol baru (Ikon & B-Roll terpisah) tanpa scroll. */}
                       <ToggleRow
-                        label="Ikon & B-Roll"
-                        desc="AI menyisipkan ikon animasi di momen tepat."
+                        label="Ikon"
+                        enabled={iconsEnabled}
+                        onChange={(v) => void toggleIcons(v)}
+                      />
+                      <ToggleRow
+                        label="B-Roll"
                         enabled={brollEnabled}
                         onChange={(v) => void toggleBroll(v)}
                       />
@@ -1227,7 +1331,6 @@ function EditorPage() {
                       <div className="mt-1.5">
                         <ToggleRow
                           label="Emoji pada subtitle"
-                          desc="Emoji di beberapa kata kunci."
                           enabled={emojiEnabled}
                           onChange={setEmojiEnabled}
                         />
@@ -1237,7 +1340,6 @@ function EditorPage() {
                       <div className="mt-1.5">
                         <ToggleRow
                           label="Auto Split"
-                          desc="Layar dibagi dua saat dua orang bergiliran bicara."
                           enabled={layoutEnabled}
                           onChange={(v) => {
                             setLayoutEnabled(v);
@@ -1355,6 +1457,47 @@ function EditorPage() {
           onCancel={() => setAdPlaying(false)}
         />
       ) : null}
+
+      {/* ===== DIALOG MENU TITIK-TIGA ===== */}
+      {moreDialog === "manual-track" ? (
+        <ManualTrackDialog
+          clipId={clip.id}
+          sourceUrl={sourceUrl}
+          duration={duration}
+          onClose={() => setMoreDialog(null)}
+          onApplied={() => {
+            // preview reset oleh backend → paksa render ulang lewat polling
+            setClip((c) => (c ? { ...c, preview_ready: false, preview_url: null } : c));
+            setPrevPct(0);
+            setPrevStage("Menyiapkan");
+          }}
+        />
+      ) : null}
+      {moreDialog === "edit-transkrip" ? (
+        <EditTranscriptDialog
+          clipId={clip.id}
+          words={words}
+          onClose={() => setMoreDialog(null)}
+          onSaved={(w) => {
+            setWordsOverride(w);
+            setClip((c) => (c ? { ...c, caption_words: w as unknown as Clip["caption_words"] } : c));
+          }}
+        />
+      ) : null}
+      {moreDialog === "custom-logo" ? (
+        <CustomLogoDialog
+          clipId={clip.id}
+          onClose={() => setMoreDialog(null)}
+          onAgree={(url) => {
+            setLogo({ url, cx: 0.87, cy: 0.05, scale: 0.18 });
+            // logo terpasang → preview dirender ulang (logo dibakar di
+            // unduhan; layer DOM menunjukkan posisinya di preview)
+            setClip((c) => (c ? { ...c, preview_ready: false, preview_url: null } : c));
+            setPrevPct(0);
+            setPrevStage("Menyiapkan");
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1405,20 +1548,20 @@ function SliderRow({ label, min, max, step, value, onChange }: {
 
 function ToggleRow({ label, desc, enabled, onChange }: {
   label: string;
-  desc: string;
+  desc?: string;
   enabled: boolean;
   onChange: (v: boolean) => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-2 rounded-xl border border-border bg-background px-2.5 py-2">
-      <div className="min-w-0">
-        <p className="text-[12px] font-medium leading-tight">{label}</p>
-        <p className="mt-0.5 text-[10px] leading-tight text-muted-foreground">{desc}</p>
-      </div>
+    <div className="flex items-center justify-between gap-2 rounded-xl border border-border bg-background px-2.5 py-1.5">
+      <p className="min-w-0 truncate text-[12.5px] font-medium leading-tight">{label}</p>
+      {/* Toggle DIRAPATKAN ke label (permintaan pengguna) — jarak pas,
+          gak berdempetan: label flex-1 kiri, switch langsung di kanan. */}
       <button
         type="button"
         role="switch"
         aria-checked={enabled}
+        aria-label={label}
         onClick={() => onChange(!enabled)}
         className={`relative w-9 shrink-0 rounded-full transition-colors ${enabled ? "bg-accent" : "bg-border"}`}
         style={{ height: 20 }}

@@ -199,7 +199,16 @@ async def render_clip_server(
 
         # style: cukup pass caption_style — build_ass resolve preset Supoclip.
         style = dict(caption_style or {})
-        broll_enabled = bool(style.pop("broll", False))
+        # FORMAT BARU (2026-09-06): broll bisa {icons:bool, broll:bool} —
+        # ikon & b-roll kini DUA toggle terpisah di editor. Tetap terima
+        # boolean lama (klien cache) sebagai "keduanya".
+        _broll_val = style.pop("broll", False)
+        if isinstance(_broll_val, dict):
+            icons_enabled = bool(_broll_val.get("icons"))
+            broll_enabled = bool(_broll_val.get("broll"))
+        else:
+            broll_enabled = bool(_broll_val)
+            icons_enabled = broll_enabled
         emoji_in_subtitle = bool(style.pop("emoji_extra", False))
 
         # dimensi output utk PlayRes + skala font (ala Supoclip)
@@ -288,7 +297,7 @@ async def render_clip_server(
         # berada pada momen itu.
         broll_video_overlays: list[dict[str, Any]] = []
         placements: list[dict[str, Any]] = []
-        if broll_enabled:
+        if broll_enabled or icons_enabled:
             try:
                 from .overlay_plan import plan_overlays
 
@@ -340,7 +349,21 @@ async def render_clip_server(
             try:
                 st = render_mod.analyze_speaker_track(src, start, end)
                 st_full = st if isinstance(st, dict) else {}
-                traj = st.get("trajectory") or None
+                # MANUAL TRACKING: rentang manual (klik pengguna) menimpa
+                # trajektori otomatis pada rentangnya — subjek pilihan user
+                # selalu diikuti di scene itu.
+                try:
+                    from .manual_track import gabungkan_manual
+                    _traj_m, _cuts_m = gabungkan_manual(
+                        st_full, clip.get("camera_track"))
+                    if _traj_m:
+                        st_full = {**st_full, "trajectory": _traj_m,
+                                   "cuts": _cuts_m}
+                        print(f"[render] manual track: {len(_cuts_m)} scene "
+                              "aktif (menimpa otomatis)")
+                except Exception as exc:
+                    print(f"[render] gabung manual track gagal: {exc}")
+                traj = st_full.get("trajectory") or None
                 cam_cuts = list(st.get("cuts") or [])
                 cam_fps = float(st.get("analysis_fps") or 15.0)
                 cam_rolls = list(st.get("roll") or [])
@@ -446,6 +469,8 @@ async def render_clip_server(
                 bw_frac, bh_frac = bw / vw, bh / vh
 
                 for p in rencana_waktu:
+                    # PISAH TOGGLE: ikon hanya kalau icons_enabled,
+                    # b-roll hanya kalau broll_enabled — jangan paketan.
                     icon_id = str(p.get("icon_id") or "StarIcon")
                     png = icon_png_from_id(icon_id)
                     if not png:
@@ -464,14 +489,16 @@ async def render_clip_server(
                         icx, icy, alasan = OL.posisi_ikon(
                             st_pos, ts, ikon_frac, ikon_h_frac, sub_pct,
                             split_ranges=lay_seg)
-                    icon_png_overlays.append({
-                        "png": png,
-                        "x": int(vw * icx), "y": int(vh * icy),
-                        "size": int(vw * ikon_frac),
-                        "t_start": ts, "t_end": te,
-                        "anim": str(p.get("animation") or "slide-left"),
-                    })
-                    print(f"[overlay] ikon t={ts:.1f}s → ({icx:.2f},{icy:.2f}) {alasan}")
+                    if icons_enabled:
+                        icon_png_overlays.append({
+                            "png": png,
+                            "x": int(vw * icx), "y": int(vh * icy),
+                            "size": int(vw * ikon_frac),
+                            "t_start": ts, "t_end": te,
+                            "anim": str(p.get("animation") or "slide-left"),
+                        })
+                    print(f"[overlay] ikon t={ts:.1f}s → ({icx:.2f},{icy:.2f}) {alasan}"
+                          + ("" if icons_enabled else " (toggle ikon mati)"))
 
                     burl = p.get("broll_url")
                     if not burl:
@@ -479,6 +506,8 @@ async def render_clip_server(
                             print(f"[overlay] b-roll t={ts:.1f}s dilewati: "
                                   f"{p['broll_skip_reason']}")
                         continue
+                    if not broll_enabled:
+                        continue  # toggle B-Roll mati → jangan tambah PiP video
                     bfile = await to_thread.run_sync(broll_local_path, str(burl))
                     if not bfile:
                         continue
@@ -513,6 +542,40 @@ async def render_clip_server(
                 import traceback
                 print(f"[render] tata letak overlay gagal ({str(exc)[:150]})")
                 traceback.print_exc()
+
+        # ================= CUSTOM LOGO (PREMIUM) =================
+        # Logo brand pengguna (tersimpan clips.camera_track.logo) dibakar
+        # ke pojok yang dipilih pengguna — preview & unduhan sama.
+        logo_overlay: Optional[dict[str, Any]] = None
+        try:
+            _logo = ((clip.get("camera_track") or {})
+                     .get("logo")) if isinstance(
+                clip.get("camera_track"), dict) else None
+            if _logo and _logo.get("url"):
+                from .custom_logo import unduh_lokal
+                _lfile = await unduh_lokal(str(_logo["url"]))
+                logo_overlay = {
+                    "png": _lfile,
+                    "x": int(vw * float(_logo.get("cx", 0.87))),
+                    "y": int(vh * float(_logo.get("cy", 0.05))),
+                    "size": int(vw * float(_logo.get("scale", 0.18))),
+                }
+                print(f"[render] logo dibakar di "
+                      f"({_logo.get('cx')},{_logo.get('cy')}) "
+                      f"skala {_logo.get('scale')}")
+        except Exception as exc:
+            print(f"[render] logo dilewati: {exc}")
+
+        # CUSTOM LOGO ikut daftar png_overlays (tampil penuh, tanpa animasi):
+        # mekanisme overlay PNG sama dengan ikon — hanya beda jendela waktu
+        # (0..durasi klip) dan tanpa fade, persis perilaku watermark.
+        if logo_overlay:
+            # render() menerima icon_png_overlays; pakai list terpisah agar
+            # tidak tercampur timer ikon: t_start=0, t_end=durasi penuh.
+            logo_overlay["t_start"] = 0.0
+            logo_overlay["t_end"] = max(0.5, float(end) - float(start))
+            logo_overlay["anim"] = ""
+            icon_png_overlays.append(logo_overlay)
 
         render_mod.render_clip(
             src, start, end, ass_path, out_path,
@@ -721,6 +784,53 @@ def _cam_track_dari(st: dict[str, Any], fps: float,
     }
 
 
+def _jaga_manual_logo(ct_baru: dict[str, Any],
+                     ct_lama: Any) -> dict[str, Any]:
+    """Pertahankan 'manual' (manual tracking) + 'logo' saat render menulis
+    camera_track baru.
+
+    Render menyimpan hasil analisisnya ke clips.camera_track — tanpa ini,
+    fields milik AKSI PENGGUNA tertimpa dan hilang setelah tiap render
+    (terukur: manual scenes 1 → 0 setelah preview, framing manual tak pernah
+    dipakai).
+    """
+    if not isinstance(ct_lama, dict):
+        return ct_baru
+    for k in ("manual", "logo"):
+        if ct_lama.get(k) is not None:
+            ct_baru = {**ct_baru, k: ct_lama[k]}
+    return ct_baru
+
+
+def _headers_service() -> dict[str, str]:
+    return {
+        "apikey": os.environ.get("SUPABASE_SERVICE_KEY", ""),
+        "Authorization": f"Bearer {os.environ.get('SUPABASE_SERVICE_KEY', '')}",
+    }
+
+
+async def hapus_preview_cache(clip_id: str, user_id: str) -> None:
+    """Hapus berkas preview lama di storage (mode penuh & split).
+
+    Dipanggil saat framing berubah karena AKSI PENGGUNA (manual tracking,
+    logo custom): berkas preview lama tidak lagi mewakili hasil akhir, dan
+    cache-buster HEAD di render_preview_clip akan mengangkatnya kalau
+    dibiarkan — terukur: "cache mode split terpakai" tepat setelah manual
+    tracking disimpan, sehingga framing manual tidak pernah terlihat.
+    Kegagalan penghapusan tidak fatal (render ulang tetap benar, hanya
+    menyimpan file baru dengan nama sama).
+    """
+    for sufiks in ("penuh", "split"):
+        kunci = f"{user_id}/previews/{clip_id}_{sufiks}.mp4"
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                await client.delete(
+                    f"{SUPABASE_URL}/storage/v1/object/{BUCKET}/{kunci}",
+                    headers=_headers_service())
+        except Exception as exc:
+            print(f"[preview-cache] gagal hapus {sufiks} (lanjut): {exc}")
+
+
 async def render_preview_clip(
     project_id: str,
     clip_id: str,
@@ -743,10 +853,32 @@ async def render_preview_clip(
     # Satu render per klip — TIDAK perlu re-render tiap ganti gaya/ukuran/posisi.
     # Hash hanya dari klip (bukan style) supaya cache selalu hit.
     style = dict(caption_style or {})
+    # MODE SPLIT masuk hash + nama berkas: preview "split" dan "tanpa split"
+    # adalah DUA hasil berbeda. Dulu keduanya menumpuk di kunci storage yang
+    # sama dengan hash yang sama, sehingga bolak-balik toggle harus render
+    # ulang penuh (analisis wajah 44s) setiap kali — persis keluhan pengguna:
+    # "kalau sebelumnya dah pernah dirender, pas diaktifin lagi gaada masalah
+    # memproses lagi". Sekarang tiap mode punya berkasnya sendiri; kalau mode
+    # itu pernah dirender, cukup pakai ulang.
+    _prefs_mode = dict(clip.get("layout_prefs") or {})
+    split_on = bool(_prefs_mode.get("enabled"))
+    # MANUAL TRACK & LOGO masuk hash: framing manual (klik pengguna) dan
+    # logo custom adalah hasil VISUAL berbeda — tanpa ini preview lama
+    # dipakai ulang dan hasil manual tracking tidak pernah terlihat
+    # (terukur: "cache mode split terpakai" padahal manual baru disimpan).
+    _ct_hash = clip.get("camera_track") or {}
+    _manual_n = 0
+    _logo_h = ""
+    if isinstance(_ct_hash, dict):
+        _manual_n = len((_ct_hash.get("manual") or {}).get("scenes") or [])
+        _logo_h = str((_ct_hash.get("logo") or {}).get("url") or "")[-30:]
     # hash SENGJAHA TIDAK termasuk resolusi: 180p & 360p share cache yang sama
     style_hash = hashlib.md5(
-        json.dumps({"clip": clip_id, "v": 2}, sort_keys=True).encode()
+        json.dumps({"clip": clip_id, "split": split_on,
+                    "mt": _manual_n, "lg": _logo_h, "v": 4},
+                   sort_keys=True).encode()
     ).hexdigest()[:10]
+    _mode_sufiks = "split" if split_on else "penuh"
 
     # CACHE HIT wajib memeriksa preview_url juga.
     # Tanpa syarat itu, klip yang preview_url-nya dikosongkan (mis. saat dipaksa
@@ -767,18 +899,55 @@ async def render_preview_clip(
 
     workdir = tempfile.mkdtemp(prefix="cortexclip_preview_")
     from .preview_progress import set_progress
+
+    # Kemajuan dilaporkan ke UI supaya tidak ada layar hitam tanpa
+    # keterangan. Skala: 0-90% = encode, 90-99% = unggah, 100% = siap.
+    # WAJIB dideklarasi SEBELUM pemakaian pertama — dulu dideklarasi setelah
+    # lapor(2, ...) → UnboundLocalError 'lapor' → semua preview non-cache gagal.
+    def lapor(pct: int, tahap: str = "Menyiapkan video") -> None:
+        set_progress(clip_id, pct, tahap)
+
     try:
+        # ── CACHE-BUSTER CEPAT: berkas preview untuk mode split ini sudah
+        # pernah diunggah? (toggle ON->OFF->ON tidak boleh menganalisis ulang)
+        # Cukup HEAD storage — 1 request, tanpa render.
+        _uid_awal = clip.get("user_id") or project.get("user_id")
+        _key_cache = f"{_uid_awal}/previews/{clip_id}_{_mode_sufiks}.mp4"
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                _head = await client.head(
+                    f"{SUPABASE_URL}/storage/v1/object/{BUCKET}/{_key_cache}",
+                    headers=_service_headers())
+            if _head.status_code == 200 and int(_head.headers.get("content-length") or 0) > 8000:
+                _url_cache = (
+                    f"{PUBLIC_SUPABASE_URL}/storage/v1/object/public/"
+                    f"{BUCKET}/{_key_cache}?v={style_hash}"
+                )
+                async with httpx.AsyncClient(timeout=30) as client:
+                    await client.patch(
+                        f"{SUPABASE_URL}/rest/v1/clips?id=eq.{clip_id}",
+                        headers=_user_headers(token),
+                        json={"preview_url": _url_cache, "preview_ready": True,
+                              "preview_style_hash": style_hash})
+                from .preview_progress import set_progress as _sp
+                _sp(clip_id, 100, "Siap")
+                print(f"[preview] cache mode {_mode_sufiks} terpakai — "
+                      "tanpa render ulang")
+                return {
+                    "file": f"{clip_id}_{_mode_sufiks}.mp4",
+                    "storage_path": _key_cache,
+                    "url": _url_cache,
+                    "cached": True,
+                }
+        except Exception as exc:
+            # cache-storage hanya penghematan; kegagalannya bukan alasan gagal
+            print(f"[preview] cek cache storage dilewati: {exc}")
+
+        lapor(2, "Menyiapkan video")
         abs_start = float(clip["start_time"])
         abs_end = min(float(clip["end_time"]), abs_start + max_seconds)
         out_name = f"{uuid.uuid4().hex[:10]}.mp4"
         out_path = os.path.join(workdir, out_name)
-
-        # Kemajuan dilaporkan ke UI supaya tidak ada layar hitam tanpa
-        # keterangan. Skala: 0-90% = encode, 90-99% = unggah, 100% = siap.
-        def lapor(pct: int, tahap: str = "Menyiapkan video") -> None:
-            set_progress(clip_id, pct, tahap)
-
-        lapor(2, "Menyiapkan video")
 
         # SUMBER: coba HTTP-seek dulu (tanpa unduh file penuh) — ini yang
         # membuat preview klip di menit ke-50 video 1 jam tetap cepat.
@@ -824,6 +993,19 @@ async def render_preview_clip(
                 cam_fps = float(st.get("analysis_fps") or 15.0)
                 cam_rolls = list(st.get("roll") or [])
                 cam_track = _cam_track_dari(st, cam_fps, cam_cuts)
+                # MANUAL TRACKING di PREVIEW: gabungkan rentang klik
+                # pengguna sebelum trajektori dipakai render.
+                try:
+                    from .manual_track import gabungkan_manual
+                    _ct_lama = clip.get("camera_track") or {}
+                    _traj_m, _cuts_m = gabungkan_manual(
+                        {"trajectory": traj, "cuts": cam_cuts,
+                         "analysis_fps": cam_fps}, _ct_lama)
+                    if _traj_m:
+                        traj = _traj_m
+                        cam_cuts = _cuts_m
+                except Exception as exc:
+                    print(f"[preview] gabung manual track gagal: {exc}")
                 if not traj or len(traj) < 2:
                     print("[preview] face tracking kosong → crop tengah")
                     traj = None
@@ -886,6 +1068,19 @@ async def render_preview_clip(
                 cam_fps = float(st.get("analysis_fps") or 15.0)
                 cam_rolls = list(st.get("roll") or [])
                 cam_track = _cam_track_dari(st, cam_fps, cam_cuts)
+                # MANUAL TRACKING di PREVIEW: gabungkan rentang klik
+                # pengguna sebelum trajektori dipakai render.
+                try:
+                    from .manual_track import gabungkan_manual
+                    _ct_lama = clip.get("camera_track") or {}
+                    _traj_m, _cuts_m = gabungkan_manual(
+                        {"trajectory": traj, "cuts": cam_cuts,
+                         "analysis_fps": cam_fps}, _ct_lama)
+                    if _traj_m:
+                        traj = _traj_m
+                        cam_cuts = _cuts_m
+                except Exception as exc:
+                    print(f"[preview] gabung manual track gagal: {exc}")
                 if not traj or len(traj) < 2:
                     traj = None
                 # AUTO SPLIT jalur fallback: JANGAN merencanakan ulang. Pakai
@@ -933,7 +1128,10 @@ async def render_preview_clip(
 
         lapor(92, "Mengunggah preview")
         user_id = clip.get("user_id") or project.get("user_id")
-        storage_key = f"{user_id}/previews/{clip_id}.mp4"
+        # kunci PER MODE (lihat _mode_sufiks di atas): dua hasil preview
+        # berbeda tidak saling menimpa, dan toggle bolak-balik tinggal
+        # memakai kembali berkas yang sudah ada.
+        storage_key = f"{user_id}/previews/{clip_id}_{_mode_sufiks}.mp4"
         await upload_to_storage(out_path, storage_key)
         # query param v=style_hash → browser cache-bust versi preview
         preview_url = (
@@ -982,7 +1180,11 @@ async def render_preview_clip(
                     # layout_frames-lah yang paling mahal dihitung, dan ia sudah
                     # ada di tangan kita di sini — membuangnya lalu menghitung
                     # ulang saat panel dibuka adalah pemborosan murni.
-                    **({"camera_track": cam_track} if cam_track else {}),
+                    # MANUAL & LOGO dari camera_track LAMA dipertahankan —
+                    # keduanya milik aksi pengguna, bukan analisis.
+                    **({"camera_track": _jaga_manual_logo(
+                        cam_track, clip.get("camera_track"))}
+                       if cam_track else {}),
                 },
             )
 

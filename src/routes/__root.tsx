@@ -79,7 +79,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
+      // maximum-scale=1 + user-scalable=no: pengguna melarang pinch-zoom halaman
+      // ("jangan sampai semua halaman bisa diperbesar dan diperkecil").
+      { name: "viewport", content: "width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover" },
       { title: "CortexClip — AI Auto Clipper" },
       {
         name: "description",
@@ -137,7 +139,19 @@ function RootShell({ children }: { children: ReactNode }) {
 window.addEventListener("vite:preloadError",function(e){try{e.preventDefault()}catch(_){}heal()});
 window.addEventListener("error",function(e){var t=e&&e.target;if(!t||!t.tagName)return;var u=t.src||t.href||"";if((t.tagName==="SCRIPT"||t.tagName==="LINK")&&/\\/(assets|_build)\\//.test(u))heal()},true);
 window.addEventListener("unhandledrejection",function(e){var m=e&&e.reason&&(e.reason.message||e.reason)||"";if(/dynamically imported module|Importing a module script failed|Loading chunk/i.test(String(m)))heal()});
-window.addEventListener("load",function(){setTimeout(function(){try{sessionStorage.removeItem(K)}catch(e){}},1500)})})();`;
+window.addEventListener("load",function(){setTimeout(function(){try{sessionStorage.removeItem(K)}catch(e){}},1500)})();`;
+
+  // ANTI-ZOOM LEMPENG 2 (permintaan pengguna 2026-09-06: "jangan sampai
+  // halaman bisa diperbesar/diperkecil"): viewport meta sudah kunci pinch di
+  // mobile; ini mencegah jalur desktop (ctrl+wheel, ctrl/± keyboard) dan
+  // gesture pinch iOS Safari (yang mengabaikan user-scalable=no).
+  const antiZoomScript = `(function(){
+function kunci(){try{var d=document.documentElement;if(d){d.style.zoom="";}}catch(e){}}
+document.addEventListener("gesturestart",function(e){try{e.preventDefault()}catch(_){}}, {passive:false});
+document.addEventListener("gesturechange",function(e){try{e.preventDefault()}catch(_){}}, {passive:false});
+document.addEventListener("wheel",function(e){if(e.ctrlKey||e.metaKey){try{e.preventDefault()}catch(_){}}},{passive:false});
+document.addEventListener("keydown",function(e){if((e.ctrlKey||e.metaKey)&&(e.key==="+"||e.key==="-"||e.key==="="||e.key==="_")){try{e.preventDefault()}catch(_){}}});
+})();`;
 
   return (
     <html lang="id">
@@ -145,6 +159,7 @@ window.addEventListener("load",function(){setTimeout(function(){try{sessionStora
         <HeadContent />
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <script dangerouslySetInnerHTML={{ __html: chunkHealScript }} />
+        <script dangerouslySetInnerHTML={{ __html: antiZoomScript }} />
       </head>
       <body>
         {children}
