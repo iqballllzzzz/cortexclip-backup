@@ -88,10 +88,20 @@ _service_headers = {
 }
 
 
-async def sb(method: str, path: str, json_body=None, params=None) -> Any:
+async def sb(method: str, path: str, json_body=None, params=None,
+             prefer: Optional[str] = None) -> Any:
+    """Panggil PostgREST dengan service key.
+
+    `prefer` menimpa header Prefer bawaan — dibutuhkan untuk UPSERT
+    (`resolution=merge-duplicates`), yang tanpa itu gagal 409 pada primary key
+    yang sudah ada.
+    """
     url = f"{SUPABASE_URL}/rest/v1/{path}"
+    headers = dict(_service_headers)
+    if prefer:
+        headers["Prefer"] = prefer
     async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.request(method, url, headers=_service_headers, json=json_body, params=params)
+        resp = await client.request(method, url, headers=headers, json=json_body, params=params)
     if resp.status_code >= 300:
         raise RuntimeError(f"Supabase {path}: {resp.status_code} {resp.text[:200]}")
     if resp.status_code == 204 or not resp.text:

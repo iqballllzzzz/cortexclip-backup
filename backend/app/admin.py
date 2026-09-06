@@ -365,6 +365,16 @@ async def overview() -> dict[str, Any]:
         s = r.get("status") or "unknown"
         status_count[s] = status_count.get(s, 0) + 1
 
+    # Statistik SETIAP model dari Hydra: sukses/gagal kumulatif per endpoint,
+    # termasuk percobaan yang gagal sebelum failover berhasil. usage_log tidak
+    # bisa menjawab ini — di sana hanya model PEMENANG yang tercatat.
+    try:
+        from .hydra import gateway as _gw
+        model_stats = _gw.katalog()
+    except Exception as exc:
+        print(f"[admin] katalog model gagal: {exc}")
+        model_stats = []
+
     return {
         "kpi": {
             "total_users": total_users,
@@ -381,6 +391,8 @@ async def overview() -> dict[str, Any]:
             "renders_total": renders_total,
         },
         "series": series,
+        # semua model AI + hitungan sukses/gagalnya (panel "Kesehatan model AI")
+        "model_stats": model_stats,
         "top_models": top_models,
         "by_kind": [{"kind": k, "count": v} for k, v in
                     sorted(kind_count.items(), key=lambda kv: -kv[1])],

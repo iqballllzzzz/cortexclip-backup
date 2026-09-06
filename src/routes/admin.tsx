@@ -27,6 +27,7 @@ import { fetchAdminStats, fetchAdminUsers, type AdminStats, type AdminUser } fro
 import { Button } from "@/components/ui/button";
 import { UserDrawer } from "@/components/admin/user-drawer";
 import { ActivityLines, ModelBars, RequestsArea, StatusDonut } from "@/components/admin/admin-charts";
+import { ModelHealthTable } from "@/components/admin/model-health-table";
 
 export const Route = createFileRoute("/admin")({
   ssr: false,
@@ -347,9 +348,37 @@ function AdminPage() {
               </Panel>
             </section>
 
+            {/* ===== Kesehatan SEMUA model AI: berhasil vs gagal =====
+                 Permintaan pengguna: "pastiin semua model itu bisa diliat
+                 berapa kali keberhasilan dan kegagalannya di admin panel".
+                 Angkanya dari counter Hydra (setiap percobaan endpoint), bukan
+                 usage_log yang hanya mencatat model pemenang failover. */}
+            <section className="reveal mt-4" style={{ ["--i" as string]: 12 }}>
+              <div className="panel px-5 py-5">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <h3 className="flex items-center gap-2 font-display text-[15px] font-bold tracking-tight">
+                    <Sparkles className="size-4 text-accent" /> Kesehatan model AI
+                  </h3>
+                  <p className="text-[11px] text-muted-foreground">
+                    hitungan kumulatif, selamat dari restart server
+                  </p>
+                </div>
+                <div className="mt-4">
+                  {stats.model_stats && stats.model_stats.length > 0 ? (
+                    <ModelHealthTable
+                      data={stats.model_stats}
+                      onSelesaiUji={() => void load(search.trim())}
+                    />
+                  ) : (
+                    <EmptyHint text="Daftar model belum terbaca dari gateway AI. Coba muat ulang." />
+                  )}
+                </div>
+              </div>
+            </section>
+
             {/* ===== Resource server ===== */}
             {stats.resources && Object.keys(stats.resources).length > 0 ? (
-              <section className="reveal mt-4" style={{ ["--i" as string]: 12 }}>
+              <section className="reveal mt-4" style={{ ["--i" as string]: 13 }}>
                 <div className="panel px-5 py-4">
                   <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     <HardDrive className="size-3.5" /> Kesehatan server
@@ -378,7 +407,7 @@ function AdminPage() {
             ) : null}
 
             {/* ===== Tabel pengguna ===== */}
-            <section className="reveal mt-10" style={{ ["--i" as string]: 13 }}>
+            <section className="reveal mt-10" style={{ ["--i" as string]: 14 }}>
               <div className="flex flex-wrap items-end justify-between gap-4">
                 <div>
                   <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">

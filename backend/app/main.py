@@ -916,8 +916,28 @@ async def api_ad_premium_redeem(body: AdPlanIn, request: Request,
 
 @app.get("/api/hydra/status")
 async def hydra_status(request: Request, authorization: str | None = Header(None)):
-    await get_user(request, authorization)
-    return {"endpoints": gateway.status()}
+    """Kesehatan endpoint AI + statistik sukses/gagal kumulatif per model.
+
+    `katalog=1` mengembalikan SEMUA model yang dikenal, termasuk provider
+    yang belum punya API key (ditandai configured=false) — dipakai panel
+    admin supaya tidak ada model yang tersembunyi.
+    """
+    await require_admin_user(request, authorization)
+    katalog = request.query_params.get("katalog") in ("1", "true", "yes")
+    return {"endpoints": gateway.katalog() if katalog else gateway.status()}
+
+
+@app.post("/api/admin/uji-model")
+async def api_admin_uji_model(request: Request, authorization: str | None = Header(None)):
+    """Tembak SETIAP model chat dengan satu prompt kecil, lalu catat hasilnya.
+
+    Alasan endpoint ini ada: pool AI memakai failover, jadi model pertama nyaris
+    selalu menang dan model cadangan tidak pernah dipanggil — tanpa uji manual,
+    panel admin akan menampilkan 0 sukses / 0 gagal untuk hampir semua model
+    selamanya. Hasil uji masuk ke statistik yang sama seperti pemakaian nyata.
+    """
+    await require_admin_user(request, authorization)
+    return await gateway.uji_semua()
 
 
 @app.get("/api/admin/resources")
@@ -1555,6 +1575,30 @@ async def _reap_stale_render_jobs() -> None:
         await asyncio.sleep(120)
 
 
+async def _hydra_stat_loop() -> None:
+    """Pulihkan lalu simpan statistik sukses/gagal model secara berkala.
+
+    Tanpa pemulihan, tiap `systemctl restart` (setiap deploy) mengembalikan
+    angka di panel admin ke 0. Penyimpanan dijalankan tiap 60s; fungsinya
+    sendiri men-debounce 30s dan melewati saat tidak ada perubahan, jadi
+    beban DB-nya kecil.
+    """
+    await gateway.muat_statistik()
+    while True:
+        try:
+            await asyncio.sleep(60)
+            await gateway.simpan_statistik()
+        except asyncio.CancelledError:
+            # shutdown: paksa simpan supaya hitungan terakhir tidak hilang
+            try:
+                await gateway.simpan_statistik(paksa=True)
+            except Exception:
+                pass
+            raise
+        except Exception as exc:
+            print(f"[model-stats] loop: {exc}")
+
+
 @app.on_event("startup")
 async def _start_render_watchdog() -> None:
     # saat startup: job "rendering" dari proses sebelumnya pasti mati → failed
@@ -1576,6 +1620,9 @@ async def _start_render_watchdog() -> None:
     # sudah menutup tab (get_order_status hanya jalan saat dialog terbuka)
     from .premium import reap_expired_orders_loop
     spawn(reap_expired_orders_loop(), name="watchdog:qris")
+    # Statistik sukses/gagal per model AI (panel admin): pulihkan dari DB lalu
+    # simpan berkala supaya angkanya selamat dari restart server.
+    spawn(_hydra_stat_loop(), name="watchdog:model-stats")
     # CATATAN: penjadwal auto-publish TikTok/YouTube DIHAPUS atas permintaan
     # pengguna ("hapus aja fitur auto publish karena gak jadi pakai").
 

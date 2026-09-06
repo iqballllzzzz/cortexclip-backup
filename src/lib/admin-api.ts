@@ -58,6 +58,33 @@ export interface AdminUser {
   favorite_model: string | null;
 }
 
+/** Satu model AI + hitungan sukses/gagal kumulatifnya (dari Hydra).
+ *
+ *  Beda dengan `top_models`, yang dihitung dari usage_log dan hanya mencatat
+ *  model PEMENANG failover: baris ini menghitung SETIAP percobaan endpoint,
+ *  termasuk yang gagal sebelum model lain berhasil. */
+export interface ModelStat {
+  provider: string;
+  model: string;
+  kind: string;
+  /** jumlah API key yang terpasang untuk model ini */
+  keys: number;
+  /** false = provider belum punya API key, jadi model ini belum bisa dipakai */
+  configured: boolean;
+  available: boolean;
+  cooldown_remaining: number;
+  dead: boolean;
+  last_error: string;
+  ok_total: number;
+  fail_total: number;
+  total: number;
+  reliability: number;
+  avg_latency_ms: number;
+  /** epoch detik; 0 = belum pernah */
+  last_ok_at: number;
+  last_fail_at: number;
+}
+
 export interface AdminStats {
   kpi: {
     total_users: number;
@@ -74,6 +101,8 @@ export interface AdminStats {
     renders_total: number;
   };
   series: { date: string; label: string; projects: number; requests: number; logins: number }[];
+  /** semua model AI yang dikenal + sukses/gagalnya (panel "Kesehatan model AI") */
+  model_stats: ModelStat[];
   top_models: {
     model: string;
     success: number;
@@ -216,4 +245,27 @@ export async function setUserAdmin(userId: string, isAdmin: boolean): Promise<{ 
       body: JSON.stringify({ is_admin: isAdmin }),
     }),
   );
+}
+
+/** Hasil uji semua model (tombol "Uji semua model" di panel admin). */
+export interface HasilUjiModel {
+  diuji: number;
+  hidup: number;
+  mati: number;
+  detik: number;
+  hasil: {
+    provider: string;
+    model: string;
+    ok: boolean;
+    latency_ms?: number;
+    error?: string;
+  }[];
+}
+
+/** Tembak setiap model chat dengan satu prompt kecil.
+ *
+ *  Perlu karena pool memakai failover: tanpa ini model cadangan tidak pernah
+ *  dipanggil, jadi angka sukses/gagalnya akan 0 selamanya di panel admin. */
+export async function ujiSemuaModel(): Promise<HasilUjiModel> {
+  return json<HasilUjiModel>(await authFetch("/api/admin/uji-model", { method: "POST" }));
 }
