@@ -26,8 +26,9 @@ PUBLIC_SUPABASE_URL = os.getenv("PUBLIC_SUPABASE_URL",
                                 SUPABASE_URL).rstrip("/")
 BUCKET = "video-uploads"
 
-REMOVEBG_V1 = "https://api.nexray.eu.cc/tools/v1/removebg"
-REMOVEBG_V2 = "https://api.nexray.eu.cc/tools/v2/removebg"
+REMOVEBG_V1 = "https://api.nexray.eu.cc/tools/removebg"
+REMOVEBG_V2 = "https://api.nexray.eu.cc/tools/v1/removebg"
+REMOVEBG_V3 = "https://api.nexray.eu.cc/tools/v2/removebg"
 
 # UA mobile persis resep pengguna (catbox.moe menolak client non-browser)
 UA_CATBOX = ("Mozilla/5.0 (Linux; Android 15; SM-F958 Build/AP3A.240905.015) "
@@ -107,34 +108,47 @@ async def _unggah_catbox(content: bytes) -> str:
 async def removebg(content: bytes, apikey: str) -> tuple[bytes, str]:
     """Hapus background: v1 → gagal → v2 (failover berantai eksplisit).
 
-    API nexray menerima IMAGE URL (bukan upload) → gambar di-host dulu di
-    catbox.moe (resep pengguna), lalu URL dikirim sebagai image_url.
+    API nexray = GET ?url=<image_url> (dipetik dari halaman docs resmi:
+    "Removebg v1 — GET /tools/v1/removebg — PARAMETERS: url *").
+    Gambar di-host dulu di catbox.moe (resep pengguna) → URL dikirim.
     Balik (bytes PNG hasil, versi yang sukses).
     """
+    import urllib.parse as _up
+
     url_gambar = await _unggah_catbox(content)
     kesalahan: list[str] = []
-    for versi, url in (("v1", REMOVEBG_V1), ("v2", REMOVEBG_V2)):
+    # urutan TERUKUR dari uji nyata 2026-09-06: endpoint utama /tools/removebg
+    # yang sukses (200 PNG); v1 upstream-nya menolak catbox (403→500); v2
+    # cadangan terakhir.
+    for versi, url in (("v1", REMOVEBG_V1), ("v2", REMOVEBG_V2),
+                       ("v3", REMOVEBG_V3)):
         try:
-            async with httpx.AsyncClient(timeout=120) as c:
-                r = await c.post(
+            async with httpx.AsyncClient(timeout=150, follow_redirects=True) as c:
+                r = await c.get(
                     url,
+                    params={"url": url_gambar},
                     headers={"Authorization": f"Bearer {apikey}"} if apikey else {},
-                    json={"image_url": url_gambar},
                 )
             if r.status_code == 200:
-                # bisa berupa biner PNG langsung atau JSON berisi url/bytes
                 ct = r.headers.get("content-type", "")
-                if "image" in ct and len(r.content) > 1000:
+                # balikan biner gambar langsung
+                if ("image" in ct or r.content[:8] == b"\x89PNG\r\n\x1a\n") \
+                        and len(r.content) > 1000:
                     return r.content, versi
+                # atau JSON berisi url / base64
                 try:
                     d = r.json()
-                    u = d.get("image_url") or d.get("url") or d.get("result")
+                    u = (d.get("image_url") or d.get("url") or
+                         d.get("result") or d.get("data") or {})
+                    if isinstance(u, dict):
+                        u = u.get("url") or ""
                     if isinstance(u, str) and u.startswith("http"):
                         async with httpx.AsyncClient(timeout=60) as c2:
                             g = await c2.get(u)
                         if g.status_code == 200 and len(g.content) > 1000:
                             return g.content, versi
-                    b64 = d.get("image") or d.get("b64") or d.get("data")
+                    b64 = (d.get("image") or d.get("b64")
+                           or d.get("base64") or "")
                     if isinstance(b64, str) and len(b64) > 100:
                         import base64 as _b64
                         return _b64.b64decode(b64), versi

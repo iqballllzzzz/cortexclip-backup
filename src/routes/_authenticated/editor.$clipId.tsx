@@ -1129,32 +1129,29 @@ function EditorPage() {
             </div>
           </div>
 
-          {/* ————— TRANSPORT BAR: tombol BESAR, selalu terlihat ————— */}
-          <div className="flex w-full max-w-[560px] shrink-0 items-center gap-1.5">
+          {/* ————— TRANSPORT BAR: tombol BESAR & JELAS (permintaan: "toolbar
+              nya naikin biar lebih keliatan") — play 56px, ±5s 48px ————— */}
+          <div className="flex w-full max-w-[560px] shrink-0 items-center gap-2">
             <button
               type="button"
               onClick={() => nudge(-5)}
-              className="grid size-11 shrink-0 place-items-center rounded-xl border border-border bg-card text-foreground transition-colors hover:border-accent/60 hover:text-accent active:scale-95"
+              className="grid size-12 shrink-0 place-items-center rounded-xl border border-border bg-card text-[13px] font-bold tabular-nums text-foreground transition-colors hover:border-accent/60 hover:text-accent active:scale-95"
               aria-label="Mundur 5 detik"
-            >
-              <SkipBack className="size-5" />
-            </button>
+            >−5s</button>
             <button
               type="button"
               onClick={togglePlay}
-              className="grid size-12 shrink-0 place-items-center rounded-xl bg-accent text-accent-foreground shadow-md shadow-accent/25 transition-transform hover:brightness-105 active:scale-95"
+              className="grid size-14 shrink-0 place-items-center rounded-2xl bg-accent text-accent-foreground shadow-lg shadow-accent/30 transition-transform hover:brightness-105 active:scale-95"
               aria-label={playing ? "Jeda" : "Putar"}
             >
-              {playing ? <Pause className="size-6" /> : <Play className="size-6 translate-x-0.5" />}
+              {playing ? <Pause className="size-7" /> : <Play className="size-7 translate-x-0.5" />}
             </button>
             <button
               type="button"
               onClick={() => nudge(5)}
-              className="grid size-11 shrink-0 place-items-center rounded-xl border border-border bg-card text-foreground transition-colors hover:border-accent/60 hover:text-accent active:scale-95"
+              className="grid size-12 shrink-0 place-items-center rounded-xl border border-border bg-card text-[13px] font-bold tabular-nums text-foreground transition-colors hover:border-accent/60 hover:text-accent active:scale-95"
               aria-label="Maju 5 detik"
-            >
-              <SkipForward className="size-5" />
-            </button>
+            >+5s</button>
 
             {/* scrubber + jam */}
             <div className="ml-1 min-w-0 flex-1">
@@ -1183,8 +1180,10 @@ function EditorPage() {
 
         {/* ————— KOLOM KANAN (desktop) / PANEL BAWAH (mobile): tool ————— */}
         <aside className="flex min-h-0 flex-1 flex-col bg-card lg:w-[340px] lg:flex-none">
-          {/* TAB BESAR: tinggi 44px, ikon + label, indikator garis bawah */}
-          <div className="grid shrink-0 grid-cols-4 border-b border-border" role="tablist">
+          {/* TAB TOOLBAR — DIBESARKAN TOTAL (permintaan: "naikin biar lebih
+              keliatan") — h-16 (64px), ikon 26px, teks 13.5px bold, gap 1.5,
+              indikator 3px, background aktif solid + border tebal */}
+          <div className="grid shrink-0 grid-cols-4 border-b-2 border-border bg-card" role="tablist">
             {TOOLS.map((t) => {
               const aktif = activeTool === t.id;
               return (
@@ -1194,20 +1193,18 @@ function EditorPage() {
                   role="tab"
                   aria-selected={aktif}
                   onClick={() => setActiveTool(t.id)}
-                  /* Ikon DI ATAS label di semua ukuran: di desktop kolom tool
-                     hanya 340px (85px per tab) sehingga "Deskripsi" sebaris
-                     dengan ikon selalu terpotong. Susunan dua baris membuat
-                     keempat label utuh dari 360px sampai layar lebar. */
-                  className={`relative flex h-12 flex-col items-center justify-center gap-0.5 px-0.5 text-[11.5px] font-semibold leading-none transition-colors sm:text-[12.5px] ${
-                    aktif ? "text-accent" : "text-muted-foreground hover:bg-surface hover:text-foreground"
+                  className={`relative flex h-16 flex-col items-center justify-center gap-1.5 border-r border-border/50 px-1 text-[13px] font-bold leading-none transition-all sm:text-[13.5px] last:border-r-0 ${
+                    aktif
+                      ? "bg-accent text-accent-foreground shadow-sm"
+                      : "bg-card text-muted-foreground hover:bg-accent/10 hover:text-accent"
                   }`}
                 >
-                  <t.Icon className="size-4 shrink-0" />
-                  <span className="max-w-full truncate">{t.label}</span>
+                  <t.Icon className="size-[26px] shrink-0" strokeWidth={aktif ? 2.6 : 2} />
+                  <span className="max-w-full truncate tracking-tight">{t.label}</span>
                   <span
                     aria-hidden
-                    className={`absolute inset-x-2 bottom-0 h-[2.5px] rounded-full transition-colors ${
-                      aktif ? "bg-accent" : "bg-transparent"
+                    className={`absolute inset-x-1 bottom-0 h-[3px] rounded-full transition-colors ${
+                      aktif ? "bg-accent-foreground/30" : "bg-transparent"
                     }`}
                   />
                 </button>

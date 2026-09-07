@@ -2,15 +2,17 @@
 /**
  * MANUAL TRACKING — pemilihan subjek berbasis adegan.
  *
- * VIDEO PLAYER BUATAN SENDIRI (permintaan pengguna: "video yang mau di
- * manual tracker nya itu gak pakai video player basic tapi pakai video
- * player buatan sendiri khusus"): tombol play/pause besar, scrub bar
- * presisi, jam mono, tap kiri/kanan ±5 detik, mute — tanpa <video controls>.
- *
- * BORDER TRACKING: setelah pengguna klik subjek, POST preview
- * /api/manual-track/{id}/preview mengambil kotak subjek per frame, lalu
- * border putih-putus (dengan pegangan sudut ala CapCut) MENGIKUTI subjek
- * selama video berjalan — "biar user tau itu yang di tracking".
+ * DIRENGKAK DARI KELUHAN PENGGUNA (2026-09-06): "masih berantakan, preview
+ * munculnya lama, susah dioperasikan". Perombakan:
+ *  — Layout: satu kolom jelas — VIDEO (besar) → PLAYER BAR → ADEGAN (chip
+ *    besar horizontal, tidak lagi sidebar sempit yang bikin sesak).
+ *  — Loading: video sumber lazim 20–40MB lewat signed URL → skeleton gelap
+ *    + spinner + teks "Memuat video sumber…" selama buffering, bukan kotak
+ *    hitam diam yang terasa mati.
+ *  — Panduan 3 langkah ringkas di atas dialog, satu kalimat per langkah.
+ *  — Player buatan sendiri: play/pause, ±5s, scrub bar, jam, mute.
+ *  — Klik subjek → POST preview (border per frame dari AI) → border putih
+ *    mengikuti subjek; klik lain = ganti subjek; kunci → tersimpan.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
@@ -59,11 +61,12 @@ export function ManualTrackDialog({
   const [saved, setSaved] = useState<{ start: number; end: number }[]>([]);
   const [klik, setKlik] = useState<{ x: number; y: number } | null>(null);
 
-  // player buatan sendiri — WAKTU ABSOLUT video sumber. Klip dimulai di
-  // clipStart (mis. 3:00); semua tampilan waktu & seek relatif ke klip.
+  // player
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
   const [muted, setMuted] = useState(true);
+  const [videoSiap, setVideoSiap] = useState(false);
+  const [videoGagal, setVideoGagal] = useState(false);
   const rafRef = useRef<number>(0);
 
   // border tracking
@@ -107,27 +110,28 @@ export function ManualTrackDialog({
 
   const scene = scenes?.[selScene] ?? null;
 
-  /* seek ke awal adegan saat ganti pilihan — ABSOLUT (klipStart + relatif).
-     FIX bug: sebelumnya video dimulai dari 0:00 video SUMBER padahal klip
-     bisa mulai di 3:00 — "preview di manual tracking beda klipnya". */
+  /* seek ke awal adegan (ABSOLUT — klip bisa mulai di 3:00 dst) */
   useEffect(() => {
     const v = vidRef.current;
     if (!v || !scene || !sourceUrl) return;
-    try { v.currentTime = clipStart + scene.start; } catch { /* belum siap */ }
+    if (videoSiap) {
+      try { v.currentTime = clipStart + scene.start; } catch { /* belum siap */ }
+      setTime(clipStart + scene.start);
+    }
     setBoxes(null);
     setKlik(null);
-    setTime(clipStart + scene.start);
-  }, [selScene, scene, sourceUrl, clipStart]);
+  }, [selScene, scene, sourceUrl, clipStart, videoSiap]);
 
-  /* metadata siap → seek langsung ke awal klip (bukan 0:00 sumber!) */
   function handleLoadedMetadata() {
     const v = vidRef.current;
+    setVideoSiap(true);
+    setVideoGagal(false);
     if (!v || !scene) return;
     try { v.currentTime = clipStart + scene.start; } catch { /* ok */ }
     setTime(clipStart + scene.start);
   }
 
-  /* jam player: rAF loop — waktu ABSOLUT sumber */
+  /* jam player */
   useEffect(() => {
     const tick = () => {
       const v = vidRef.current;
@@ -168,10 +172,10 @@ export function ManualTrackDialog({
     setTime(c);
   }, [scene, clipStart]);
 
-  /* KLIK SUBJEK → ambil kotak tracking dari backend (preview tanpa simpan) */
+  /* KLIK SUBJEK */
   async function handleKlikVideo(e: React.MouseEvent<HTMLDivElement>) {
     const v = vidRef.current;
-    if (!v || !scene) return;
+    if (!v || !scene || mencari) return;
     const vr = v.getBoundingClientRect();
     const x = (e.clientX - vr.left) / vr.width;
     const y = (e.clientY - vr.top) / vr.height;
@@ -197,7 +201,6 @@ export function ManualTrackDialog({
       setBoxes(d.boxes ?? null);
       setBoxesFps(d.fps ?? 15);
       setBoxStart(d.start ?? scene.start);
-      // mainkan otomatis supaya border langsung terlihat mengikuti subjek
       const vv = vidRef.current;
       if (vv) {
         try { vv.currentTime = clipStart + scene.start; } catch { /* ok */ }
@@ -211,7 +214,6 @@ export function ManualTrackDialog({
     }
   }
 
-  /* kotak yang tampil pada waktu `time` (relative ke klip) */
   const boxSekarang = useMemo<TrackBox | null>(() => {
     if (!boxes || boxes.length === 0) return null;
     const rel = Math.max(0, time - clipStart);
@@ -249,8 +251,9 @@ export function ManualTrackDialog({
         start: +Number(s.start).toFixed(1),
         end: +Number(s.end).toFixed(1),
       })));
-      toast.success(`Subjek terkunci di adegan ${scene.start}s–${scene.end}s — preview dibuat ulang`);
+      toast.success(`Subjek terkunci — preview dibuat ulang`);
       onApplied();
+      onClose();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Gagal menyimpan tracking");
     } finally {
@@ -259,183 +262,204 @@ export function ManualTrackDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-[var(--z-modal)] grid place-items-center p-4">
+    <div className="fixed inset-0 z-[var(--z-modal)] grid place-items-center p-3 sm:p-4">
       <motion.button
         aria-label="Tutup"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         onClick={onClose}
-        className="absolute inset-0 cursor-default bg-foreground/40 backdrop-blur-[2px]"
+        className="absolute inset-0 cursor-default bg-foreground/50 backdrop-blur-[2px]"
       />
       <motion.div
         initial={{ y: 24, opacity: 0, scale: 0.98 }}
         animate={{ y: 0, opacity: 1, scale: 1 }}
         transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-        className="relative flex max-h-[92dvh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border border-border bg-card shadow-2xl"
+        className="relative flex max-h-[94dvh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-border bg-card shadow-2xl"
       >
-        {/* header */}
-        <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
-          <Crosshair className="size-4 shrink-0 text-accent" />
-          <p className="flex-1 truncate font-display text-sm font-bold tracking-tight">
-            Manual Tracking
+        {/* header ringkas + panduan 3 langkah */}
+        <div className="shrink-0 border-b border-border px-4 py-3">
+          <div className="flex items-center gap-2">
+            <Crosshair className="size-4 shrink-0 text-accent" />
+            <p className="flex-1 truncate font-display text-sm font-bold tracking-tight">
+              Manual Tracking
+            </p>
+            <button
+              type="button"
+              onClick={onClose}
+              className="grid size-8 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-surface hover:text-foreground"
+              aria-label="Tutup"
+            >✕</button>
+          </div>
+          <p className="mt-1 text-[11.5px] leading-snug text-muted-foreground">
+            1. Pilih adegan · 2. Ketuk orang/benda di video · 3. Tekan Kunci.
+            Kotak putih menandai subjek yang dilacak.
           </p>
-          <button
-            type="button"
-            onClick={onClose}
-            className="grid size-8 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-surface hover:text-foreground"
-            aria-label="Tutup"
-          >
-            ✕
-          </button>
         </div>
 
-        {/* body */}
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4 sm:flex-row">
-          {/* ══ VIDEO PLAYER BUATAN SENDIRI ══ */}
-          <div className="relative min-w-0 flex-1">
-            <div
-              className="relative overflow-hidden rounded-2xl border border-border bg-black"
-              onClick={(e) => void handleKlikVideo(e)}
-              style={{ cursor: "crosshair" }}
-            >
-              {sourceUrl ? (
-                <video
-                  ref={vidRef}
-                  src={sourceUrl}
-                  playsInline
-                  muted={muted}
-                  preload="auto"
-                  onLoadedMetadata={handleLoadedMetadata}
-                  className="block max-h-[54dvh] w-full object-contain"
-                />
-              ) : (
-                <div className="grid h-48 place-items-center text-xs text-muted-foreground">
-                  Video sumber tidak tersedia
-                </div>
-              )}
+        {/* body: SATU KOLOM urut dari atas ke bawah — tidak ada sidebar */}
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
+          {/* ══ VIDEO (besar) ══ */}
+          <div
+            className="relative w-full overflow-hidden rounded-2xl border border-border bg-black"
+            onClick={(e) => void handleKlikVideo(e)}
+            style={{ cursor: videoSiap && !mencari ? "crosshair" : "default" }}
+          >
+            {sourceUrl ? (
+              <video
+                ref={vidRef}
+                src={sourceUrl}
+                playsInline
+                muted={muted}
+                preload="auto"
+                onLoadedMetadata={handleLoadedMetadata}
+                onError={() => setVideoGagal(true)}
+                className="block max-h-[46dvh] w-full object-contain"
+              />
+            ) : (
+              <div className="grid h-40 place-items-center text-xs text-muted-foreground">
+                Video sumber tidak tersedia
+              </div>
+            )}
 
-              {/* BORDER TRACKING — mengikuti subjek per frame; UKURAN sesuai
-                  objek (w×h deteksi AI, bukan kotak 1:1) — klik kepala =
-                  sebesar kepala, klik botol = panjang/tinggi botol. */}
-              {boxSekarang ? (
-                <div
-                  className="pointer-events-none absolute z-10 rounded-lg border-[2.5px] border-white shadow-[0_0_0_2px_rgba(0,0,0,0.55)]"
-                  style={{
-                    left: `${boxSekarang.cx * 100}%`,
-                    top: `${boxSekarang.cy * 100}%`,
-                    // +28% margin supaya kotak tidak menempel persis wajah
-                    width: `${Math.max(boxSekarang.w, 0.05) * 128}%`,
-                    height: `${Math.max(boxSekarang.h ?? boxSekarang.w, 0.05) * 128}%`,
-                    transform: "translate(-50%, -50%)",
-                  }}
-                >
-                  {/* sudut ala CapCut — tanda "ini yang dilacak" */}
-                  <span className="absolute -left-1 -top-1 size-2.5 rounded-full border-2 border-white bg-accent" />
-                  <span className="absolute -right-1 -top-1 size-2.5 rounded-full border-2 border-white bg-accent" />
-                  <span className="absolute -bottom-1 -left-1 size-2.5 rounded-full border-2 border-white bg-accent" />
-                  <span className="absolute -bottom-1 -right-1 size-2.5 rounded-full border-2 border-white bg-accent" />
-                  <span className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-[130%] whitespace-nowrap rounded-md bg-accent px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
-                    Dilacak
-                  </span>
-                </div>
-              ) : null}
+            {/* LOADING STATE — keluhan "preview munculnya lama": video
+                sumber besar butuh waktu buffering; tunjukkan progress jelas,
+                bukan kotak hitam diam. */}
+            {!videoSiap && !videoGagal ? (
+              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/80">
+                <Loader2 className="size-8 animate-spin text-accent" />
+                <p className="text-[12.5px] font-medium text-white/90">Memuat video sumber…</p>
+                <p className="text-[11px] text-white/50">Video panjang butuh beberapa detik</p>
+              </div>
+            ) : null}
+            {videoGagal ? (
+              <div className="absolute inset-0 z-20 grid place-items-center bg-black/80 px-4 text-center">
+                <p className="text-[12.5px] text-white/80">
+                  Video sumber gagal dimuat — tutup lalu buka lagi
+                </p>
+              </div>
+            ) : null}
 
-              {/* marker titik klik */}
-              {klik && !boxSekarang && !mencari ? (
-                <span
-                  className="pointer-events-none absolute z-10 grid size-8 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-2 border-accent bg-accent/25"
-                  style={{ left: `${klik.x * 100}%`, top: `${klik.y * 100}%` }}
-                >
-                  <Crosshair className="size-4 text-white" />
+            {/* BORDER TRACKING */}
+            {boxSekarang ? (
+              <div
+                className="pointer-events-none absolute z-10 rounded-lg border-[2.5px] border-white shadow-[0_0_0_2px_rgba(0,0,0,0.55)]"
+                style={{
+                  left: `${boxSekarang.cx * 100}%`,
+                  top: `${boxSekarang.cy * 100}%`,
+                  width: `${Math.max(boxSekarang.w, 0.05) * 128}%`,
+                  height: `${Math.max(boxSekarang.h ?? boxSekarang.w, 0.05) * 128}%`,
+                  transform: "translate(-50%, -50%)",
+                }}
+              >
+                <span className="absolute -left-1 -top-1 size-2.5 rounded-full border-2 border-white bg-accent" />
+                <span className="absolute -right-1 -top-1 size-2.5 rounded-full border-2 border-white bg-accent" />
+                <span className="absolute -bottom-1 -left-1 size-2.5 rounded-full border-2 border-white bg-accent" />
+                <span className="absolute -bottom-1 -right-1 size-2.5 rounded-full border-2 border-white bg-accent" />
+                <span className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-[130%] whitespace-nowrap rounded-md bg-accent px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+                  Dilacak
                 </span>
-              ) : null}
+              </div>
+            ) : null}
 
-              {mencari ? (
-                <span className="pointer-events-none absolute left-1/2 top-3 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/70 px-2.5 py-1 text-[10.5px] font-medium text-white backdrop-blur">
-                  <Loader2 className="size-3 animate-spin" /> AI mengenali subjek…
-                </span>
-              ) : null}
-
-              {/* petunjuk + tombol play kecil (bukan overlay penuh —
-                  seluruh bidang video harus tetap AREA KLIK SUBJEK;
-                  overlay penuh menelan klik user = subjek tak terpilih) */}
-              <span className="pointer-events-none absolute inset-x-0 bottom-0 z-[5] bg-gradient-to-t from-black/70 to-transparent px-3 pb-2 pt-6 text-[11px] font-medium text-white">
-                {boxes ? "Kotak putih = subjek yang dilacak · ketuk video untuk ganti subjek" : "Ketuk orang/benda yang mau dilacak di video ini"}
+            {/* marker klik */}
+            {klik && !boxSekarang && !mencari && videoSiap ? (
+              <span
+                className="pointer-events-none absolute z-10 grid size-8 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-2 border-accent bg-accent/25"
+                style={{ left: `${klik.x * 100}%`, top: `${klik.y * 100}%` }}
+              >
+                <Crosshair className="size-4 text-white" />
               </span>
+            ) : null}
+
+            {mencari ? (
+              <span className="pointer-events-none absolute left-1/2 top-3 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-black/75 px-2.5 py-1 text-[10.5px] font-medium text-white backdrop-blur">
+                <Loader2 className="size-3 animate-spin" /> AI mengenali subjek…
+              </span>
+            ) : null}
+
+            {videoSiap ? (
+              <span className="pointer-events-none absolute inset-x-0 bottom-0 z-[5] bg-gradient-to-t from-black/75 to-transparent px-3 pb-1.5 pt-6 text-[11px] font-medium text-white">
+                {boxes
+                  ? "Kotak = subjek yang dilacak · ketuk video untuk ganti"
+                  : "Ketuk orang/benda yang mau dilacak"}
+              </span>
+            ) : null}
+
+            {/* tombol play kecil di pojok */}
+            {videoSiap ? (
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); togglePlay(); }}
-                className="absolute bottom-1.5 right-2 z-[6] grid size-9 cursor-pointer place-items-center rounded-full bg-black/60 text-white backdrop-blur transition-transform active:scale-95"
+                className="absolute bottom-1.5 right-2 z-[6] grid size-9 cursor-pointer place-items-center rounded-full bg-black/65 text-white backdrop-blur transition-transform active:scale-95"
                 aria-label={playing ? "Jeda" : "Putar"}
               >
                 {playing ? <Pause className="size-4" /> : <Play className="size-4 translate-x-0.5" />}
               </button>
-            </div>
-
-            {/* — kontrol player buatan sendiri — */}
-            <div className="mt-2 flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => seek(time - 5)}
-                onDoubleClick={togglePlay}
-                className="grid size-9 shrink-0 place-items-center rounded-lg border border-border bg-background text-[11px] font-bold tabular-nums text-muted-foreground transition-colors hover:text-foreground"
-                aria-label="Mundur 5 detik"
-              >−5s</button>
-              <button
-                type="button"
-                onClick={togglePlay}
-                className="grid size-10 shrink-0 place-items-center rounded-xl bg-accent text-accent-foreground shadow-md shadow-accent/25 transition-transform active:scale-95"
-                aria-label={playing ? "Jeda" : "Putar"}
-              >
-                {playing ? <Pause className="size-5" /> : <Play className="size-5 translate-x-0.5" />}
-              </button>
-              <button
-                type="button"
-                onClick={() => seek(time + 5)}
-                className="grid size-9 shrink-0 place-items-center rounded-lg border border-border bg-background text-[11px] font-bold tabular-nums text-muted-foreground transition-colors hover:text-foreground"
-                aria-label="Maju 5 detik"
-              >+5s</button>
-
-              <div className="ml-1 min-w-0 flex-1">
-                <div className="flex items-center justify-between text-[10.5px] font-medium tabular-nums text-muted-foreground">
-                  <span>{fmt(Math.max(0, time - clipStart))}</span>
-                  <span>{fmt(scene?.end ?? duration)}</span>
-                </div>
-                <input
-                  type="range"
-                  min={clipStart + (scene?.start ?? 0)}
-                  max={clipStart + (scene?.end ?? duration) - 0.05}
-                  step={0.05}
-                  value={Math.min(time, clipStart + (scene?.end ?? duration) - 0.05)}
-                  onChange={(e) => seek(Number(e.target.value))}
-                  className="mt-0.5 h-1.5 w-full cursor-pointer appearance-none rounded-full bg-border accent-[var(--color-accent)]"
-                  aria-label="Garis waktu video sumber"
-                />
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setMuted((m) => {
-                    const v = vidRef.current;
-                    if (v) v.muted = !m;
-                    return !m;
-                  });
-                }}
-                className="grid size-9 shrink-0 place-items-center rounded-lg border border-border bg-background text-muted-foreground transition-colors hover:text-foreground"
-                aria-label={muted ? "Bunyikan" : "Bisukan"}
-              >
-                {muted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
-              </button>
-            </div>
+            ) : null}
           </div>
 
-          {/* panel adegan */}
-          <div className="flex w-full shrink-0 flex-col gap-2 sm:w-56">
+          {/* ══ PLAYER BAR ══ */}
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => seek(time - 5)}
+              className="grid size-11 shrink-0 place-items-center rounded-xl border border-border bg-background text-[12px] font-bold tabular-nums text-muted-foreground transition-colors hover:text-foreground"
+              aria-label="Mundur 5 detik"
+            >−5s</button>
+            <button
+              type="button"
+              onClick={togglePlay}
+              className="grid size-12 shrink-0 place-items-center rounded-xl bg-accent text-accent-foreground shadow-md shadow-accent/25 transition-transform active:scale-95"
+              aria-label={playing ? "Jeda" : "Putar"}
+            >
+              {playing ? <Pause className="size-5" /> : <Play className="size-5 translate-x-0.5" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => seek(time + 5)}
+              className="grid size-11 shrink-0 place-items-center rounded-xl border border-border bg-background text-[12px] font-bold tabular-nums text-muted-foreground transition-colors hover:text-foreground"
+              aria-label="Maju 5 detik"
+            >+5s</button>
+
+            <div className="ml-1 min-w-0 flex-1">
+              <div className="flex items-center justify-between text-[10.5px] font-medium tabular-nums text-muted-foreground">
+                <span>{fmt(Math.max(0, time - clipStart))}</span>
+                <span>{fmt(scene?.end ?? duration)}</span>
+              </div>
+              <input
+                type="range"
+                min={clipStart + (scene?.start ?? 0)}
+                max={clipStart + (scene?.end ?? duration) - 0.05}
+                step={0.05}
+                value={Math.min(time, clipStart + (scene?.end ?? duration) - 0.05)}
+                onChange={(e) => seek(Number(e.target.value))}
+                className="mt-0.5 h-1.5 w-full cursor-pointer appearance-none rounded-full bg-border accent-[var(--color-accent)]"
+                aria-label="Garis waktu video sumber"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setMuted((m) => {
+                  const v = vidRef.current;
+                  if (v) v.muted = !m;
+                  return !m;
+                });
+              }}
+              className="grid size-11 shrink-0 place-items-center rounded-xl border border-border bg-background text-muted-foreground transition-colors hover:text-foreground"
+              aria-label={muted ? "Bunyikan" : "Bisukan"}
+            >
+              {muted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
+            </button>
+          </div>
+
+          {/* ══ ADEGAN: chip besar horizontal ══ */}
+          <div className="shrink-0">
             <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               <Scissors className="size-3" /> Adegan
             </p>
-            <div className="flex flex-row gap-1.5 overflow-x-auto pb-1 sm:flex-col sm:overflow-visible">
+            <div className="snap-strip mt-1.5 flex gap-2 overflow-x-auto pb-1">
               {(scenes ?? []).map((s, i) => {
                 const ada = saved.some((sv) => Math.abs(sv.start - s.start) < 0.05);
                 const aktif = selScene === i;
@@ -444,35 +468,30 @@ export function ManualTrackDialog({
                     key={i}
                     type="button"
                     onClick={() => setSelScene(i)}
-                    className={`flex shrink-0 items-center justify-between gap-2 rounded-xl border px-2.5 py-2 text-left text-[11px] font-medium transition-colors ${
+                    className={`flex shrink-0 items-center gap-2 rounded-xl border px-3.5 py-2.5 text-[12.5px] font-semibold tabular-nums transition-colors ${
                       aktif
                         ? "border-accent bg-accent/10 text-foreground"
-                        : "border-border bg-background hover:border-accent/50"
+                        : "border-border bg-background text-muted-foreground hover:border-accent/50 hover:text-foreground"
                     }`}
                   >
-                    <span className="tabular-nums">{s.start}s–{s.end}s</span>
+                    {fmt(s.start)}–{fmt(s.end)}
                     {ada ? <span className="size-1.5 rounded-full bg-accent" /> : null}
                   </button>
                 );
               })}
             </div>
-
-            {saved.length > 0 ? (
-              <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
-                {saved.length} adegan sudah punya subjek terkunci. Menyimpan adegan yang sama menimpa yang lama.
-              </p>
-            ) : null}
-
-            <button
-              type="button"
-              disabled={saving || !klik}
-              onClick={() => void terapkan()}
-              className="mt-auto flex items-center justify-center gap-2 rounded-full bg-accent px-4 py-2.5 text-[12.5px] font-semibold text-accent-foreground transition-all hover:brightness-105 active:scale-95 disabled:opacity-50"
-            >
-              {saving ? <Loader2 className="size-4 animate-spin" /> : <Crosshair className="size-4" />}
-              {saving ? "Mengunci subjek…" : "Kunci subjek di adegan ini"}
-            </button>
           </div>
+
+          {/* ══ TOMBOL UTAMA — selalu di bawah, besar ══ */}
+          <button
+            type="button"
+            disabled={saving || !klik}
+            onClick={() => void terapkan()}
+            className="flex shrink-0 items-center justify-center gap-2 rounded-full bg-accent px-4 py-3 text-[13.5px] font-semibold text-accent-foreground transition-all hover:brightness-105 active:scale-[0.98] disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="size-4 animate-spin" /> : <Crosshair className="size-4" />}
+            {saving ? "Mengunci subjek…" : "Kunci subjek di adegan ini"}
+          </button>
         </div>
       </motion.div>
     </div>

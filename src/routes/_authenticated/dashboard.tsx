@@ -567,10 +567,10 @@ function Dashboard() {
 
         {/* ═══ RAIL FASE + FILM STRIP PROYEK ═══ */}
         <div className="mt-10 grid gap-8 lg:grid-cols-[220px_1fr] lg:items-start">
-          {/* RAIL: tombol fase vertikal — mobile jadi chips horizontal */}
-          <BlurFade delay={0.12} inView className="blurfade-scroll-wrap min-w-0 lg:sticky lg:top-6">
-          <nav aria-label="Filter tahap">
-            <ul className="snap-strip flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
+          {/* RAIL: tombol fase vertikal — mobile jadi chips horizontal SCROLLABLE */}
+          <BlurFade delay={0.12} inView className="blurfade-scroll-wrap min-w-0 max-w-full overflow-hidden lg:sticky lg:top-6">
+          <nav aria-label="Filter tahap" className="min-w-0 max-w-full overflow-hidden">
+            <ul className="snap-strip flex gap-2 overflow-x-auto overflow-y-hidden pb-2 touch-pan-x lg:flex-col lg:overflow-visible lg:pb-0">
               <li>
                 <FaseTab
                   aktif={filter === "semua"}
@@ -598,8 +598,13 @@ function Dashboard() {
           </BlurFade>
 
           {/* STRIP: baris kartu scroll horizontal ala gulungan film */}
-          <BlurFade delay={0.2} inView>
-          <section aria-label="Proyek kamu" className="min-w-0">
+          {/* min-w-0 WAJIB: BlurFade adalah GRID ITEM — tanpa min-w-0,
+              min-width:auto membuatnya melebar mengikuti konten (terukur
+              1040px) sehingga UL tidak pernah jadi scroll container;
+              kartu lama terpotong oleh overflow-x:clip body dan TIDAK
+              BISA digeser di HP (keluhan pengguna 2026-09-06). */}
+          <BlurFade delay={0.2} inView className="min-w-0 max-w-full overflow-hidden">
+          <section aria-label="Proyek kamu" className="min-w-0 max-w-full overflow-hidden">
             <div className="flex items-baseline justify-between gap-3">
               <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">
                 {t("dash.proyek_terbaru")}
