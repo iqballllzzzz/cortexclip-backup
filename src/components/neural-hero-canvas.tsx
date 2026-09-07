@@ -36,9 +36,13 @@ export function NeuralHeroCanvas({ scrollProgress = 0 }: NeuralHeroCanvasProps) 
       antialias: true,
       alpha: true,
       powerPreference: "high-performance",
+      precision: isMobile ? "mediump" : "highp",
     });
     renderer.setSize(width, height);
-    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+    // Mobile pixel ratio clamp to 1.5 to prevent fill-rate GPU bottleneck and eliminate any stutter
+    const pixelRatio = isMobile
+      ? Math.min(window.devicePixelRatio || 1, 1.5)
+      : Math.min(window.devicePixelRatio || 1, 2);
     renderer.setPixelRatio(pixelRatio);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.35;
@@ -56,8 +60,8 @@ export function NeuralHeroCanvas({ scrollProgress = 0 }: NeuralHeroCanvasProps) 
     amberFill.position.set(0, 0.3, 2);
     scene.add(amberFill);
 
-    // 2. HIGH DENSITY PARTICLES (32,000 on Desktop / 16,000 on Mobile)
-    const N = isMobile ? 16000 : 32000;
+    // 2. HIGH DENSITY PARTICLES (30,000 on Desktop / 11,000 on Mobile for silky 120fps)
+    const N = isMobile ? 11000 : 30000;
 
     const posA = new Float32Array(N * 3); // Shape A: 3D Smartphone
     const posB = new Float32Array(N * 3); // Shape B: Realistic 3D Bohlam
@@ -330,8 +334,8 @@ export function NeuralHeroCanvas({ scrollProgress = 0 }: NeuralHeroCanvasProps) 
     const pointCloud = new THREE.Points(geometry, shaderMaterial);
     scene.add(pointCloud);
 
-    // Responsive Scale Factor (Significantly compact on mobile so it never dominates)
-    const baseScale = isMobile ? 0.60 : 0.92;
+    // Responsive Scale Factor (tuned to 0.74 on mobile for perfect ergonomic presence)
+    const baseScale = isMobile ? 0.74 : 0.92;
     pointCloud.scale.setScalar(baseScale);
 
     // 4. LOW-POLY FACETED CRYSTAL SHARDS (From Brainweb Frame 22)

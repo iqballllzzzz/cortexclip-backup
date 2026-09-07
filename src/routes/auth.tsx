@@ -336,9 +336,31 @@ function AuthPage() {
 
 function AuthShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-5 py-12">
-      <div className="absolute inset-0 -z-10 bg-background" />
-      {children}
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-5 py-12 bg-background select-none">
+      {/* Subtle Ambient Radial Glow (Cinema Dark Studio) */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[350px] bg-accent/10 rounded-full blur-[120px]"
+      />
+      {/* Technical Grid Pattern */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 opacity-[0.03] [background-image:linear-gradient(to_right,#fff_1px,transparent_1px),linear-gradient(to_bottom,#fff_1px,transparent_1px)] [background-size:3rem_3rem]"
+      />
+
+      <div className="relative z-10 w-full max-w-md flex flex-col items-center">
+        {/* Top Studio Brand Pill */}
+        <Link
+          to="/"
+          className="mb-8 inline-flex items-center gap-2 rounded-full border border-border bg-card/80 backdrop-blur-md px-3.5 py-1.5 text-xs font-mono text-muted-foreground hover:text-foreground hover:border-accent/40 transition-colors"
+        >
+          <span className="size-1.5 rounded-full bg-accent animate-pulse" />
+          <span className="font-bold text-foreground">CORTEXCLIP</span>
+          <span className="text-white/20">|</span>
+          <span>STUDIO AUTH</span>
+        </Link>
+        {children}
+      </div>
     </div>
   );
 }
