@@ -106,10 +106,8 @@ export function SiteHeader() {
       </div>
 
       {open ? (
-        <motion.nav
-          initial={{ height: 0, opacity: 0 }}
-          animate={{ height: "auto", opacity: 1 }}
-          className="overflow-hidden border-t border-border bg-background md:hidden"
+        <nav
+          className="border-t border-border bg-background md:hidden animate-in fade-in duration-150"
         >
           <div className="mx-auto max-w-[1180px] px-4 py-3">
             {nav.map((n) => (
@@ -130,7 +128,7 @@ export function SiteHeader() {
               </Button>
             ) : null}
           </div>
-        </motion.nav>
+        </nav>
       ) : null}
     </header>
   );

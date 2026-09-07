@@ -30,9 +30,9 @@ export function Pipeline() {
             <p className="text-lg leading-relaxed text-muted-foreground mb-10">
               Tidak perlu membuang 2 jam di software video. CortexClip mengubah URL jadi lusinan konten hanya dalam menit.
             </p>
-            <div className="p-6 rounded-xl border border-border bg-surface/50">
+            <div className="p-6 rounded-xl border border-border bg-surface">
                <Crown className="size-6 text-accent mb-4" />
-               <h4 className="font-display font-bold text-foregrond mb-2">Gratis via Ads</h4>
+               <h3 className="font-display font-bold text-foreground mb-2">Gratis via Ads</h3>
                <p className="text-sm text-muted-foreground leading-relaxed">
                  Kualitas klip tanpa kompromi. Hanya butuh nonton beberapa iklan untuk render bebas watermark gratis.
                </p>
@@ -48,7 +48,7 @@ export function Pipeline() {
                     <h3 className="text-xl font-display font-bold text-foreground mb-2 flex items-center gap-3">
                       <s.icon className="size-5 text-accent" /> {s.title}
                     </h3>
-                    <p className="text-muted-foreground leading-relaxed">{s.desc}</p>
+                    <p className="text-muted-foreground leading-relaxed max-w-[55ch]">{s.desc}</p>
                   </div>
                 </div>
               ))}

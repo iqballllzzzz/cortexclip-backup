@@ -54,7 +54,7 @@ export function PricingFaq() {
               <div>
                 <div className="flex items-center justify-between gap-4">
                   <h3 className="font-display text-xl font-bold text-foreground">Gratis</h3>
-                  <span className="rounded-full border border-border bg-surface px-3 py-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                     Selamanya
                   </span>
                 </div>
@@ -85,7 +85,7 @@ export function PricingFaq() {
               <div className="mt-10">
                 <Link
                   to="/auth"
-                  className="inline-flex w-full h-11 items-center justify-center rounded-xl border border-border bg-background text-sm font-semibold text-foreground transition-colors hover:border-foreground active:scale-95"
+                  className="inline-flex w-full py-3 items-center justify-center rounded-lg bg-surface text-sm font-semibold text-foreground transition-colors hover:bg-surface/80 active:scale-98"
                 >
                   Mulai Sekarang
                 </Link>
@@ -93,17 +93,11 @@ export function PricingFaq() {
             </div>
 
             {/* Pro Plan */}
-            <div className="rounded-3xl border-2 border-accent bg-card p-8 sm:p-10 flex flex-col justify-between relative shadow-xl shadow-accent/5">
-              <div className="absolute -top-3.5 right-8">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-xs font-bold uppercase tracking-wider text-accent-foreground shadow-sm">
-                  <Sparkles className="size-3" /> Pilihan Utama
-                </span>
-              </div>
-
+            <div className="rounded-3xl border-2 border-accent bg-card p-8 sm:p-10 flex flex-col justify-between relative shadow-sm">
               <div>
                 <div className="flex items-center justify-between gap-4">
                   <h3 className="font-display text-xl font-bold text-foreground">Creator Pro</h3>
-                  <span className="rounded-full border border-accent/40 bg-accent/10 px-3 py-1 text-xs font-bold text-accent uppercase tracking-wider">
+                  <span className="text-xs font-bold text-accent uppercase tracking-wider">
                     QRIS Instan
                   </span>
                 </div>
@@ -135,7 +129,7 @@ export function PricingFaq() {
               <div className="mt-10">
                 <Link
                   to="/auth"
-                  className="inline-flex w-full h-11 items-center justify-center gap-2 rounded-xl bg-accent text-sm font-semibold text-accent-foreground shadow-md shadow-accent/20 transition-transform hover:brightness-105 active:scale-95"
+                  className="inline-flex w-full py-3 items-center justify-center gap-2 rounded-lg bg-accent text-sm font-semibold text-accent-foreground transition-colors hover:opacity-90 active:scale-98"
                 >
                   <Zap className="size-4" /> Beralih ke Pro
                 </Link>
@@ -146,14 +140,14 @@ export function PricingFaq() {
       </section>
 
       {/* ═══ FAQ SECTION ═══ */}
-      <section id="faq" className="scroll-mt-20 border-t border-border py-24 sm:py-32 bg-surface/40">
+      <section id="faq" className="scroll-mt-20 border-t border-border py-24 sm:py-32 bg-surface">
         <div className="mx-auto max-w-[1240px] px-6 lg:px-8">
           <div className="grid gap-12 lg:grid-cols-[1fr_1.5fr] lg:gap-16">
             <div>
               <h2 className="text-3xl font-display font-extrabold tracking-tight sm:text-4xl text-foreground">
                 Pertanyaan yang sering ditanyakan.
               </h2>
-              <p className="mt-4 text-base text-muted-foreground leading-relaxed">
+              <p className="mt-4 text-base text-muted-foreground leading-relaxed max-w-[38ch]">
                 Punya pertanyaan lain seputar workflow atau fitur klip? Hubungi tim kami di{" "}
                 <a href="mailto:cs@cortexclip.app" className="font-medium text-foreground underline underline-offset-4 hover:text-accent">
                   cs@cortexclip.app
@@ -161,7 +155,7 @@ export function PricingFaq() {
               </p>
             </div>
 
-            <div className="divide-y divide-border border-y border-border">
+            <div className="divide-y divide-border border-y border-border max-w-[550px]">
               {FAQS.map((f, i) => {
                 const isOpen = open === i;
                 return (
@@ -177,21 +171,17 @@ export function PricingFaq() {
                         className={`size-5 shrink-0 text-muted-foreground transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
                       />
                     </button>
-                    <AnimatePresence initial={false}>
-                      {isOpen ? (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: "auto", opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          transition={{ duration: 0.2 }}
-                          className="overflow-hidden"
-                        >
-                          <p className="pt-3 text-sm leading-relaxed text-muted-foreground">
-                            {f.a}
-                          </p>
-                        </motion.div>
-                      ) : null}
-                    </AnimatePresence>
+                    <div
+                      className={`grid transition-[grid-template-rows] duration-200 ease-out ${
+                        isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+                      }`}
+                    >
+                      <div className="overflow-hidden">
+                        <p className="pt-3 text-sm leading-relaxed text-muted-foreground max-w-[65ch]">
+                          {f.a}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 );
               })}

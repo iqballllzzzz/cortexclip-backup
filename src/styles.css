@@ -57,32 +57,32 @@
 :root {
   --radius: 0.875rem;
 
-  /* Warm neutral canvas */
-  --background: oklch(0.975 0.005 70);
-  --foreground: oklch(0.21 0.012 70);
-  --card: oklch(0.995 0.003 70);
-  --card-foreground: oklch(0.21 0.012 70);
-  --popover: oklch(0.995 0.003 70);
-  --popover-foreground: oklch(0.21 0.012 70);
-  --primary: oklch(0.24 0.015 70);
-  --primary-foreground: oklch(0.985 0.003 70);
-  --secondary: oklch(0.95 0.006 70);
-  --secondary-foreground: oklch(0.3 0.015 70);
-  --muted: oklch(0.955 0.006 70);
-  --muted-foreground: oklch(0.52 0.015 70);
-  --surface: oklch(0.965 0.006 70);
-  --surface-foreground: oklch(0.21 0.012 70);
+  /* Architectural crisp canvas (No AI beige/cream slop) */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.18 0.01 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.01 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.01 260);
+  --primary: oklch(0.20 0.015 260);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.96 0.005 260);
+  --secondary-foreground: oklch(0.25 0.015 260);
+  --muted: oklch(0.96 0.005 260);
+  --muted-foreground: oklch(0.48 0.015 260);
+  --surface: oklch(0.975 0.003 260);
+  --surface-foreground: oklch(0.18 0.01 260);
 
-  /* Restrained matte amber — warmth without glare */
-  --accent: oklch(0.6 0.11 60);
-  --accent-foreground: oklch(0.99 0.004 70);
-  --success: oklch(0.62 0.12 150);
-  --destructive: oklch(0.55 0.17 25);
-  --destructive-foreground: oklch(0.985 0.004 70);
+  /* High-contrast amber/gold (Passed 4.5:1 WCAG AA) */
+  --accent: oklch(0.50 0.15 55);
+  --accent-foreground: oklch(1 0 0);
+  --success: oklch(0.55 0.14 150);
+  --destructive: oklch(0.55 0.18 25);
+  --destructive-foreground: oklch(1 0 0);
 
-  --border: oklch(0.9 0.01 70);
-  --input: oklch(0.9 0.01 70);
-  --ring: oklch(0.6 0.11 60);
+  --border: oklch(0.91 0.005 260);
+  --input: oklch(0.91 0.005 260);
+  --ring: oklch(0.50 0.15 55);
 
   --shadow-xs: 0 1px 2px oklch(0.2 0.02 70 / 0.04);
   --shadow-sm: 0 1px 3px oklch(0.2 0.02 70 / 0.06), 0 1px 2px oklch(0.2 0.02 70 / 0.04);
@@ -179,6 +179,15 @@
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     overflow-x: clip;
+  }
+
+  p {
+    max-width: 55ch;
+  }
+
+  /* Override third-party sonner height transition to eliminate layout thrash */
+  [data-sonner-toast] {
+    transition: transform 400ms, opacity 400ms, box-shadow 200ms !important;
   }
 
   h1,

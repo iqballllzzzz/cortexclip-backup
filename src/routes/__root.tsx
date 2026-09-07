@@ -139,7 +139,8 @@ function RootShell({ children }: { children: ReactNode }) {
 window.addEventListener("vite:preloadError",function(e){try{e.preventDefault()}catch(_){}heal()});
 window.addEventListener("error",function(e){var t=e&&e.target;if(!t||!t.tagName)return;var u=t.src||t.href||"";if((t.tagName==="SCRIPT"||t.tagName==="LINK")&&/\\/(assets|_build)\\//.test(u))heal()},true);
 window.addEventListener("unhandledrejection",function(e){var m=e&&e.reason&&(e.reason.message||e.reason)||"";if(/dynamically imported module|Importing a module script failed|Loading chunk/i.test(String(m)))heal()});
-window.addEventListener("load",function(){setTimeout(function(){try{sessionStorage.removeItem(K)}catch(e){}},1500)})();`;
+window.addEventListener("load",function(){setTimeout(function(){try{sessionStorage.removeItem(K)}catch(e){}},1500)});
+})();`;
 
   // ANTI-ZOOM LEMPENG 2 (permintaan pengguna 2026-09-06: "jangan sampai
   // halaman bisa diperbesar/diperkecil"): viewport meta sudah kunci pinch di

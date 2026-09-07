@@ -58,24 +58,16 @@ export function ResultShowcase() {
 
   return (
     <section id="hasil-nyata" className="mx-auto max-w-6xl px-5 py-24">
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true }}
-        className="max-w-2xl"
-      >
-        <p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-accent">
-          <ShieldCheck className="size-3.5" /> Bukti, bukan janji
-        </p>
-        <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">
+      <div className="max-w-2xl">
+        <h2 className="text-3xl font-bold tracking-tight sm:text-4xl text-foreground">
           Ini hasil asli dari CortexClip.
         </h2>
-        <p className="mt-3 text-muted-foreground">
+        <p className="mt-3 text-muted-foreground leading-relaxed max-w-[65ch]">
           Video di bawah keluar langsung dari pipeline yang sama yang akan
           memproses video kamu — subtitle, framing wajah, dan skor viral apa
           adanya. Tekan untuk memutar.
         </p>
-      </motion.div>
+      </div>
 
       <ul className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {clips.map((c) => {
@@ -83,9 +75,9 @@ export function ResultShowcase() {
           return (
             <li
               key={c.url}
-              className="overflow-hidden rounded-3xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md"
+              className="overflow-hidden rounded-2xl border border-border bg-card"
             >
-              <div className="relative aspect-[9/16] w-full bg-surface">
+              <div className="relative aspect-[9/16] w-full bg-black">
                 {aktif ? (
                   <video
                     src={c.url}
@@ -111,7 +103,7 @@ export function ResultShowcase() {
                       playsInline
                       tabIndex={-1}
                     />
-                    <span className="relative grid size-14 place-items-center rounded-full bg-black/55 backdrop-blur transition-transform group-hover:scale-105">
+                    <span className="relative grid size-14 place-items-center rounded-full bg-black/70 text-white transition-transform group-hover:scale-105">
                       <Play className="size-6 translate-x-0.5 text-white" />
                     </span>
                   </button>
@@ -121,9 +113,9 @@ export function ResultShowcase() {
               <div className="p-3.5">
                 <div className="flex items-center justify-between gap-2">
                   {c.duration ? (
-                    <Badge variant="secondary" className="text-[10px]">
+                    <span className="text-xs font-mono text-muted-foreground">
                       {detik(c.duration)}
-                    </Badge>
+                    </span>
                   ) : (
                     <span />
                   )}
