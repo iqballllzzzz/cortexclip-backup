@@ -142,30 +142,31 @@ export function PricingFaq() {
                 </p>
                 <div className="mt-6 space-y-1">
                   <div className="flex items-baseline gap-1.5">
-                    <span className="font-display text-4xl font-extrabold text-foreground">Rp70.000</span>
+                    <span className="font-display text-4xl font-extrabold text-foreground">Rp89.000</span>
                     <span className="text-sm text-muted-foreground">/ bulan</span>
                   </div>
                   <p className="text-xs font-mono text-accent font-semibold">
-                    atau mulai Rp3.000 / hari via QRIS
+                    atau mulai Rp5.000 / hari via QRIS
                   </p>
                 </div>
 
                 {/* Pricing Tiers Pills */}
                 <div className="mt-4 flex flex-wrap gap-2 text-xs font-mono">
-                  <span className="px-2 py-1 rounded bg-surface border border-border text-foreground">1 Hari: Rp3rb</span>
-                  <span className="px-2 py-1 rounded bg-surface border border-border text-foreground">5 Hari: Rp10rb</span>
-                  <span className="px-2 py-1 rounded bg-accent/15 border border-accent/30 text-accent font-bold">1 Bulan: Rp70rb</span>
-                  <span className="px-2 py-1 rounded bg-surface border border-border text-foreground">1 Tahun: Rp215rb</span>
+                  <span className="px-2 py-1 rounded bg-surface border border-border text-foreground">1 Hari: Rp5rb</span>
+                  <span className="px-2 py-1 rounded bg-surface border border-border text-foreground">5 Hari: Rp19rb</span>
+                  <span className="px-2 py-1 rounded bg-accent/15 border border-accent/30 text-accent font-bold">1 Bulan: Rp89rb</span>
+                  <span className="px-2 py-1 rounded bg-surface border border-border text-foreground">1 Tahun: Rp299rb</span>
                 </div>
 
                 <ul className="mt-8 space-y-3.5 text-sm text-muted-foreground border-t border-border pt-6">
                   {[
-                    "10 video panjang per hari",
-                    "Bebas watermark tanpa syarat",
-                    "Fitur Auto-Split multi-speaker",
-                    "Prioritas antrean render di server",
-                    "Custom Logo & Brand Watermark sendiri",
-                    "Ekspor instan dan penyimpanan cloud prioritas",
+                    "100% Bebas Watermark (Klip bersih siap monetisasi TikTok/Reels/Shorts)",
+                    "Ekspor Resolusi 1080p Full HD Prioritas (Antrean GPU server tercepat)",
+                    "Buka Semua Preset Subtitle Karaoke (Hormozi, Punch, Clean Editorial, Neon)",
+                    "Smart Auto-Reframe & Dual Speaker Tracking Tanpa Batas",
+                    "Pasang Custom Logo Brand & Fitur Hapus Background AI Otomatis",
+                    "Kuota Melimpah: 10 Video Panjang/Hari & Hingga 40 Klip per Video",
+                    "Unduh Cepat Langsung Tanpa Nonton Iklan",
                   ].map((f) => (
                     <li key={f} className="flex items-center gap-3 text-foreground font-medium">
                       <Check className="size-4 text-accent shrink-0" />

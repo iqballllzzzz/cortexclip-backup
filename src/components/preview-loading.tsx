@@ -46,6 +46,20 @@ export function PreviewLoading({
   const p = Math.max(0, Math.min(100, Math.round(pct)));
   const label = stage?.trim() || "Menyiapkan video";
 
+  // Kemajuan visual halus agar persentase tidak pernah tampak beku di 1%
+  const [visualPct, setVisualPct] = useState(p);
+  useEffect(() => {
+    setVisualPct((prev) => Math.max(prev, p));
+  }, [p]);
+
+  useEffect(() => {
+    if (visualPct >= 92) return;
+    const interval = setInterval(() => {
+      setVisualPct((v) => (v < 92 ? v + 1 : v));
+    }, 800);
+    return () => clearInterval(interval);
+  }, [visualPct]);
+
   // hitung mundur lokal, disinkronkan tiap kali etaS dari server berubah
   const [sisa, setSisa] = useState<number | null>(etaS);
   const etaRef = useRef<number | null>(etaS);
@@ -74,12 +88,12 @@ export function PreviewLoading({
         <Loader2 className="size-3.5 shrink-0 animate-spin text-accent" />
         <span className="truncate text-[11px] font-medium text-white">{label}</span>
         <span className="ml-auto shrink-0 text-[11px] font-semibold tabular-nums text-accent">
-          {p}%
+          {visualPct}%
         </span>
         <div className="absolute inset-x-0 bottom-0 h-0.5 bg-white/15">
           <div
             className="h-full bg-accent transition-[width] duration-500 ease-out"
-            style={{ width: `${p}%` }}
+            style={{ width: `${visualPct}%` }}
           />
         </div>
       </div>
@@ -105,13 +119,13 @@ export function PreviewLoading({
       {/* persen 1-100: sengaja minimal 1 supaya tidak terlihat "mati di 0" */}
       <div className="w-full max-w-[240px]">
         <p className="font-display text-4xl font-bold leading-none tabular-nums text-accent">
-          {Math.max(1, p)}
+          {Math.max(1, visualPct)}
           <span className="text-xl">%</span>
         </p>
         <div className="mt-2.5 h-2 overflow-hidden rounded-full bg-white/15">
           <div
             className="h-full rounded-full bg-accent transition-[width] duration-500 ease-out"
-            style={{ width: `${Math.max(2, p)}%` }}
+            style={{ width: `${Math.max(2, visualPct)}%` }}
           />
         </div>
       </div>

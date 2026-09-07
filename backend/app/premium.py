@@ -57,10 +57,10 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # Kenapa bisa: pemrosesan jalan di VPS sendiri (bukan GPU sewaan per menit),
 # dan STT/LLM memakai rantai penyedia gratis dengan failover (hydra.py).
 PLANS: dict[str, dict[str, Any]] = {
-    "day":   {"label": "1 Hari",  "days": 1,   "amount": 3000},
-    "5day":  {"label": "5 Hari",  "days": 5,   "amount": 10000},
-    "month": {"label": "1 Bulan", "days": 30,  "amount": 70000},
-    "year":  {"label": "1 Tahun", "days": 365, "amount": 215000},
+    "day":   {"label": "1 Hari",  "days": 1,   "amount": 5000},
+    "5day":  {"label": "5 Hari",  "days": 5,   "amount": 19000},
+    "month": {"label": "1 Bulan", "days": 30,  "amount": 89000},
+    "year":  {"label": "1 Tahun", "days": 365, "amount": 299000},
 }
 # Dipakai UI untuk menunjukkan penghematan nyata, bukan klaim kosong.
 # Angka pesaing WAJIB berasal dari halaman harga resmi mereka; kalau berubah,

@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
 import {
   BookOpen,
   Clapperboard,
@@ -51,8 +51,16 @@ export const Route = createFileRoute("/docs")({
       ),
     ],
   }),
-  component: DocsIndexPage,
+  component: DocsLayout,
 });
+
+function DocsLayout() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  if (pathname === "/docs" || pathname === "/docs/") {
+    return <DocsIndexPage />;
+  }
+  return <Outlet />;
+}
 
 function DocsIndexPage() {
   return (

@@ -176,36 +176,42 @@ export function PremiumDialog({
 
         {!order ? (
           <>
-            {/* MANFAAT — dulu tiga baris <li> setinggi ~66px. Dipadatkan jadi
-                satu baris chip: isinya sama (10 video/hari, 40 klip, aktif
-                langsung) tapi hemat ~44px sehingga panel "atau gratis" ikut
-                terlihat tanpa menggulir di layar HP. */}
-            <ul className="mb-2.5 flex flex-wrap gap-x-3 gap-y-1 text-[12px] text-muted-foreground">
-              <li className="flex items-center gap-1">
+            {/* MANFAAT LENGKAP PREMIUM */}
+            <ul className="mb-2.5 grid grid-cols-2 gap-x-2 gap-y-1.5 text-[11.5px] text-muted-foreground">
+              <li className="flex items-center gap-1 text-foreground font-semibold">
                 <Check className="size-3.5 shrink-0 text-accent" />
-                10 video/hari <span className="opacity-60">(free 2)</span>
+                100% Tanpa Watermark
               </li>
               <li className="flex items-center gap-1">
                 <Check className="size-3.5 shrink-0 text-accent" />
-                40 klip/video <span className="opacity-60">(free 10)</span>
+                Semua Preset Subtitle Terbuka
               </li>
               <li className="flex items-center gap-1">
                 <Check className="size-3.5 shrink-0 text-accent" />
-                aktif langsung
+                Custom Logo & Remove-BG
+              </li>
+              <li className="flex items-center gap-1">
+                <Check className="size-3.5 shrink-0 text-accent" />
+                Auto-Split & Tracking Penuh
+              </li>
+              <li className="flex items-center gap-1">
+                <Check className="size-3.5 shrink-0 text-accent" />
+                10 video/hari (free 2)
+              </li>
+              <li className="flex items-center gap-1">
+                <Check className="size-3.5 shrink-0 text-accent" />
+                40 klip/video (free 10)
               </li>
             </ul>
 
-            {/* PERBANDINGAN HARGA — angka pesaing dari halaman harga resmi
-                OpusClip (Juni 2026), bukan klaim kosong. Dipadatkan dari kotak
-                3 baris + paragraf jadi SATU baris: dua harga bersebelahan
-                sudah menyampaikan seluruh argumennya. */}
+            {/* PERBANDINGAN HARGA VS OPUSCLIP */}
             <p className="mb-3 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 rounded-xl border border-accent/25 bg-accent/[0.06] px-3 py-2 text-[12px]">
               <span className="text-muted-foreground line-through decoration-muted-foreground/50">
                 OpusClip ±Rp240rb/bln
               </span>
-              <span className="font-bold text-accent">→ di sini Rp70rb/bln</span>
+              <span className="font-bold text-accent">→ di sini Rp89rb/bln</span>
               <span className="text-[11px] text-muted-foreground">
-                tanpa kredit per menit
+                kualitas setara, tanpa kredit menit
               </span>
             </p>
 

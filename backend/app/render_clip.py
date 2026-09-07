@@ -1017,9 +1017,11 @@ async def render_preview_clip(
                     prefs = clip.get("layout_prefs") or {}
                     auto_splits = []
                     if _auto_split_aktif(prefs):
+                        lapor(18, "Menganalisis split dua pembicara")
                         rencana = auto_split.rencana_auto_split(
                             st, src_w=int(st.get("src_w") or 0))
                         auto_splits = rencana.get("splits") or []
+                        lapor(32, "Menyiapkan tata letak auto split")
                     if auto_splits:
                         print(f"[preview] auto split: "
                               + "; ".join(f"{s['start']:.1f}-{s['end']:.1f}s"

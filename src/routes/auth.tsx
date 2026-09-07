@@ -128,12 +128,18 @@ function AuthPage() {
     setBusy(true);
     try {
       if (mode === "signup") {
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: { emailRedirectTo: window.location.origin, data: { display_name: displayName || undefined } },
         });
         if (error) throw error;
+        if (data.session) {
+          toast.success("Akun berhasil dibuat! Selamat datang.");
+          void recordLoginEvent();
+          navigate({ to: "/dashboard", replace: true });
+          return;
+        }
         setConfirmSent(true);
         setKirimUlangSisa(60);
         toast.success(t("auth.kode_dikirim"));

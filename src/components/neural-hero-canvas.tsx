@@ -26,6 +26,13 @@ export function NeuralHeroCanvas({ scrollProgress = 0 }: NeuralHeroCanvasProps) 
     let width = container.clientWidth || window.innerWidth;
     let height = container.clientHeight || window.innerHeight;
     const isMobile = width < 768;
+    // Deteksi perangkat hemat daya / spek rendah (handphone jadul)
+    const isLowEnd =
+      isMobile &&
+      (typeof navigator !== "undefined" &&
+        ((navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
+          // @ts-ignore
+          (navigator.deviceMemory && navigator.deviceMemory <= 4)));
 
     // 1. Scene & Camera Setup
     const scene = new THREE.Scene();
@@ -33,15 +40,17 @@ export function NeuralHeroCanvas({ scrollProgress = 0 }: NeuralHeroCanvasProps) 
     camera.position.set(0, 0, 9.5);
 
     const renderer = new THREE.WebGLRenderer({
-      antialias: true,
+      antialias: !isLowEnd,
       alpha: true,
       powerPreference: "high-performance",
-      precision: isMobile ? "mediump" : "highp",
+      precision: isLowEnd ? "lowp" : isMobile ? "mediump" : "highp",
     });
     renderer.setSize(width, height);
-    // Mobile pixel ratio clamp to 1.5 to prevent fill-rate GPU bottleneck and eliminate any stutter
-    const pixelRatio = isMobile
-      ? Math.min(window.devicePixelRatio || 1, 1.5)
+    // Mobile pixel ratio clamp (1.0 pada hp jadul, 1.25 pada hp mobile, 2.0 pada desktop)
+    const pixelRatio = isLowEnd
+      ? 1.0
+      : isMobile
+      ? Math.min(window.devicePixelRatio || 1, 1.25)
       : Math.min(window.devicePixelRatio || 1, 2);
     renderer.setPixelRatio(pixelRatio);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -60,8 +69,8 @@ export function NeuralHeroCanvas({ scrollProgress = 0 }: NeuralHeroCanvasProps) 
     amberFill.position.set(0, 0.3, 2);
     scene.add(amberFill);
 
-    // 2. HIGH DENSITY PARTICLES (30,000 on Desktop / 11,000 on Mobile for silky 120fps)
-    const N = isMobile ? 11000 : 30000;
+    // 2. HIGH DENSITY PARTICLES (30,000 Desktop / 11,000 Mobile / 6,500 HP Jadul)
+    const N = isLowEnd ? 6500 : isMobile ? 11000 : 30000;
 
     const posA = new Float32Array(N * 3); // Shape A: 3D Smartphone
     const posB = new Float32Array(N * 3); // Shape B: Realistic 3D Bohlam
@@ -392,10 +401,20 @@ export function NeuralHeroCanvas({ scrollProgress = 0 }: NeuralHeroCanvasProps) 
     let frameCount = 0;
     let lastFpsTime = performance.now();
     let animId: number;
+    let isVisible = true;
     const clock = new THREE.Clock();
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        isVisible = entries[0]?.isIntersecting ?? true;
+      },
+      { threshold: 0.05 }
+    );
+    observer.observe(container);
 
     const animate = () => {
       animId = requestAnimationFrame(animate);
+      if (!isVisible) return; // Hemat daya total saat di luar layar
 
       // Measure real FPS
       frameCount++;
