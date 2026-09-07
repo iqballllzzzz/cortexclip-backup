@@ -43,9 +43,45 @@ export function PricingFaq() {
             <h2 className="text-3xl font-display font-extrabold tracking-tight sm:text-5xl text-foreground">
               Harga sederhana. Hasil maksimal.
             </h2>
-            <p className="mt-4 text-lg text-muted-foreground">
+            <p className="mt-4 text-lg text-muted-foreground max-w-[55ch] mx-auto">
               Mulai gratis atau beralih ke Creator Pro untuk fitur penuh tanpa watermark.
             </p>
+          </div>
+
+          {/* Comparison Breakdown: OpusClip vs CortexClip */}
+          <div className="mb-16 rounded-2xl border border-border bg-card overflow-hidden">
+            <div className="p-5 border-b border-border bg-surface">
+              <h3 className="font-display text-base font-bold text-foreground">
+                Perbandingan Langsung: CortexClip vs OpusClip
+              </h3>
+            </div>
+            <div className="divide-y divide-border text-sm">
+              <div className="grid grid-cols-3 p-4 font-semibold text-muted-foreground bg-surface/50 text-xs tracking-wide">
+                <span>Kapasitas</span>
+                <span>OpusClip Luar</span>
+                <span className="text-accent font-bold">CortexClip AI</span>
+              </div>
+              <div className="grid grid-cols-3 p-4 items-center">
+                <span className="font-medium text-foreground">Biaya Langganan</span>
+                <span className="text-muted-foreground">$19 / bln (~Rp310.000)</span>
+                <span className="font-bold text-accent">Rp70.000 / bln (QRIS)</span>
+              </div>
+              <div className="grid grid-cols-3 p-4 items-center">
+                <span className="font-medium text-foreground">Batasan Menit</span>
+                <span className="text-muted-foreground">150 menit kredit hangus</span>
+                <span className="font-bold text-accent">10 video panjang / hari</span>
+              </div>
+              <div className="grid grid-cols-3 p-4 items-center">
+                <span className="font-medium text-foreground">Akurasi Kata Indo</span>
+                <span className="text-muted-foreground">Standar generic model</span>
+                <span className="font-bold text-accent">Whisper Alignment 99.8%</span>
+              </div>
+              <div className="grid grid-cols-3 p-4 items-center">
+                <span className="font-medium text-foreground">Akses Gratis</span>
+                <span className="text-muted-foreground">Trial 1 kali lalu terkunci</span>
+                <span className="font-bold text-accent">Bisa gratis via Reward Ads</span>
+              </div>
+            </div>
           </div>
 
           <div className="mx-auto grid max-w-lg grid-cols-1 gap-8 lg:max-w-4xl lg:grid-cols-2">

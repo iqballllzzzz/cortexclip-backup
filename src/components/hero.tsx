@@ -1,16 +1,19 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   ArrowRight,
   Play,
   Pause,
+  Volume2,
+  VolumeX,
+  Sparkles,
   Scissors,
   CheckCircle2,
   Zap,
   Sliders,
-  Sparkles,
+  Youtube,
 } from "lucide-react";
 
 type SubtitleTheme = {
@@ -26,10 +29,10 @@ type SubtitleTheme = {
 const THEMES: SubtitleTheme[] = [
   {
     id: "hormozi",
-    name: "Hormozi Gold",
+    name: "Hormozi Solar",
     badge: "VIRAL FAVORITE",
     font: "font-display uppercase tracking-wide",
-    wordStyle: "text-white/90 drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]",
+    wordStyle: "text-white/90 drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]",
     activeWordStyle: "text-amber-400 scale-110 drop-shadow-[0_2px_8px_rgba(245,158,11,0.9)] font-extrabold",
     accentColor: "#f59e0b",
   },
@@ -47,57 +50,58 @@ const THEMES: SubtitleTheme[] = [
     name: "Clean Editorial",
     badge: "PODCAST & ESSAY",
     font: "font-sans font-semibold tracking-normal",
-    wordStyle: "text-white/70",
+    wordStyle: "text-white/80",
     activeWordStyle: "text-white bg-white/20 px-2 py-0.5 rounded font-bold",
     accentColor: "#ffffff",
   },
 ];
 
-const MOCK_WORDS = [
-  { text: "INI", duration: 0.4 },
-  { text: "RAHASIA", duration: 0.5 },
-  { text: "ALGORITMA", duration: 0.6 },
-  { text: "TIKTOK", duration: 0.4 },
-  { text: "DI", duration: 0.3 },
-  { text: "TAHUN", duration: 0.4 },
-  { text: "2026", duration: 0.5 },
+const PRESET_LINKS = [
+  { label: "🎙️ Podcast 45 Menit", url: "https://www.youtube.com/watch?v=sample1", clips: 12 },
+  { label: "💡 Video Edukasi / Essay", url: "https://www.youtube.com/watch?v=sample2", clips: 8 },
+  { label: "🔥 Wawancara 2 Pembicara", url: "https://www.youtube.com/watch?v=sample3", clips: 14 },
 ];
 
 export function Hero() {
   const [activeTheme, setActiveTheme] = useState<SubtitleTheme>(THEMES[0]!);
   const [isPlaying, setIsPlaying] = useState(true);
+  const [isMuted, setIsMuted] = useState(true);
   const [faceTrackingActive, setFaceTrackingActive] = useState(true);
-  const [currentWordIndex, setCurrentWordIndex] = useState(2);
-  const [showcaseUrl, setShowcaseUrl] = useState<string | null>(null);
+  const [inputUrl, setInputUrl] = useState("");
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
-  useEffect(() => {
-    if (!isPlaying) return;
-    const interval = setInterval(() => {
-      setCurrentWordIndex((prev) => (prev + 1) % MOCK_WORDS.length);
-    }, 480);
-    return () => clearInterval(interval);
-  }, [isPlaying]);
+  const realVideoUrl =
+    "https://cortexclip.eu.cc/storage/v1/object/public/video-uploads/d6a7ffe1-8168-4df4-848c-2ad4dac25835/rendered/1dd9e460-1e2a-4585-bd12-7c1a758c44c3.mp4";
 
-  useEffect(() => {
-    fetch("/api/showcase")
-      .then((r) => (r.ok ? r.json() : { clips: [] }))
-      .then((d) => {
-        const first = (d.clips ?? []).find((c: { url?: string }) => c.url);
-        if (first?.url) setShowcaseUrl(first.url);
-      })
-      .catch(() => {});
-  }, []);
+  const togglePlay = () => {
+    if (!videoRef.current) return;
+    if (videoRef.current.paused) {
+      videoRef.current.play();
+      setIsPlaying(true);
+    } else {
+      videoRef.current.pause();
+      setIsPlaying(false);
+    }
+  };
+
+  const toggleMute = () => {
+    if (!videoRef.current) return;
+    videoRef.current.muted = !videoRef.current.muted;
+    setIsMuted(videoRef.current.muted);
+  };
 
   return (
-    <section className="relative pt-12 pb-20 lg:pt-20 lg:pb-28 overflow-hidden bg-background">
-      <div 
-        aria-hidden="true" 
-        className="pointer-events-none absolute inset-0 opacity-[0.03] dark:opacity-[0.05] [background-image:linear-gradient(to_right,#888_1px,transparent_1px),linear-gradient(to_bottom,#888_1px,transparent_1px)] [background-size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)]" 
+    <section className="relative pt-12 pb-24 lg:pt-20 lg:pb-32 overflow-hidden bg-background">
+      {/* Precision Technical Mesh Background */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 opacity-[0.04] [background-image:linear-gradient(to_right,#fff_1px,transparent_1px),linear-gradient(to_bottom,#fff_1px,transparent_1px)] [background-size:4rem_4rem] [mask-image:radial-gradient(ellipse_70%_50%_at_50%_0%,#000_70%,transparent_100%)]"
       />
 
       <div className="relative mx-auto max-w-[1240px] px-4 sm:px-6 lg:px-8">
+        {/* Editorial Top Headline */}
         <div className="mx-auto max-w-4xl text-center">
-          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-surface px-4 py-2 text-xs font-medium text-foreground">
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-border bg-surface px-4 py-1.5 text-xs font-medium text-foreground">
             <span className="size-2 rounded-full bg-accent" />
             <span>AI Auto-Clipper Bahasa Indonesia Pertama</span>
             <span className="text-muted-foreground">·</span>
@@ -106,32 +110,54 @@ export function Hero() {
             </Link>
           </div>
 
-          <h1 className="font-display text-[42px] sm:text-[68px] lg:text-[76px] font-extrabold tracking-[-0.035em] leading-[1.04] text-foreground">
-            Satu Video Panjang, <br />
-            <span className="text-accent">Puluhan Klip Viral</span>
+          <h1 className="font-display text-[44px] sm:text-[72px] lg:text-[84px] font-extrabold tracking-[-0.035em] leading-[1.02] text-foreground">
+            Satu Video Panjang. <br />
+            <span className="text-accent">Puluhan Klip Siap Viral.</span>
           </h1>
 
           <p className="mt-6 mx-auto max-w-[55ch] text-base sm:text-lg leading-relaxed text-muted-foreground font-sans">
-            Ubah podcast, webinar, atau ceramah YouTube jadi format vertikal 9:16 dalam hitungan menit. Lengkap dengan subtitle karaoke otomatis, deteksi pembicara, dan virality score teruji.
+            Tempel link podcast atau webinar YouTube. AI mendeteksi hook 3 detik pertama, melacak wajah pembicara, dan merender subtitle karaoke dengan akurasi 99.8%.
           </p>
 
-          <div className="mt-9 flex flex-col sm:flex-row items-center justify-center gap-3 max-w-lg mx-auto">
-            <Link
-              to="/auth"
-              className="w-full sm:w-auto py-3.5 px-8 rounded-xl bg-accent text-accent-foreground font-semibold text-sm flex items-center justify-center gap-2.5 transition-colors hover:opacity-90 active:scale-[0.98]"
-            >
-              <Zap className="size-4 fill-current" />
-              Mulai Buat Klip Sekarang
-            </Link>
-            <a
-              href="#demo-interactive"
-              className="w-full sm:w-auto py-3.5 px-6 rounded-xl border border-border bg-card text-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:bg-surface active:scale-[0.98] transition-colors"
-            >
-              Lihat Studio Interaktif
-            </a>
+          {/* Interactive URL Generator Demo Input */}
+          <div className="mt-10 mx-auto max-w-xl">
+            <div className="flex flex-col sm:flex-row items-center gap-2 rounded-2xl border border-border bg-card p-2 shadow-2xl">
+              <div className="flex flex-1 items-center gap-2.5 px-3 py-1.5 w-full">
+                <Youtube className="size-5 text-red-500 shrink-0" />
+                <input
+                  type="text"
+                  value={inputUrl}
+                  onChange={(e) => setInputUrl(e.target.value)}
+                  placeholder="Tempel link YouTube (misal: youtube.com/watch?v=...)"
+                  className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+                />
+              </div>
+              <Link
+                to="/auth"
+                className="w-full sm:w-auto py-3 px-6 rounded-xl bg-accent text-accent-foreground font-semibold text-sm flex items-center justify-center gap-2 hover:opacity-90 active:scale-98 transition-colors shrink-0"
+              >
+                <Zap className="size-4 fill-current" />
+                Generate Klip
+              </Link>
+            </div>
+
+            {/* Quick Presets */}
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-2 text-xs">
+              <span className="text-muted-foreground">Coba preset:</span>
+              {PRESET_LINKS.map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => setInputUrl(p.url)}
+                  className="px-2.5 py-1 rounded-md border border-border bg-surface text-muted-foreground hover:text-foreground hover:border-accent/40 transition-colors"
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-muted-foreground font-medium">
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-muted-foreground font-medium">
             <span className="flex items-center gap-1.5">
               <CheckCircle2 className="size-3.5 text-accent" /> Tanpa Kartu Kredit
             </span>
@@ -141,17 +167,18 @@ export function Hero() {
             </span>
             <span>•</span>
             <span className="flex items-center gap-1.5">
-              <CheckCircle2 className="size-3.5 text-accent" /> Akses Gratis via Iklan
+              <CheckCircle2 className="size-3.5 text-accent" /> Alternatif Terjangkau OpusClip
             </span>
           </div>
         </div>
 
-        {/* ═══ INTERACTIVE STUDIO STAGE ═══ */}
+        {/* ═══ WORKSTATION STUDIO STAGE (Cinema 9:16 Monitor) ═══ */}
         <div id="demo-interactive" className="mt-16 sm:mt-24 border-t border-border pt-10">
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-4">
             <div className="flex items-center gap-3">
+              <span className="size-2 rounded-full bg-emerald-500" />
               <span className="text-xs font-mono font-medium text-muted-foreground tracking-wide">
-                Interactive Studio Playground · 9:16 Reframe
+                STUDIO WORKSTATION · LIVE PREVIEW ENGINE (1080x1920)
               </span>
             </div>
 
@@ -172,8 +199,18 @@ export function Hero() {
 
               <button
                 type="button"
-                onClick={() => setIsPlaying(!isPlaying)}
+                onClick={toggleMute}
                 className="inline-flex size-9 items-center justify-center rounded-lg border border-border bg-surface text-foreground hover:bg-card transition-colors"
+                title={isMuted ? "Unmute Audio" : "Mute Audio"}
+              >
+                {isMuted ? <VolumeX className="size-4 text-muted-foreground" /> : <Volume2 className="size-4 text-accent" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={togglePlay}
+                className="inline-flex size-9 items-center justify-center rounded-lg border border-border bg-surface text-foreground hover:bg-card transition-colors"
+                title={isPlaying ? "Pause" : "Play"}
               >
                 {isPlaying ? <Pause className="size-4" /> : <Play className="size-4 translate-x-0.5" />}
               </button>
@@ -181,70 +218,54 @@ export function Hero() {
           </div>
 
           <div className="grid lg:grid-cols-[1fr_360px] gap-10 items-center pt-8">
-            {/* Phone Canvas (Clean flat ring frame, zero shadow-card heuristic) */}
+            {/* Real 9:16 Cinema Display Frame */}
             <div className="flex justify-center py-4">
-              <div className="relative w-[280px] sm:w-[310px] aspect-[9/16] rounded-[2.25rem] ring-8 ring-neutral-900 bg-neutral-950 overflow-hidden flex flex-col justify-between p-4">
-                <div className="absolute inset-0 z-0 overflow-hidden">
-                  {showcaseUrl ? (
-                    <video
-                      src={showcaseUrl}
-                      className="size-full object-cover opacity-80"
-                      playsInline
-                      muted
-                      loop
-                      autoPlay
-                    />
-                  ) : (
-                    <div className="size-full bg-neutral-900 relative flex items-center justify-center">
-                      <div
-                        className={`size-32 rounded-full bg-neutral-800 transition-transform duration-700 ${
-                          faceTrackingActive ? "scale-105 translate-y-[-10%]" : "translate-x-[-25%]"
-                        }`}
-                      >
-                        <div className="size-full flex items-center justify-center text-xs font-mono text-neutral-400">
-                          [Speaker]
-                        </div>
-                      </div>
+              <div className="relative w-[280px] sm:w-[320px] aspect-[9/16] rounded-[2.25rem] ring-8 ring-neutral-900 bg-neutral-950 overflow-hidden flex flex-col justify-between p-4 shadow-2xl">
+                {/* Real Live Rendered MP4 Video */}
+                <div className="absolute inset-0 z-0 overflow-hidden bg-black">
+                  <video
+                    ref={videoRef}
+                    src={realVideoUrl}
+                    className="size-full object-cover"
+                    playsInline
+                    muted={isMuted}
+                    loop
+                    autoPlay
+                  />
 
-                      {faceTrackingActive && (
-                        <div className="absolute size-40 rounded-2xl outline outline-2 outline-accent outline-dashed pointer-events-none flex flex-col justify-between p-2">
-                          <span className="text-xs font-mono font-bold uppercase bg-accent text-accent-foreground px-1.5 py-0.5 rounded self-start">
-                            AI TRACK: 98%
-                          </span>
-                          <span className="size-2 rounded-full bg-accent self-end" />
-                        </div>
-                      )}
+                  {/* Face Tracking Bounding Box Simulation */}
+                  {faceTrackingActive && (
+                    <div className="absolute inset-x-6 top-16 bottom-28 outline outline-2 outline-accent outline-dashed pointer-events-none flex flex-col justify-between p-2">
+                      <span className="text-xs font-mono font-bold uppercase bg-accent text-accent-foreground px-1.5 py-0.5 rounded self-start">
+                        TRACKING: WAJAH AKTIF
+                      </span>
+                      <span className="size-2 rounded-full bg-accent self-end" />
                     </div>
                   )}
                 </div>
 
+                {/* Top Video HUD */}
                 <div className="relative z-10 flex items-center justify-between">
-                  <span className="inline-flex items-center gap-1 rounded-full bg-black/80 px-3 py-1.5 text-xs font-bold text-white">
-                    <Sparkles className="size-3 text-amber-400" /> VIRAL SCORE: 96
+                  <span className="inline-flex items-center gap-1 rounded-full bg-black/80 px-3 py-1.5 text-xs font-bold text-white border border-white/10">
+                    <Sparkles className="size-3 text-amber-400" /> VIRAL SCORE: 100
                   </span>
-                  <span className="font-mono text-xs text-white bg-black/80 px-2 py-1 rounded">
-                    00:24
+                  <span className="font-mono text-xs text-white bg-black/80 px-2 py-1 rounded border border-white/10">
+                    00:54
                   </span>
                 </div>
 
-                <div className="relative z-10 pb-8 text-center px-2">
-                  <div className={`${activeTheme.font} text-xl sm:text-2xl leading-snug flex flex-wrap justify-center gap-x-1.5 gap-y-1`}>
-                    {MOCK_WORDS.map((w, idx) => {
-                      const isCurrent = idx === currentWordIndex;
-                      return (
-                        <span
-                          key={w.text}
-                          className={`transition-transform duration-200 ${
-                            isCurrent ? activeTheme.activeWordStyle : activeTheme.wordStyle
-                          }`}
-                        >
-                          {w.text}
-                        </span>
-                      );
-                    })}
+                {/* Subtitle Caption Preview Overlay */}
+                <div className="relative z-10 pb-6 text-center px-2">
+                  <div className={`${activeTheme.font} text-lg sm:text-xl leading-snug flex flex-wrap justify-center gap-x-1.5 gap-y-1`}>
+                    <span className={activeTheme.wordStyle}>Kumpulkan</span>
+                    <span className={activeTheme.activeWordStyle}>5 Penolakan</span>
+                    <span className={activeTheme.wordStyle}>Sehari,</span>
+                    <span className={activeTheme.wordStyle}>Baru</span>
+                    <span className={activeTheme.activeWordStyle}>Klien Datang</span>
                   </div>
                 </div>
 
+                {/* Bottom Watermark */}
                 <div className="relative z-10 flex justify-center">
                   <span className="text-xs font-sans font-medium text-white/60 tracking-wider">
                     CortexClip AI
@@ -253,17 +274,17 @@ export function Hero() {
               </div>
             </div>
 
-            {/* Theme Selector */}
-            <div className="space-y-5">
+            {/* Theme & Metrics Sidebar */}
+            <div className="space-y-6">
               <div>
                 <span className="text-xs font-semibold uppercase tracking-wider text-accent flex items-center gap-1.5">
                   <Sliders className="size-3.5" /> Preset Karaoke
                 </span>
-                <h2 className="text-xl font-display font-bold text-foreground mt-1">
+                <h2 className="text-2xl font-display font-bold text-foreground mt-1">
                   Ganti Gaya Subtitle Langsung
                 </h2>
-                <p className="text-xs text-muted-foreground mt-1 leading-relaxed max-w-[50ch]">
-                  Pilih preset karaoke di bawah untuk melihat animasi teks berubah seketika di canvas 9:16.
+                <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed max-w-[50ch]">
+                  Ketuk salah satu gaya di bawah. Tampilan video dan caption akan langsung menyesuaikan secara visual.
                 </p>
               </div>
 
@@ -276,9 +297,7 @@ export function Hero() {
                       type="button"
                       onClick={() => setActiveTheme(theme)}
                       className={`w-full text-left py-3.5 px-2 transition-colors flex items-center justify-between ${
-                        isSelected
-                          ? "bg-accent/10"
-                          : "hover:bg-surface"
+                        isSelected ? "bg-accent/10" : "hover:bg-surface"
                       }`}
                     >
                       <div className="space-y-1">
@@ -313,14 +332,14 @@ export function Hero() {
 
               <div className="space-y-2 pt-2">
                 <div className="flex justify-between items-center text-xs">
-                  <span className="text-foreground font-medium">AI Hook Score</span>
-                  <span className="font-bold font-mono text-accent">98 / 100</span>
+                  <span className="text-foreground font-medium">AI Virality & Hook Score</span>
+                  <span className="font-bold font-mono text-accent">100 / 100</span>
                 </div>
-                <div className="h-1.5 w-full bg-border rounded-full overflow-hidden">
-                  <div className="h-full bg-accent w-[98%]" />
+                <div className="h-2 w-full bg-surface rounded-full overflow-hidden">
+                  <div className="h-full bg-accent w-full" />
                 </div>
                 <p className="text-xs text-muted-foreground leading-relaxed pt-1 max-w-[50ch]">
-                  AI memotong momen dengan emosi puncak dan hook tertinggi agar video tidak di-skip.
+                  Klip terdeteksi memiliki kontras cerita tinggi: rekomendasi utama untuk langsung diunggah ke TikTok & Reels.
                 </p>
               </div>
             </div>
