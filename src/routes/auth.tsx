@@ -128,21 +128,18 @@ function AuthPage() {
     setBusy(true);
     try {
       if (mode === "signup") {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: { emailRedirectTo: window.location.origin, data: { display_name: displayName || undefined } },
+        const res = await fetch("/api/auth/register-otp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password, display_name: displayName }),
         });
-        if (error) throw error;
-        if (data.session) {
-          toast.success("Akun berhasil dibuat! Selamat datang.");
-          void recordLoginEvent();
-          navigate({ to: "/dashboard", replace: true });
-          return;
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.detail || "Gagal mendaftarkan akun.");
         }
         setConfirmSent(true);
         setKirimUlangSisa(60);
-        toast.success(t("auth.kode_dikirim"));
+        toast.success("Kode verifikasi 6 angka telah dikirim ke email kamu!");
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) {
@@ -238,6 +235,19 @@ function AuthPage() {
               ? t("auth.kirim_ulang_hitung", { detik: kirimUlangSisa })
               : t("auth.kirim_ulang")}
           </button>
+
+          <div className="mt-5 border-t border-border pt-4 text-xs text-muted-foreground">
+            <p>Belum menerima email atau butuh bantuan verifikasi?</p>
+            <a
+              href="https://whatsapp.com/channel/0029Vb6ukqnHQbS4mKP0j80L"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1.5 inline-flex items-center gap-1.5 text-accent font-semibold hover:underline"
+            >
+              <span>Hubungi CS (SANNN FORUM) di WhatsApp</span>
+              <ArrowRight className="size-3" />
+            </a>
+          </div>
 
           <Link
             to="/auth"

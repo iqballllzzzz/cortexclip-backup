@@ -79,9 +79,83 @@ export function SiteFooter() {
           </div>
         ))}
       </div>
+
+      {/* ═══ TIM PENGEMBANG & KOMUNITAS ═══ */}
+      <div className="border-t border-border bg-surface/50 py-8">
+        <div className="mx-auto max-w-[1180px] px-4 sm:px-6">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+            <div>
+              <span className="text-xs font-mono font-bold uppercase tracking-wider text-accent">
+                Tim Pengembang & Komunitas
+              </span>
+              <h4 className="font-display text-base font-bold text-foreground mt-0.5">
+                Di Balik Layar CortexClip AI
+              </h4>
+              <p className="text-xs text-muted-foreground mt-1 max-w-[45ch]">
+                Infrastruktur pemrosesan klip video AI otomatis karya anak bangsa Indonesia.
+              </p>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-3">
+              {/* Muhammad Iqbal.S */}
+              <a
+                href="https://mis-flame.vercel.app"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group flex items-center gap-3 rounded-xl border border-border bg-card p-3 transition-colors hover:border-accent/40 shadow-sm"
+              >
+                <div className="size-10 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center font-bold text-accent text-sm shrink-0">
+                  MI
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold text-foreground group-hover:text-accent transition-colors">
+                      Muhammad Iqbal.S
+                    </span>
+                    <ArrowRight className="size-3 text-muted-foreground group-hover:text-accent group-hover:translate-x-0.5 transition-all" />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground truncate">
+                    Developer (Fullstack Software Engineer)
+                  </p>
+                  <span className="text-[10px] font-mono text-accent/80 hover:underline">
+                    mis-flame.vercel.app ↗
+                  </span>
+                </div>
+              </a>
+
+              {/* SANNN FORUM */}
+              <a
+                href="https://whatsapp.com/channel/0029Vb6ukqnHQbS4mKP0j80L"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group flex items-center gap-3 rounded-xl border border-border bg-card p-3 transition-colors hover:border-emerald-500/40 shadow-sm"
+              >
+                <div className="size-10 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center font-bold text-emerald-400 text-sm shrink-0">
+                  SF
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold text-foreground group-hover:text-emerald-400 transition-colors">
+                      SANNN FORUM
+                    </span>
+                    <ArrowRight className="size-3 text-muted-foreground group-hover:text-emerald-400 group-hover:translate-x-0.5 transition-all" />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground truncate">
+                    Customer Service & TikTok Marketing
+                  </p>
+                  <span className="text-[10px] font-mono text-emerald-400/80 hover:underline">
+                    Saluran WhatsApp ↗
+                  </span>
+                </div>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="border-t border-border py-5">
         <p className="mx-auto max-w-[1180px] px-4 text-center text-xs text-muted-foreground sm:px-6">
-          © {new Date().getFullYear()} CortexClip · Dibuat oleh M Iqbal
+          © {new Date().getFullYear()} CortexClip AI · Dikembangkan oleh Muhammad Iqbal.S (Developer) & SANNN FORUM (Customer Service & TikTok Marketing)
         </p>
       </div>
     </footer>

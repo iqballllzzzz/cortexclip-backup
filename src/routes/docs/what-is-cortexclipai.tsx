@@ -47,6 +47,33 @@ function WhatIsPage() {
           Indonesia-Inggris, dan pembayaran premium memakai QRIS — tanpa kartu kredit.
         </p>
       </section>
+      <section>
+        <h2>Tim Pengembang & Layanan</h2>
+        <ul>
+          <li>
+            <strong>Muhammad Iqbal.S</strong> — Developer (Fullstack Software Engineer).{" "}
+            <a
+              href="https://mis-flame.vercel.app"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-accent underline"
+            >
+              Portfolio: mis-flame.vercel.app ↗
+            </a>
+          </li>
+          <li>
+            <strong>SANNN FORUM</strong> — Customer Service & TikTok Marketing.{" "}
+            <a
+              href="https://whatsapp.com/channel/0029Vb6ukqnHQbS4mKP0j80L"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-emerald-400 underline"
+            >
+              Saluran Resmi WhatsApp CS ↗
+            </a>
+          </li>
+        </ul>
+      </section>
     </DocsShell>
   );
 }

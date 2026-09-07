@@ -1684,6 +1684,83 @@ async def api_showcase():
         return {"clips": []}
 
 
+class RegisterOtpIn(BaseModel):
+    email: str
+    password: str
+    display_name: Optional[str] = None
+
+
+@app.post("/api/auth/register-otp")
+async def api_register_otp(body: RegisterOtpIn):
+    """Daftar akun unconfirmed di GoTrue, buat kode OTP 6 angka, dan kirim via email."""
+    clean_email = body.email.strip().lower()
+    if not clean_email or "@" not in clean_email:
+        raise HTTPException(400, "Format email tidak valid.")
+    if len(body.password) < 6:
+        raise HTTPException(400, "Password minimal 6 karakter.")
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        res = await client.post(
+            f"{SUPABASE_URL}/auth/v1/admin/generate_link",
+            headers={
+                "apikey": SUPABASE_SERVICE_KEY,
+                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "type": "signup",
+                "email": clean_email,
+                "password": body.password,
+                "data": {"display_name": body.display_name or clean_email.split("@")[0]},
+            },
+        )
+        if res.status_code not in (200, 201):
+            detail = res.json().get("msg") or res.json().get("error_description") or "Gagal mendaftarkan akun."
+            raise HTTPException(400, detail)
+
+        data = res.json()
+        otp = data.get("email_otp") or ""
+        print(f"[AUTH_OTP] Email: {clean_email} -> OTP: {otp}")
+
+        resend_key = os.environ.get("RESEND_API_KEY", "").strip()
+        email_sent = False
+        try:
+            r_mail = await client.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {resend_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "from": "CortexClip Verification <kvcs@cortexclip.eu.cc>",
+                    "to": [clean_email],
+                    "subject": f"Kode Verifikasi CortexClip: {otp}",
+                    "html": f"""
+                    <div style="font-family:sans-serif;background:#0b0b0f;color:#fff;padding:30px;border-radius:12px;max-width:480px;margin:auto;">
+                      <h2 style="color:#f59e0b;margin-top:0;">CortexClip AI</h2>
+                      <p>Kode verifikasi pendaftaran kamu:</p>
+                      <div style="background:#181824;border:1px solid #333;border-radius:8px;padding:16px;text-align:center;font-size:32px;font-weight:bold;letter-spacing:6px;color:#fff;margin:20px 0;">
+                        {otp}
+                      </div>
+                      <p style="color:#aaa;font-size:12px;">Masukkan kode ini pada layar pendaftaran untuk mengaktifkan akun. Kode berlaku 1 jam.</p>
+                      <p style="color:#666;font-size:11px;border-top:1px solid #222;padding-top:12px;">Butuh bantuan? Hubungi Customer Service (SANNN FORUM) di WhatsApp: https://whatsapp.com/channel/0029Vb6ukqnHQbS4mKP0j80L</p>
+                    </div>
+                    """,
+                },
+            )
+            if r_mail.status_code in (200, 201):
+                email_sent = True
+        except Exception as exc:
+            print(f"[AUTH_OTP] Kirim email gagal: {exc}")
+
+        return {
+            "success": True,
+            "email": clean_email,
+            "email_sent": email_sent,
+            "message": "Kode verifikasi 6 digit telah dikirim ke email kamu.",
+        }
+
+
 @app.get("/api/premium/plans")
 async def api_premium_plans():
     from .premium import PLANS
