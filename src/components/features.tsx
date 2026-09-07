@@ -1,95 +1,67 @@
-import { motion } from "motion/react";
 import { Captions, Gauge, ScanFace, Sparkles, Youtube, Download } from "lucide-react";
 
-/**
- * Fitur — enam tile dengan LEVAR TIDAK SAMA (grid 6 kolom: 2 tile besar,
- * 4 kecil) supaya tidak jatuh ke pola "3 kartu seragam" khas template.
- */
 export function Features() {
   const tiles = [
     {
       icon: Captions,
-      title: "Caption karaoke per kata",
-      desc: "Kata aktif menyala mengikuti suara — gaya TikTok yang bikin orang selesai nonton. Beberapa preset siap pakai, posisi & ukuran bisa diatur.",
-      span: "sm:col-span-4",
-      big: true,
-    },
-    {
-      icon: Gauge,
-      title: "Skor viralitas",
-      desc: "Tiap klip dinilai 0–100 berdasarkan kekuatan hook dan alur cerita.",
-      span: "sm:col-span-2",
+      title: "Karaoke Subtitles",
+      desc: "Highlighting per-word otomatis dengan berbagai preset modern bergaya TikTok, YouTube Shorts, dan Reels. Posisi, ukuran, dan transparansi yang fleksibel.",
+      span: "sm:col-span-3",
     },
     {
       icon: ScanFace,
-      title: "Face tracking",
-      desc: "Kamera otomatis mengikuti pembicara — framing vertikal tetap tepat.",
+      title: "Face Tracking AI",
+      desc: "Kamera otomatis melacak pergerakan wajah pembicara untuk menjaganya tetap berada tepat di tengah frame vertikal (9:16) sepanjang waktu.",
+      span: "sm:col-span-3",
+    },
+    {
+      icon: Gauge,
+      title: "Virality Score",
+      desc: "Sistem memberikan skor 0-100 pada setiap klip yang mendeteksi tingkat 'hook' awal untuk membantu memilih momen terkuat terlebih dahulu.",
       span: "sm:col-span-2",
     },
     {
       icon: Youtube,
-      title: "Langsung dari link",
-      desc: "Tanpa unduh manual: tempel URL YouTube, proses jalan di server.",
+      title: "Direct YouTube Link",
+      desc: "Tidak perlu repot mengunduh video sumber. Tempel link video panjang, server yang mengunduh dan memproses di awan.",
       span: "sm:col-span-2",
     },
     {
       icon: Sparkles,
-      title: "Metadata otomatis",
-      desc: "Judul, deskripsi, dan hashtag ditulis AI untuk tiap klip.",
+      title: "Auto Metadata",
+      desc: "Tiap klip dibuatkan saran judul pendek, hashtags, dan deskripsi SEO agar lebih mudah menyalin ke platform sosial media.",
       span: "sm:col-span-2",
-    },
-    {
-      icon: Download,
-      title: "Render latar belakang",
-      desc: "Tutup halaman kapan saja — hasil menunggu di halaman unduhan.",
-      span: "sm:col-span-6",
     },
   ];
 
   return (
-    <section id="fitur" className="scroll-mt-24">
-      <div className="mx-auto max-w-[1180px] px-4 py-20 sm:px-6 sm:py-24">
-        <div className="reveal max-w-xl" style={{ ["--i" as string]: 0 }}>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-accent">
-            Fitur
-          </p>
-          <h2 className="mt-3 font-display text-[28px] leading-[1.08] font-bold tracking-tight sm:text-[40px]">
-            Lengkap di dalam, tenang di luar.
+    <section id="fitur" className="py-24 sm:py-32 bg-surface">
+      <div className="mx-auto max-w-[1240px] px-6 lg:px-8">
+        <div className="max-w-3xl mb-16">
+          <h2 className="text-3xl font-display font-extrabold tracking-tight sm:text-5xl text-foreground">
+            Lengkap di dalam.<br/>
+            Cepat di luar.
           </h2>
-          <p className="mt-4 text-[15px] leading-relaxed text-muted-foreground">
-            Semua yang biasanya butuh CapCut, template, dan dua jam editing — dipadatkan jadi satu
-            alur otomatis.
+          <p className="mt-6 text-lg leading-relaxed text-muted-foreground">
+            CortexClip menghindari editor yang ribet dengan menyertakan seluruh workflow editing: pemotongan AI, subtitle, cropping wajah, dan kompresi tanpa kehilangan kualitas.
           </p>
         </div>
 
-        <div className="mt-12 grid gap-3 sm:grid-cols-6">
-          {tiles.map((t, i) => (
-            <motion.div
-              key={t.title}
-              initial={{ opacity: 0, y: 10 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.35, delay: Math.min(0.3, i * 0.05), ease: [0.16, 1, 0.3, 1] }}
-              className={`panel px-5 py-5 ${t.span}`}
-            >
-              <span className="grid size-10 place-items-center rounded-xl bg-accent/10 text-accent">
-                <t.icon className="size-5" />
-              </span>
-              <h3
-                className={`mt-4 font-display font-bold tracking-tight ${
-                  t.big ? "text-xl" : "text-[15px]"
-                }`}
-              >
-                {t.title}
-              </h3>
-              <p
-                className={`mt-2 leading-relaxed text-muted-foreground ${
-                  t.big ? "max-w-lg text-[14px]" : "text-[13px]"
-                }`}
-              >
+        <div className="grid gap-x-8 gap-y-12 sm:grid-cols-6 border-t border-border pt-12">
+          {tiles.map((t) => (
+            <div key={t.title} className={t.span}>
+              <div className="flex items-center gap-3 mb-4">
+                <span className="grid size-10 place-items-center rounded-lg bg-card border border-border">
+                  <t.icon className="size-5 text-foreground" />
+                </span>
+                <h3 className="font-display text-lg font-bold tracking-tight text-foreground">
+                  {t.title}
+                </h3>
+              </div>
+              <p className="text-sm leading-relaxed text-muted-foreground">
                 {t.desc}
               </p>
-            </motion.div>
+            </div>
           ))}
         </div>
       </div>

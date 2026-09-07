@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { motion } from "motion/react";
-import { ArrowRight, Gift, Play } from "lucide-react";
+import { ArrowRight, Play, Check } from "lucide-react";
 
 type KlipHero = {
   title: string;
@@ -10,15 +9,6 @@ type KlipHero = {
   duration: number;
 };
 
-/**
- * HERO landing — copy kiri berat, preview klip vertikal kanan memutar VIDEO
- * ASLI terbaru dari akun admin (GET /api/showcase), bukan simulasi CSS.
- * Keluhan pengguna: preview CSS adalah "bukti bohong" — subtitle-nya bukan
- * keluaran pipeline. Video asli membuktikan hasil sesungguhnya.
- *
- * Prinsip yang sama dengan ResultShowcase: preload="none" (tidak mengunduh
- * video sebelum pengunjung menekan putar) dan HANYA SATU video berjalan.
- */
 export function Hero() {
   const [klip, setKlip] = useState<KlipHero | null>(null);
   const [jalan, setJalan] = useState(false);
@@ -30,134 +20,111 @@ export function Hero() {
       .then((d: { clips?: KlipHero[] }) => {
         if (hidup) setKlip((d.clips ?? []).find((c) => c.url) ?? null);
       })
-      .catch(() => {
-        /* hero tetap lengkap tanpa video */
-      });
-    return () => {
-      hidup = false;
-    };
+      .catch(() => {});
+    return () => { hidup = false; };
   }, []);
 
   return (
-    <section className="relative overflow-hidden">
-      {/* satu gradasi tipis di belakang — bukan mesh berlapis */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-70"
-        style={{
-          background:
-            "radial-gradient(55% 42% at 78% 8%, color-mix(in oklab, var(--color-accent) 9%, transparent), transparent 72%)",
-        }}
-      />
+    <section className="relative overflow-hidden bg-background pt-24 pb-20 sm:pt-32 sm:pb-28">
+      {/* Impeccable Style: No AI Slop gradients, no glassmorphism orb drops. purely structured. */}
+      
+      <div className="mx-auto max-w-[1240px] px-6 lg:px-8">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-16">
+          <div className="max-w-2xl lg:w-1/2">
+            <div className="inline-flex flex-wrap items-center gap-3 mb-6">
+               <span className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                 <Check className="size-3 text-accent" /> Bahasa Indonesia
+               </span>
+               <span className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                 Premium Gratis via Iklan
+               </span>
+            </div>
+            
+            <h1 className="font-display text-[44px] sm:text-[68px] leading-[1.05] font-extrabold tracking-tight text-foreground">
+              Turn long videos into <span className="text-accent">viral clips.</span>
+            </h1>
+            
+            <p className="mt-6 text-lg sm:text-lg leading-relaxed text-muted-foreground max-w-prose">
+              CortexClip extracts the most engaging moments from your podcasts, webinars, or raw footage and turns them into ready-to-publish vertical clips with karaoke subtitles, face tracking, and AI-driven scores.
+            </p>
 
-      <div className="relative mx-auto grid max-w-[1180px] gap-14 px-4 pb-20 pt-16 sm:px-6 sm:pt-24 lg:grid-cols-12 lg:gap-8">
-        <div className="reveal lg:col-span-7" style={{ ["--i" as string]: 0 }}>
-          <p className="inline-flex items-center gap-2 rounded-full border border-accent/25 bg-accent/8 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-accent">
-            Auto-clipper AI · Bahasa Indonesia
-          </p>
+            <div className="mt-8 flex flex-col sm:flex-row gap-4">
+              <Link
+                to="/auth"
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-foreground px-8 text-[15px] font-semibold text-background transition-transform active:scale-95 hover:bg-neutral-800 dark:hover:bg-neutral-200"
+              >
+                Mulai Gratis <ArrowRight className="size-4" />
+              </Link>
+              <a
+                href="/#cara"
+                className="inline-flex h-12 items-center justify-center rounded-lg border border-border bg-background px-8 text-[15px] font-semibold text-foreground transition-colors hover:border-foreground active:scale-95"
+              >
+                Lihat Contoh
+              </a>
+            </div>
 
-          <h1
-            className="mt-6 font-display text-[38px] leading-[1.03] font-bold tracking-tight sm:text-[64px]"
-            style={{ overflowWrap: "anywhere", minWidth: 0 }}
-          >
-            Satu video panjang,
-            <br />
-            <span className="text-accent">banyak klip viral.</span>
-          </h1>
-
-          <p className="mt-6 max-w-prose text-[16px] leading-relaxed text-muted-foreground sm:text-lg">
-            Tempel link YouTube atau unggah video. CortexClip mentranskrip audio, memilih momen
-            paling kuat, menulis judul dan hashtag, lalu merender klip vertikal dengan caption
-            karaoke — kamu tinggal unggah.
-          </p>
-
-          {/* Jalur gratis: premium tanpa bayar, cukup menonton iklan */}
-          <p className="mt-5 inline-flex max-w-prose items-start gap-2 rounded-xl border border-accent/30 bg-accent/8 px-3.5 py-2.5 text-[13px] font-semibold leading-snug text-accent sm:text-sm">
-            <Gift className="mt-0.5 size-4 shrink-0" />
-            Premium bisa didapatkan secara gratis melalui menonton iklan!
-          </p>
-
-          <div className="mt-9 flex flex-wrap items-center gap-3">
-            <Link
-              to="/auth"
-              className="inline-flex h-12 items-center gap-2 rounded-xl bg-accent px-7 text-[15px] font-semibold text-accent-foreground transition-transform hover:-translate-y-0.5"
-            >
-              Mulai gratis <ArrowRight className="size-4" />
-            </Link>
-            <a
-              href="/#cara"
-              className="inline-flex h-12 items-center rounded-xl border border-border px-7 text-[15px] font-semibold transition-colors hover:border-accent/50"
-            >
-              Lihat cara kerjanya
-            </a>
+            <p className="mt-6 flex items-center gap-4 text-xs font-medium text-muted-foreground uppercase tracking-widest">
+              <span>Zero CC required</span>
+              <span>•</span>
+              <span>Fast Render</span>
+            </p>
           </div>
 
-          <p className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2 text-[13px] text-muted-foreground">
-            <span className="inline-flex items-center gap-1.5">
-              <span className="size-1.5 rounded-full bg-accent" /> 2 video gratis per hari
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <span className="size-1.5 rounded-full bg-border" /> tanpa kartu kredit
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <span className="size-1.5 rounded-full bg-border" /> render di server, bukan di HP
-              kamu
-            </span>
-          </p>
-        </div>
-
-        {/* VIDEO ASLI terbaru dari unduhan admin — bukan simulasi CSS */}
-        <motion.div
-          initial={{ opacity: 0, y: 18, rotate: 1.5 }}
-          animate={{ opacity: 1, y: 0, rotate: 0 }}
-          transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1], delay: 0.12 }}
-          className="mx-auto w-full max-w-[300px] lg:col-span-5 lg:mt-2 lg:justify-self-end"
-        >
-          {klip ? (
-            <div className="overflow-hidden rounded-3xl border border-border bg-card shadow-lg">
-              <div className="relative aspect-[9/16] w-full bg-surface">
-                {jalan ? (
-                  <video
-                    src={klip.url}
-                    className="size-full object-contain"
-                    controls
-                    autoPlay
-                    playsInline
-                    preload="metadata"
-                    onEnded={() => setJalan(false)}
-                  />
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setJalan(true)}
-                    className="group grid size-full place-items-center"
-                    aria-label={`Putar contoh hasil: ${klip.title}`}
-                  >
+          <div className="lg:w-[400px] shrink-0 relative flex justify-center">
+            {/* Minimalist Phone Wireframe showing the showcase video */}
+            <div className="relative w-[300px] h-[533px] bg-card rounded-[2rem] border border-border shadow-2xl overflow-hidden p-2">
+              <div className="w-full h-full relative rounded-[1.5rem] bg-black overflow-hidden group">
+                {klip?.url ? (
+                  <>
                     <video
-                      src={`${klip.url}#t=1`}
-                      className="absolute inset-0 size-full object-contain opacity-80"
-                      preload="metadata"
-                      muted
+                      src={klip.url}
+                      className="absolute inset-0 w-full h-full object-cover"
                       playsInline
-                      tabIndex={-1}
+                      muted={false}
+                      loop
+                      controls={false}
+                      preload="none"
+                      onClick={(e) => {
+                        const v = e.currentTarget;
+                        if (v.paused) {
+                           v.play();
+                           setJalan(true);
+                        } else {
+                           v.pause();
+                           setJalan(false);
+                        }
+                      }}
                     />
-                    <span className="relative grid size-14 place-items-center rounded-full bg-black/55 backdrop-blur transition-transform group-hover:scale-105">
-                      <Play className="size-6 translate-x-0.5 text-white" />
-                    </span>
-                  </button>
+                    {!jalan && (
+                      <div className="absolute inset-0 grid place-items-center bg-black/40 pointer-events-none transition-opacity group-hover:bg-black/20">
+                        <span className="grid size-14 place-items-center bg-white/20 backdrop-blur-md rounded-full text-white">
+                          <Play className="size-6 translate-x-0.5 fill-white" />
+                        </span>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="w-full h-full bg-surface grid place-items-center p-6 text-center text-sm text-muted-foreground border border-border/50">
+                    Sistem otomatis merender klip
+                  </div>
                 )}
               </div>
-              <div className="flex items-center justify-between px-4 py-3">
-                <span className="truncate text-[11px] text-muted-foreground">
-                  Contoh hasil asli
-                </span>
-                {klip.score ? (
-                  <span className="stat-figure text-lg text-accent">{klip.score}/100</span>
-                ) : null}
+            </div>
+            
+            {/* Floating feature badge (impeccable minimal) */}
+            <div className="absolute bottom-6 -right-6 lg:-right-10 bg-card border border-border shadow-lg rounded-xl p-4 w-[200px] hidden sm:block">
+              <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Virality Score</p>
+              <div className="flex items-end gap-2">
+                <span className="text-4xl font-display font-extrabold leading-none text-accent">94</span>
+                <span className="text-sm font-medium text-muted-foreground mb-1">/ 100</span>
+              </div>
+              <div className="mt-3 h-1.5 w-full bg-border rounded-full overflow-hidden">
+                <div className="h-full bg-accent w-[94%] relative"></div>
               </div>
             </div>
-          ) : null}
-        </motion.div>
+            
+          </div>
+        </div>
       </div>
     </section>
   );

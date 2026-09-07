@@ -1,123 +1,204 @@
 import { Link } from "@tanstack/react-router";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Check, Zap, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { Button } from "@/components/ui/button";
 
 export const FAQS = [
   {
     q: "Apakah bisa langsung dari URL YouTube?",
-    a: "Bisa. Tempel link videonya, CortexClip mengunduh di server, mentranskrip, dan memilih momen terbaik tanpa kamu unduh manual.",
+    a: "Bisa. Cukup tempel link YouTube, server kami yang mengunduh dan memproses langsung di cloud tanpa memakan kuota atau memori perangkatmu.",
   },
   {
     q: "Bagaimana virality score dihitung?",
-    a: "AI menilai kekuatan hook 3 detik pertama, kejelasan konteks, ketegangan cerita, dan penutup. Skor 85+ layak jadi prioritas unggah.",
+    a: "AI menganalisis hook 3 detik pertama, tempo bicara, pergantian konteks emosional, dan kekuatan penutup. Klip dengan skor di atas 80 direkomendasikan untuk langsung diunggah.",
   },
   {
-    q: "Preview dan hasil unduhan sama?",
-    a: "Sama. Preview memakai pipeline yang identik dengan render final — gaya subtitle yang kamu lihat di editor itulah yang terbakar ke video.",
+    q: "Apakah preview persis sama dengan hasil render?",
+    a: "Persis 100%. Engine preview dan render final menggunakan pipeline libass dan ffmpeg yang sama, jadi subtitle, framing, dan timing yang kamu lihat di editor adalah hasil akhir MP4.",
   },
   {
-    q: "Bahasa apa saja yang didukung?",
-    a: "Bahasa Indonesia, Inggris, dan puluhan bahasa lain — deteksi otomatis dari audio.",
+    q: "Bagaimana cara kerja akses Premium Gratis via Iklan?",
+    a: "Cukup tonton iklan reward singkat di dalam aplikasi untuk mengumpulkan kredit hari premium atau menghapus watermark secara instan tanpa perlu mengeluarkan biaya sepeser pun.",
   },
   {
-    q: "Bagaimana cara bayar premium?",
-    a: "Scan QRIS dari dashboard (semua e-wallet & m-banking). Premium aktif otomatis beberapa detik setelah pembayaran masuk.",
+    q: "Berapa harga paket berlangganan dibanding OpusClip?",
+    a: "CortexClip Pro hanya Rp70.000/bulan dengan kuota hingga 10 video panjang per hari tanpa batasan menit yang ketat. Jauh lebih hemat dibanding OpusClip yang mengenakan biaya $19/bulan (~Rp300.000) dengan kuota menit terbatas.",
   },
   {
-    q: "Berapa harga CortexClip dibanding OpusClip?",
-    a: "Rp70.000 per bulan untuk 10 video panjang sehari. OpusClip Starter sekitar Rp240.000 sebulan dan hanya memberi 150 menit video sumber, jadi CortexClip masih 3,4x lebih murah tanpa sistem kredit per menit.",
-  },
-  {
-    q: "Apakah ada cara pakai premium tanpa bayar?",
-    a: "Ada. Tonton iklan sampai target terpenuhi — 8 iklan untuk 1 hari, 48 iklan untuk 7 hari, 345 iklan untuk 30 hari — lalu premium aktif otomatis dan watermark hilang.",
-  },
-  {
-    q: "Apakah watermark bisa dihilangkan?",
-    a: "Ya. Akun premium tidak memakai watermark sama sekali, dan pengguna gratis bisa menghapusnya dengan menonton iklan.",
+    q: "Metode pembayaran apa saja yang didukung?",
+    a: "Pembayaran instan melalui QRIS yang mendukung seluruh e-wallet (GoPay, OVO, Dana, ShopeePay) serta aplikasi mobile banking di Indonesia.",
   },
 ];
 
-/** FAQ accordion ringan — grid-template-rows (bukan height) sesuai disiplin motion. */
 export function PricingFaq() {
   const [open, setOpen] = useState<number | null>(0);
 
   return (
-    <section id="faq" className="scroll-mt-24 border-t border-border">
-      <div className="mx-auto max-w-[1180px] px-4 py-20 sm:px-6 sm:py-24">
-        <div className="grid gap-10 lg:grid-cols-[1fr_1.5fr] lg:gap-16">
-          <div className="reveal" style={{ ["--i" as string]: 0 }}>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-accent">FAQ</p>
-            <h2 className="mt-3 font-display text-[28px] leading-[1.08] font-bold tracking-tight sm:text-[40px]">
-              Pertanyaan yang sering ditanya.
+    <div className="bg-background">
+      {/* ═══ PRICING SECTION (#harga) ═══ */}
+      <section id="harga" className="scroll-mt-20 border-t border-border py-24 sm:py-32">
+        <div className="mx-auto max-w-[1240px] px-6 lg:px-8">
+          <div className="mx-auto max-w-2xl text-center mb-16">
+            <h2 className="text-3xl font-display font-extrabold tracking-tight sm:text-5xl text-foreground">
+              Harga sederhana. Hasil maksimal.
             </h2>
-            <p className="mt-4 max-w-sm text-[15px] leading-relaxed text-muted-foreground">
-              Belum ketemu jawabannya? Hubungi{" "}
-              <a href="mailto:cs@cortexclip.app" className="font-medium text-accent underline-offset-2 hover:underline">
-                cs@cortexclip.app
-              </a>
-              .
+            <p className="mt-4 text-lg text-muted-foreground">
+              Mulai gratis atau beralih ke Creator Pro untuk fitur penuh tanpa watermark.
             </p>
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-border">
-            {FAQS.map((f, i) => {
-              const isOpen = open === i;
-              return (
-                <div key={f.q} className={i > 0 ? "border-t border-border" : ""}>
-                  <button
-                    type="button"
-                    onClick={() => setOpen(isOpen ? null : i)}
-                    aria-expanded={isOpen}
-                    className="flex w-full items-center justify-between gap-4 bg-card px-5 py-4 text-left transition-colors hover:bg-surface/60"
-                  >
-                    <span className="text-[14px] font-semibold tracking-tight">{f.q}</span>
-                    <ChevronDown
-                      className={`size-4 shrink-0 text-muted-foreground transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
-                    />
-                  </button>
-                  <AnimatePresence initial={false}>
-                    {isOpen ? (
-                      <motion.div
-                        initial={{ gridTemplateRows: "0fr", opacity: 0 }}
-                        animate={{ gridTemplateRows: "1fr", opacity: 1 }}
-                        exit={{ gridTemplateRows: "0fr", opacity: 0 }}
-                        transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-                        className="grid overflow-hidden"
-                      >
-                        <div className="min-h-0">
-                          <p className="bg-card px-5 pb-4 text-[13px] leading-relaxed text-muted-foreground">
-                            {f.a}
-                          </p>
-                        </div>
-                      </motion.div>
-                    ) : null}
-                  </AnimatePresence>
+          <div className="mx-auto grid max-w-lg grid-cols-1 gap-8 lg:max-w-4xl lg:grid-cols-2">
+            {/* Free Plan */}
+            <div className="rounded-3xl border border-border bg-card p-8 sm:p-10 flex flex-col justify-between relative">
+              <div>
+                <div className="flex items-center justify-between gap-4">
+                  <h3 className="font-display text-xl font-bold text-foreground">Gratis</h3>
+                  <span className="rounded-full border border-border bg-surface px-3 py-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    Selamanya
+                  </span>
                 </div>
-              );
-            })}
+                <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
+                  Cocok untuk mencoba kemampuan AI klip dan eksplorasi gaya caption.
+                </p>
+                <div className="mt-6 flex items-baseline gap-1">
+                  <span className="font-display text-4xl font-extrabold text-foreground">Rp0</span>
+                  <span className="text-sm text-muted-foreground">/ bulan</span>
+                </div>
+
+                <ul className="mt-8 space-y-3.5 text-sm text-muted-foreground border-t border-border pt-6">
+                  {[
+                    "2 video panjang per hari",
+                    "Semua preset gaya subtitle karaoke",
+                    "Auto Face-Tracking 9:16",
+                    "Unduh kualitas HD 1080p",
+                    "Watermark bisa dihapus via tonton iklan",
+                  ].map((f) => (
+                    <li key={f} className="flex items-center gap-3">
+                      <Check className="size-4 text-accent shrink-0" />
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="mt-10">
+                <Link
+                  to="/auth"
+                  className="inline-flex w-full h-11 items-center justify-center rounded-xl border border-border bg-background text-sm font-semibold text-foreground transition-colors hover:border-foreground active:scale-95"
+                >
+                  Mulai Sekarang
+                </Link>
+              </div>
+            </div>
+
+            {/* Pro Plan */}
+            <div className="rounded-3xl border-2 border-accent bg-card p-8 sm:p-10 flex flex-col justify-between relative shadow-xl shadow-accent/5">
+              <div className="absolute -top-3.5 right-8">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-xs font-bold uppercase tracking-wider text-accent-foreground shadow-sm">
+                  <Sparkles className="size-3" /> Pilihan Utama
+                </span>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between gap-4">
+                  <h3 className="font-display text-xl font-bold text-foreground">Creator Pro</h3>
+                  <span className="rounded-full border border-accent/40 bg-accent/10 px-3 py-1 text-xs font-bold text-accent uppercase tracking-wider">
+                    QRIS Instan
+                  </span>
+                </div>
+                <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
+                  Untuk konten kreator, podcaster, dan agency yang rutin memproduksi puluhan klip shorts/reels setiap hari.
+                </p>
+                <div className="mt-6 flex items-baseline gap-1">
+                  <span className="font-display text-4xl font-extrabold text-foreground">Rp70.000</span>
+                  <span className="text-sm text-muted-foreground">/ bulan</span>
+                </div>
+
+                <ul className="mt-8 space-y-3.5 text-sm text-muted-foreground border-t border-border pt-6">
+                  {[
+                    "10 video panjang per hari",
+                    "Bebas watermark tanpa syarat",
+                    "Fitur Auto-Split multi-speaker",
+                    "Prioritas antrean render di server",
+                    "Custom Logo & Brand Watermark sendiri",
+                    "Ekspor instan dan penyimpanan cloud prioritas",
+                  ].map((f) => (
+                    <li key={f} className="flex items-center gap-3 text-foreground font-medium">
+                      <Check className="size-4 text-accent shrink-0" />
+                      <span>{f}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="mt-10">
+                <Link
+                  to="/auth"
+                  className="inline-flex w-full h-11 items-center justify-center gap-2 rounded-xl bg-accent text-sm font-semibold text-accent-foreground shadow-md shadow-accent/20 transition-transform hover:brightness-105 active:scale-95"
+                >
+                  <Zap className="size-4" /> Beralih ke Pro
+                </Link>
+              </div>
+            </div>
           </div>
         </div>
+      </section>
 
-        <div className="reveal mt-16" style={{ ["--i" as string]: 1 }}>
-          <div className="panel flex flex-col items-start justify-between gap-5 px-6 py-7 sm:flex-row sm:items-center sm:px-8">
+      {/* ═══ FAQ SECTION ═══ */}
+      <section id="faq" className="scroll-mt-20 border-t border-border py-24 sm:py-32 bg-surface/40">
+        <div className="mx-auto max-w-[1240px] px-6 lg:px-8">
+          <div className="grid gap-12 lg:grid-cols-[1fr_1.5fr] lg:gap-16">
             <div>
-              <h3 className="font-display text-xl font-bold tracking-tight sm:text-2xl">
-                Video panjang berikutnya, sudah jadi klip.
-              </h3>
-              <p className="mt-2 max-w-prose text-sm leading-relaxed text-muted-foreground">
-                Tempel link, tunggu beberapa menit, unduh. Gratis untuk dua video pertama setiap hari.
+              <h2 className="text-3xl font-display font-extrabold tracking-tight sm:text-4xl text-foreground">
+                Pertanyaan yang sering ditanyakan.
+              </h2>
+              <p className="mt-4 text-base text-muted-foreground leading-relaxed">
+                Punya pertanyaan lain seputar workflow atau fitur klip? Hubungi tim kami di{" "}
+                <a href="mailto:cs@cortexclip.app" className="font-medium text-foreground underline underline-offset-4 hover:text-accent">
+                  cs@cortexclip.app
+                </a>
               </p>
             </div>
-            <Link
-              to="/auth"
-              className="inline-flex h-11 shrink-0 items-center rounded-xl bg-accent px-6 text-sm font-semibold text-accent-foreground transition-transform hover:-translate-y-0.5"
-            >
-              Buat akun gratis
-            </Link>
+
+            <div className="divide-y divide-border border-y border-border">
+              {FAQS.map((f, i) => {
+                const isOpen = open === i;
+                return (
+                  <div key={f.q} className="py-5">
+                    <button
+                      type="button"
+                      onClick={() => setOpen(isOpen ? null : i)}
+                      aria-expanded={isOpen}
+                      className="flex w-full items-center justify-between gap-4 text-left transition-colors"
+                    >
+                      <span className="font-display text-base font-bold text-foreground">{f.q}</span>
+                      <ChevronDown
+                        className={`size-5 shrink-0 text-muted-foreground transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
+                      />
+                    </button>
+                    <AnimatePresence initial={false}>
+                      {isOpen ? (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.2 }}
+                          className="overflow-hidden"
+                        >
+                          <p className="pt-3 text-sm leading-relaxed text-muted-foreground">
+                            {f.a}
+                          </p>
+                        </motion.div>
+                      ) : null}
+                    </AnimatePresence>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </div>
   );
 }

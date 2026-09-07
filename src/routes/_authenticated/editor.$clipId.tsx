@@ -1180,10 +1180,9 @@ function EditorPage() {
 
         {/* ————— KOLOM KANAN (desktop) / PANEL BAWAH (mobile): tool ————— */}
         <aside className="flex min-h-0 flex-1 flex-col bg-card lg:w-[340px] lg:flex-none">
-          {/* TAB TOOLBAR — DIBESARKAN TOTAL (permintaan: "naikin biar lebih
-              keliatan") — h-16 (64px), ikon 26px, teks 13.5px bold, gap 1.5,
-              indikator 3px, background aktif solid + border tebal */}
-          <div className="grid shrink-0 grid-cols-4 border-b-2 border-border bg-card" role="tablist">
+          {/* TAB TOOLBAR LEBIH KOMPAK (permintaan: "tulisan subtitle,transkrip,
+              deskripsi,dan ikon itu di kecilin biar trackarea nya lebih terlihat") */}
+          <div className="grid shrink-0 grid-cols-4 border-b border-border bg-card/80" role="tablist">
             {TOOLS.map((t) => {
               const aktif = activeTool === t.id;
               return (
@@ -1193,18 +1192,18 @@ function EditorPage() {
                   role="tab"
                   aria-selected={aktif}
                   onClick={() => setActiveTool(t.id)}
-                  className={`relative flex h-16 flex-col items-center justify-center gap-1.5 border-r border-border/50 px-1 text-[13px] font-bold leading-none transition-all sm:text-[13.5px] last:border-r-0 ${
+                  className={`relative flex h-11 flex-col items-center justify-center gap-0.5 border-r border-border/40 px-1 text-[10.5px] font-medium leading-none transition-all sm:text-[11px] last:border-r-0 ${
                     aktif
-                      ? "bg-accent text-accent-foreground shadow-sm"
-                      : "bg-card text-muted-foreground hover:bg-accent/10 hover:text-accent"
+                      ? "bg-accent/15 text-accent font-semibold"
+                      : "bg-card/50 text-muted-foreground hover:bg-accent/5 hover:text-foreground"
                   }`}
                 >
-                  <t.Icon className="size-[26px] shrink-0" strokeWidth={aktif ? 2.6 : 2} />
+                  <t.Icon className="size-[17px] shrink-0" strokeWidth={aktif ? 2.2 : 1.8} />
                   <span className="max-w-full truncate tracking-tight">{t.label}</span>
                   <span
                     aria-hidden
-                    className={`absolute inset-x-1 bottom-0 h-[3px] rounded-full transition-colors ${
-                      aktif ? "bg-accent-foreground/30" : "bg-transparent"
+                    className={`absolute inset-x-2 bottom-0 h-[2px] rounded-full transition-colors ${
+                      aktif ? "bg-accent" : "bg-transparent"
                     }`}
                   />
                 </button>
