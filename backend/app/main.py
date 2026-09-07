@@ -1756,7 +1756,7 @@ async def api_register_otp(body: RegisterOtpIn):
                     "Content-Type": "application/json",
                 },
                 json={
-                    "from": "CortexClip Verification <kvcs@cortexclip.eu.cc>",
+                    "from": "CortexClip Verification <verifikasi@aqualibrya.my.id>",
                     "to": [clean_email],
                     "subject": f"Kode Verifikasi CortexClip: {otp}",
                     "html": f"""
