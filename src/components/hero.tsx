@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Link } from "@tanstack/react-router";
+import { NeuralHeroCanvas } from "./neural-hero-canvas";
 import {
   ArrowRight,
   Play,
@@ -92,6 +93,9 @@ export function Hero() {
 
   return (
     <section className="relative pt-12 pb-24 lg:pt-20 lg:pb-32 overflow-hidden bg-background">
+      {/* 3D WebGL Neural Swarm & Telemetry Engine (Inspired by Brainweb) */}
+      <NeuralHeroCanvas />
+
       {/* Precision Technical Mesh Background */}
       <div
         aria-hidden="true"
