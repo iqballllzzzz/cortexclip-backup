@@ -990,7 +990,7 @@ function FaseTab({
       type="button"
       aria-pressed={aktif}
       onClick={onClick}
-      className={`flex w-full shrink-0 items-center gap-3 rounded-2xl border px-4 py-3 text-left transition-all lg:rounded-2xl ${
+      className={`flex w-full shrink-0 items-center gap-3 rounded-2xl border px-4 py-3 text-left transition-colors lg:rounded-2xl ${
         aktif
           ? "border-accent/60 bg-accent/10 shadow-sm"
           : "border-border bg-card hover:border-accent/30 hover:bg-surface/60"

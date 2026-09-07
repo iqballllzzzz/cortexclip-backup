@@ -155,7 +155,7 @@ document.addEventListener("keydown",function(e){if((e.ctrlKey||e.metaKey)&&(e.ke
 })();`;
 
   return (
-    <html lang="id">
+    <html lang="id" suppressHydrationWarning>
       <head>
         <HeadContent />
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />

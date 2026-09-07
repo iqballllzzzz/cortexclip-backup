@@ -80,11 +80,6 @@ function Index() {
         <Hero />
         <Features />
         <Pipeline />
-        {/* Hasil render NYATA dari pipeline (GET /api/showcase — video milik
-            akun admin). Menggantikan simulasi CSS: keluhan pengguna, preview
-            CSS adalah "preview bohongan" karena subtitle-nya bukan keluaran
-            render sungguhan. */}
-        <ResultShowcase />
         <PricingFaq />
       </main>
       <SiteFooter />

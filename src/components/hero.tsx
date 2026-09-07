@@ -254,19 +254,8 @@ export function Hero() {
                   </span>
                 </div>
 
-                {/* Subtitle Caption Preview Overlay */}
-                <div className="relative z-10 pb-6 text-center px-2">
-                  <div className={`${activeTheme.font} text-lg sm:text-xl leading-snug flex flex-wrap justify-center gap-x-1.5 gap-y-1`}>
-                    <span className={activeTheme.wordStyle}>Kumpulkan</span>
-                    <span className={activeTheme.activeWordStyle}>5 Penolakan</span>
-                    <span className={activeTheme.wordStyle}>Sehari,</span>
-                    <span className={activeTheme.wordStyle}>Baru</span>
-                    <span className={activeTheme.activeWordStyle}>Klien Datang</span>
-                  </div>
-                </div>
-
                 {/* Bottom Watermark */}
-                <div className="relative z-10 flex justify-center">
+                <div className="relative z-10 flex justify-center pb-2">
                   <span className="text-xs font-sans font-medium text-white/60 tracking-wider">
                     CortexClip AI
                   </span>

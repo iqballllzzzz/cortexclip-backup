@@ -111,28 +111,56 @@ export function Features() {
                 </div>
 
                 {/* Visual Simulation Stage */}
-                <div className="relative aspect-[16/9] w-full bg-neutral-900 border-y border-border overflow-hidden flex items-center justify-center p-2">
-                  <div className="absolute inset-0 bg-neutral-950 flex items-center justify-between px-8 opacity-40">
-                    <div className="size-16 rounded-full bg-neutral-800" />
-                    <div className="size-16 rounded-full bg-neutral-800" />
+                <div className="relative aspect-[16/9] w-full bg-neutral-950 border-y border-border overflow-hidden flex items-center justify-center p-2">
+                  {/* Real Podcast Studio Background with 2 Speakers */}
+                  <div className="absolute inset-0 flex items-center justify-between px-12 bg-gradient-to-r from-neutral-900 via-neutral-950 to-neutral-900">
+                    <div className="flex flex-col items-center gap-2 opacity-60">
+                      <img
+                        src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80"
+                        alt="Speaker 1"
+                        className="size-24 rounded-full object-cover grayscale contrast-125"
+                      />
+                      <span className="text-xs font-mono text-muted-foreground font-semibold">Host (Guest 1)</span>
+                    </div>
+
+                    <div className="flex flex-col items-center gap-2 opacity-40">
+                      <img
+                        src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&auto=format&fit=crop&q=80"
+                        alt="Speaker 2"
+                        className="size-24 rounded-full object-cover grayscale contrast-125"
+                      />
+                      <span className="text-xs font-mono text-muted-foreground font-semibold">Guest 2</span>
+                    </div>
                   </div>
 
+                  {/* Active Speaker with Stock Face Photo & AI Tracking Box */}
                   <div
-                    className="absolute size-20 rounded-full bg-accent/40 flex items-center justify-center text-xs font-mono font-bold text-accent-foreground transition-[left,transform] duration-300"
-                    style={{ left: `calc(${cropPosition}% - 40px)` }}
+                    className="absolute flex flex-col items-center gap-2 transition-[left,transform] duration-300 z-10"
+                    style={{ left: `calc(${cropPosition}% - 48px)` }}
                   >
-                    Speaker
+                    <div className="relative size-24 rounded-full ring-2 ring-accent overflow-hidden shadow-2xl">
+                      <img
+                        src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80"
+                        alt="Tracked Speaker"
+                        className="size-full object-cover"
+                      />
+                      <span className="absolute inset-0 bg-accent/10" />
+                    </div>
+                    <span className="text-xs font-mono font-bold bg-accent text-accent-foreground px-2 py-0.5 rounded-full shadow-md">
+                      Subjek Aktif
+                    </span>
                   </div>
 
+                  {/* The 9:16 Camera Crop Window */}
                   <div
-                    className="absolute h-full aspect-[9/16] outline outline-2 outline-white rounded-lg pointer-events-none transition-[left,transform] duration-300 flex flex-col justify-between p-2"
+                    className="absolute h-full aspect-[9/16] outline outline-2 outline-white rounded-lg pointer-events-none transition-[left,transform] duration-300 flex flex-col justify-between p-3 z-20"
                     style={{ left: `calc(${cropPosition}% - 72px)` }}
                   >
                     <span className="text-xs font-mono font-bold uppercase bg-white text-black px-1.5 py-0.5 rounded self-start">
                       9:16 CROP
                     </span>
                     <span className="text-xs font-mono text-white bg-black/80 px-2 py-0.5 rounded self-center">
-                      Framing Centered
+                      Face Tracking: Centered
                     </span>
                   </div>
                 </div>
@@ -287,16 +315,30 @@ export function Features() {
                   </div>
                 </div>
 
-                <div className="relative aspect-[9/16] w-[210px] mx-auto rounded-2xl border-4 border-neutral-900 bg-black overflow-hidden flex flex-col">
-                  <div className="flex-1 border-b-2 border-accent bg-neutral-900 flex items-center justify-center relative">
-                    <span className="text-xs font-mono text-neutral-300 font-bold">[Pembicara 1 - Host]</span>
-                    <span className="absolute top-2 left-2 text-xs font-mono uppercase bg-accent text-accent-foreground px-1.5 py-0.5 rounded font-bold">ACTIVE</span>
+                {/* Visual Split Screen Mockup with Real Face Photos */}
+                <div className="relative aspect-[9/16] w-[220px] mx-auto rounded-2xl ring-4 ring-neutral-800 bg-black overflow-hidden flex flex-col shadow-2xl">
+                  <div className="flex-1 border-b-2 border-accent bg-neutral-900 relative overflow-hidden">
+                    <img
+                      src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&auto=format&fit=crop&q=80"
+                      alt="Speaker 1"
+                      className="size-full object-cover"
+                    />
+                    <span className="absolute top-2 left-2 text-xs font-mono uppercase bg-accent text-accent-foreground px-1.5 py-0.5 rounded font-bold">
+                      HOST AKTIF
+                    </span>
                   </div>
-                  <div className="bg-black py-2 px-2 text-center text-xs font-bold text-amber-300 font-display">
+                  <div className="bg-black py-2 px-2 text-center text-xs font-bold text-amber-400 font-display">
                     "Tepat di momen itulah semuanya berubah..."
                   </div>
-                  <div className="flex-1 bg-neutral-800 flex items-center justify-center relative">
-                    <span className="text-xs font-mono text-neutral-300 font-bold">[Pembicara 2 - Guest]</span>
+                  <div className="flex-1 bg-neutral-800 relative overflow-hidden">
+                    <img
+                      src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&auto=format&fit=crop&q=80"
+                      alt="Speaker 2"
+                      className="size-full object-cover grayscale contrast-125 opacity-70"
+                    />
+                    <span className="absolute bottom-2 right-2 text-xs font-mono text-white/80 bg-black/70 px-1.5 py-0.5 rounded">
+                      GUEST
+                    </span>
                   </div>
                 </div>
               </motion.div>

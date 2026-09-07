@@ -128,21 +128,30 @@ export function PricingFaq() {
               </div>
             </div>
 
-            {/* Pro Plan */}
+            {/* Pro Plan -> PREMIUM */}
             <div className="rounded-3xl border-2 border-accent bg-card p-8 sm:p-10 flex flex-col justify-between relative shadow-sm">
               <div>
                 <div className="flex items-center justify-between gap-4">
-                  <h3 className="font-display text-xl font-bold text-foreground">Creator Pro</h3>
+                  <h3 className="font-display text-xl font-bold text-foreground">Premium</h3>
                   <span className="text-xs font-bold text-accent uppercase tracking-wider">
-                    QRIS Instan
+                    QRIS Seluruh E-Wallet
                   </span>
                 </div>
                 <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
-                  Untuk konten kreator, podcaster, dan agency yang rutin memproduksi puluhan klip shorts/reels setiap hari.
+                  Akses instan tanpa komitmen panjang. Pilih paket harian atau bulanan sesuai kebutuhan produksimu.
                 </p>
-                <div className="mt-6 flex items-baseline gap-1">
+                <div className="mt-6 flex items-baseline gap-2">
                   <span className="font-display text-4xl font-extrabold text-foreground">Rp70.000</span>
                   <span className="text-sm text-muted-foreground">/ bulan</span>
+                  <span className="text-xs font-mono text-accent font-semibold ml-2">atau mulai Rp3.000/hari</span>
+                </div>
+
+                {/* Pricing Tiers Pills */}
+                <div className="mt-4 flex flex-wrap gap-2 text-xs font-mono">
+                  <span className="px-2 py-1 rounded bg-surface border border-border text-foreground">1 Hari: Rp3rb</span>
+                  <span className="px-2 py-1 rounded bg-surface border border-border text-foreground">5 Hari: Rp10rb</span>
+                  <span className="px-2 py-1 rounded bg-accent/15 border border-accent/30 text-accent font-bold">1 Bulan: Rp70rb</span>
+                  <span className="px-2 py-1 rounded bg-surface border border-border text-foreground">1 Tahun: Rp215rb</span>
                 </div>
 
                 <ul className="mt-8 space-y-3.5 text-sm text-muted-foreground border-t border-border pt-6">
@@ -167,7 +176,7 @@ export function PricingFaq() {
                   to="/auth"
                   className="inline-flex w-full py-3 items-center justify-center gap-2 rounded-lg bg-accent text-sm font-semibold text-accent-foreground transition-colors hover:opacity-90 active:scale-98"
                 >
-                  <Zap className="size-4" /> Beralih ke Pro
+                  <Zap className="size-4" /> Dapatkan Akses Premium
                 </Link>
               </div>
             </div>
