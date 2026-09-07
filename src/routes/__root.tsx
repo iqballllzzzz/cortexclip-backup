@@ -174,6 +174,32 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const router = useRouter();
 
+  // Buttery Smooth Scroll via Lenis (Client-Only)
+  useEffect(() => {
+    let lenisInstance: any = null;
+    let animFrame: number;
+
+    import("lenis").then(({ default: Lenis }) => {
+      lenisInstance = new Lenis({
+        duration: 1.1,
+        easing: (t: number) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+        smoothWheel: true,
+      });
+
+      function raf(time: number) {
+        lenisInstance?.raf(time);
+        animFrame = requestAnimationFrame(raf);
+      }
+
+      animFrame = requestAnimationFrame(raf);
+    });
+
+    return () => {
+      cancelAnimationFrame(animFrame);
+      lenisInstance?.destroy();
+    };
+  }, []);
+
   useEffect(() => {
     const {
       data: { subscription },

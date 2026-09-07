@@ -5,7 +5,7 @@ import { SiteFooter } from "@/components/site-footer";
 import { Hero } from "@/components/hero";
 import { Features } from "@/components/features";
 import { Pipeline } from "@/components/pipeline";
-import { ResultShowcase } from "@/components/result-showcase";
+import { Studio3DShowcase } from "@/components/studio-3d-showcase";
 import { PricingFaq } from "@/components/pricing-faq";
 import { supabase } from "@/integrations/supabase/client";
 import { FAQS } from "@/components/pricing-faq";
@@ -78,6 +78,7 @@ function Index() {
       <SiteHeader />
       <main>
         <Hero />
+        <Studio3DShowcase />
         <Features />
         <Pipeline />
         <PricingFaq />

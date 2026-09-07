@@ -221,7 +221,7 @@ export function Hero() {
             {/* Real 9:16 Cinema Display Frame */}
             <div className="flex justify-center py-4">
               <div className="relative w-[280px] sm:w-[320px] aspect-[9/16] rounded-[2.25rem] ring-8 ring-neutral-900 bg-neutral-950 overflow-hidden flex flex-col justify-between p-4 shadow-2xl">
-                {/* Real Live Rendered MP4 Video */}
+                {/* Real Live Rendered MP4 Video (100% Clean, No Obstructing Overlays) */}
                 <div className="absolute inset-0 z-0 overflow-hidden bg-black">
                   <video
                     ref={videoRef}
@@ -232,16 +232,6 @@ export function Hero() {
                     loop
                     autoPlay
                   />
-
-                  {/* Face Tracking Bounding Box Simulation */}
-                  {faceTrackingActive && (
-                    <div className="absolute inset-x-6 top-16 bottom-28 outline outline-2 outline-accent outline-dashed pointer-events-none flex flex-col justify-between p-2">
-                      <span className="text-xs font-mono font-bold uppercase bg-accent text-accent-foreground px-1.5 py-0.5 rounded self-start">
-                        TRACKING: WAJAH AKTIF
-                      </span>
-                      <span className="size-2 rounded-full bg-accent self-end" />
-                    </div>
-                  )}
                 </div>
 
                 {/* Top Video HUD */}

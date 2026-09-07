@@ -140,10 +140,14 @@ export function PricingFaq() {
                 <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
                   Akses instan tanpa komitmen panjang. Pilih paket harian atau bulanan sesuai kebutuhan produksimu.
                 </p>
-                <div className="mt-6 flex items-baseline gap-2">
-                  <span className="font-display text-4xl font-extrabold text-foreground">Rp70.000</span>
-                  <span className="text-sm text-muted-foreground">/ bulan</span>
-                  <span className="text-xs font-mono text-accent font-semibold ml-2">atau mulai Rp3.000/hari</span>
+                <div className="mt-6 space-y-1">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="font-display text-4xl font-extrabold text-foreground">Rp70.000</span>
+                    <span className="text-sm text-muted-foreground">/ bulan</span>
+                  </div>
+                  <p className="text-xs font-mono text-accent font-semibold">
+                    atau mulai Rp3.000 / hari via QRIS
+                  </p>
                 </div>
 
                 {/* Pricing Tiers Pills */}
