@@ -37,7 +37,7 @@ export interface LiveCaptionStyle {
   uppercase: boolean;
   opacity: number; // 0..1
   position: number; // % dari atas
-  animation: "karaoke" | "fade" | "pop" | "bounce" | "none";
+  animation: "karaoke" | "fade" | "pop" | "slide" | "none";
 }
 
 // Power-words (mirror backend) untuk emphasis

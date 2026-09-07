@@ -35,3 +35,10 @@ dist-ssr
 .env
 .env.bak
 .env.local
+
+# Harnesses
+.agent/
+.claude/
+.gemini/
+.hermes/
+
