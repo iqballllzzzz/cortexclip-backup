@@ -237,14 +237,14 @@ function AuthPage() {
           </button>
 
           <div className="mt-5 border-t border-border pt-4 text-xs text-muted-foreground">
-            <p>Belum menerima email atau butuh bantuan verifikasi?</p>
+            <p>Butuh bantuan atau ingin berdiskusi dengan sesama kreator?</p>
             <a
-              href="https://whatsapp.com/channel/0029Vb6ukqnHQbS4mKP0j80L"
+              href="https://chat.whatsapp.com/EQBUHFIuOTG4ziEGLWhZG5"
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-1.5 inline-flex items-center gap-1.5 text-accent font-semibold hover:underline"
+              className="mt-1.5 inline-flex items-center gap-1.5 text-emerald-400 font-semibold hover:underline"
             >
-              <span>Hubungi CS (SANNN FORUM) di WhatsApp</span>
+              <span>Ikuti Grup Diskusi CortexClip AI di WhatsApp</span>
               <ArrowRight className="size-3" />
             </a>
           </div>

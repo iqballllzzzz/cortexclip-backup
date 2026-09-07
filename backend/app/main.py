@@ -1767,7 +1767,7 @@ async def api_register_otp(body: RegisterOtpIn):
                         {otp}
                       </div>
                       <p style="color:#aaa;font-size:12px;">Masukkan kode ini pada layar pendaftaran untuk mengaktifkan akun. Kode berlaku 1 jam.</p>
-                      <p style="color:#666;font-size:11px;border-top:1px solid #222;padding-top:12px;">Butuh bantuan? Hubungi Customer Service (SANNN FORUM) di WhatsApp: https://whatsapp.com/channel/0029Vb6ukqnHQbS4mKP0j80L</p>
+                      <p style="color:#666;font-size:11px;border-top:1px solid #222;padding-top:12px;">Ikuti grup diskusi CortexClip AI di WhatsApp: https://chat.whatsapp.com/EQBUHFIuOTG4ziEGLWhZG5</p>
                     </div>
                     """,
                 },
