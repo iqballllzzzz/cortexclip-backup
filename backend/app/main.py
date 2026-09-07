@@ -1529,6 +1529,30 @@ async def api_admin_set_admin(user_id: str, body: AdminFlagIn, request: Request,
     return await admin_mod.set_admin(me["id"], user_id, body.is_admin)
 
 
+@app.delete("/api/admin/users/{user_id}")
+async def api_admin_delete_user(user_id: str, request: Request, authorization: Optional[str] = Header(None)):
+    from . import admin as admin_mod
+    me = await require_admin_user(request, authorization)
+    ensure_uuid(user_id, "User")
+    try:
+        return await admin_mod.delete_user(me["id"], user_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception as exc:
+        raise HTTPException(500, f"Gagal menghapus akun: {exc}")
+
+
+@app.delete("/api/admin/users/{user_id}/projects")
+async def api_admin_delete_user_projects(user_id: str, request: Request, authorization: Optional[str] = Header(None)):
+    from . import admin as admin_mod
+    me = await require_admin_user(request, authorization)
+    ensure_uuid(user_id, "User")
+    try:
+        return await admin_mod.delete_user_projects(me["id"], user_id)
+    except Exception as exc:
+        raise HTTPException(500, f"Gagal menghapus project user: {exc}")
+
+
 # ---------------------------------------------------------------------------
 # YouTube (hydra downloader) + share + quota + premium (Pakasir)
 # ---------------------------------------------------------------------------

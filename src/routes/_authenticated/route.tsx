@@ -28,7 +28,13 @@ function AuthenticatedLayout() {
 
   // Backend tidak terjangkau → jangan kunci user; biarkan aplikasi jalan.
   if (status?.ban?.banned) {
-    return <BannedScreen ban={status.ban} email={status.user.email ?? user.email} />;
+    return (
+      <BannedScreen
+        ban={status.ban}
+        email={status.user.email ?? user.email}
+        accountId={status.user.id ?? user.id}
+      />
+    );
   }
   void error;
 

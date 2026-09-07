@@ -120,6 +120,15 @@ export function SiteHeader() {
                 {n.label}
               </a>
             ))}
+            <a
+              href="https://wa.me/6285183317385"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setOpen(false)}
+              className="mt-1 flex items-center gap-2 rounded-lg px-2 py-2.5 text-sm font-semibold text-emerald-400 hover:bg-surface transition-colors"
+            >
+              <span>Hubungi Customer Service</span>
+            </a>
             {user ? (
               <Button asChild variant="accent" size="sm" className="mt-2 w-full">
                 <Link to="/dashboard">

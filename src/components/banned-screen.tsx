@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { ShieldOff, Mail, LogOut, Clock } from "lucide-react";
+import { ShieldOff, LogOut, Clock, MessageSquare } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import type { BanInfo } from "@/lib/admin-api";
@@ -9,8 +9,21 @@ import type { BanInfo } from "@/lib/admin-api";
  * Ditampilkan oleh layout /_authenticated sebelum route anak dirender,
  * jadi user yang diban tidak bisa menyentuh fitur apa pun.
  */
-export function BannedScreen({ ban, email }: { ban: BanInfo; email?: string | null }) {
-  const cs = "cs@cortexclip.app";
+export function BannedScreen({
+  ban,
+  email,
+  accountId,
+}: {
+  ban: BanInfo;
+  email?: string | null;
+  accountId?: string | null;
+}) {
+  const userEmail = email || "—";
+  const reason = ban.reason || "Tidak disebutkan";
+  const time = ban.permanent ? "Permanen" : ban.duration_left || "Sementara";
+  const accId = accountId || "—";
+  const waText = `email:${userEmail}\nreason:${reason}\ntime:${time}\naccountid:${accId}`;
+  const waUrl = `https://wa.me/6285183317385?text=${encodeURIComponent(waText)}`;
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -94,18 +107,17 @@ export function BannedScreen({ ban, email }: { ban: BanInfo; email?: string | nu
 
           <div className="mt-8 flex flex-col gap-2.5 sm:flex-row">
             <Button variant="accent" asChild className="sm:w-auto">
-              <a href={`mailto:${cs}?subject=Permohonan%20pengembalian%20akun%20CortexClip`}>
-                <Mail className="size-4" /> Hubungi customer service
+              <a href={waUrl} target="_blank" rel="noopener noreferrer">
+                <MessageSquare className="size-4 mr-1.5" /> Hubungi Customer Service (WhatsApp)
               </a>
             </Button>
             <Button variant="outline" onClick={() => void signOut()} className="sm:w-auto">
-              <LogOut className="size-4" /> Keluar
+              <LogOut className="size-4 mr-1.5" /> Keluar
             </Button>
           </div>
 
           <p className="mt-6 text-xs leading-relaxed text-muted-foreground">
-            Email CS: <span className="font-medium text-foreground">{cs}</span> · Sertakan alamat
-            email akun kamu agar pengajuan bisa diproses lebih cepat.
+            Customer Service WhatsApp: <span className="font-medium text-foreground">085183317385</span> · Pesan banding akan terisi otomatis dengan detail akun kamu.
           </p>
         </div>
       </motion.div>

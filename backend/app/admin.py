@@ -494,3 +494,27 @@ async def user_detail(user_id: str) -> dict[str, Any]:
     models = [{"model": m, **v} for m, v in
               sorted(model_tally.items(), key=lambda kv: -kv[1]["success"])]
     return {"profile": prof, "recent_activity": logs, "projects": projects, "models": models}
+
+
+async def delete_user(actor_id: str, target_id: str) -> dict[str, Any]:
+    """Hapus user permanen dari auth.users via admin API Supabase."""
+    from .premium import SUPABASE_URL, SERVICE_KEY
+    import httpx
+    if actor_id == target_id:
+        raise ValueError("Tidak bisa menghapus akun sendiri.")
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.delete(
+            f"{SUPABASE_URL}/auth/v1/admin/users/{target_id}",
+            headers={"apikey": SERVICE_KEY, "Authorization": f"Bearer {SERVICE_KEY}"},
+        )
+        if r.status_code not in (200, 204):
+            # Fallback jika auth.users gagal langsung
+            await sb("DELETE", f"profiles?id=eq.{target_id}")
+    return {"ok": True, "deleted_user_id": target_id}
+
+
+async def delete_user_projects(actor_id: str, target_id: str) -> dict[str, Any]:
+    """Hapus semua project dan klip milik user target."""
+    await sb("DELETE", f"projects?user_id=eq.{target_id}")
+    return {"ok": True, "user_id": target_id}
+

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { Loader2, ShieldOff, ShieldCheck, X, Crown, Activity, Cpu } from "lucide-react";
+import { Loader2, ShieldOff, ShieldCheck, X, Crown, Activity, Cpu, Trash2, FolderX } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,8 @@ import {
   unbanUser,
   setUserPlan,
   setUserAdmin,
+  deleteAdminUser,
+  deleteAdminUserProjects,
   fetchAdminUserDetail,
   type AdminUser,
   type AdminUserDetail,
@@ -53,6 +55,8 @@ export function UserDrawer({
   const [banOpen, setBanOpen] = useState(false);
   const [duration, setDuration] = useState<BanDuration>("1d");
   const [reason, setReason] = useState("");
+  const [confirmDelUser, setConfirmDelUser] = useState(false);
+  const [confirmDelProjects, setConfirmDelProjects] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -246,6 +250,91 @@ export function UserDrawer({
               <ShieldCheck className="size-4" />
               {user.is_admin ? "Cabut akses admin" : "Jadikan admin"}
             </Button>
+          </section>
+
+          {/* Tindakan Akun: Hapus Proyek & Hapus Akun */}
+          <section className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-destructive">
+              Tindakan Akun & Server
+            </p>
+
+            {/* Hapus Semua Proyek */}
+            <div>
+              {confirmDelProjects ? (
+                <div className="space-y-2 rounded-lg border border-destructive/40 bg-card p-3">
+                  <p className="text-xs font-medium text-destructive">
+                    Yakin hapus SEMUA proyek akun ini? Proyek dan klip user akan kosong kembali.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      disabled={busy}
+                      onClick={() =>
+                        void act(async () => {
+                          await deleteAdminUserProjects(user.user_id);
+                          setConfirmDelProjects(false);
+                        }, "Semua proyek user berhasil dikosongkan.")
+                      }
+                    >
+                      {busy ? <Loader2 className="size-3.5 animate-spin" /> : "Ya, Hapus Semua Proyek"}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setConfirmDelProjects(false)}>
+                      Batal
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full justify-start text-xs border-destructive/30 text-destructive hover:bg-destructive/10"
+                  disabled={busy}
+                  onClick={() => setConfirmDelProjects(true)}
+                >
+                  <FolderX className="size-3.5 mr-1.5" /> Hapus Semua Proyek Akun
+                </Button>
+              )}
+            </div>
+
+            {/* Hapus Akun Permanen */}
+            <div>
+              {confirmDelUser ? (
+                <div className="space-y-2 rounded-lg border border-destructive/40 bg-card p-3">
+                  <p className="text-xs font-medium text-destructive">
+                    PERINGATAN: Yakin hapus akun ini secara permanen dari server? Tindakan tidak bisa dibatalkan.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      disabled={busy}
+                      onClick={() =>
+                        void act(async () => {
+                          await deleteAdminUser(user.user_id);
+                          onClose();
+                        }, "Akun user berhasil dihapus permanen dari server.")
+                      }
+                    >
+                      {busy ? <Loader2 className="size-3.5 animate-spin" /> : "Ya, Hapus Akun Permanen"}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setConfirmDelUser(false)}>
+                      Batal
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  className="w-full justify-start text-xs"
+                  disabled={busy}
+                  onClick={() => setConfirmDelUser(true)}
+                >
+                  <Trash2 className="size-3.5 mr-1.5" /> Hapus Akun Permanen
+                </Button>
+              )}
+            </div>
           </section>
 
           {/* model dipakai */}

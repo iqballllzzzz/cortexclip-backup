@@ -247,6 +247,14 @@ export async function setUserAdmin(userId: string, isAdmin: boolean): Promise<{ 
   );
 }
 
+export async function deleteAdminUser(userId: string): Promise<void> {
+  await authFetch(`/api/admin/users/${userId}`, { method: "DELETE" });
+}
+
+export async function deleteAdminUserProjects(userId: string): Promise<void> {
+  await authFetch(`/api/admin/users/${userId}/projects`, { method: "DELETE" });
+}
+
 /** Hasil uji semua model (tombol "Uji semua model" di panel admin). */
 export interface HasilUjiModel {
   diuji: number;

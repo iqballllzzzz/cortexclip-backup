@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { BookOpen, Crown, Download, LayoutDashboard, LogOut, Menu, Settings, ShieldCheck, X } from "lucide-react";
+import { BookOpen, Crown, Download, LayoutDashboard, LogOut, Menu, MessageSquare, Settings, ShieldCheck, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -172,6 +172,15 @@ export function AppNav({
                   <Crown className="size-3.5" /> Upgrade Premium
                 </Button>
               ) : null}
+              <a
+                href="https://wa.me/6285183317385"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setOpen(false)}
+                className="mt-1 flex w-full items-center gap-2.5 rounded-lg px-2 py-2.5 text-sm font-medium text-emerald-400 transition-colors hover:bg-surface"
+              >
+                <MessageSquare className="size-4" /> Hubungi Customer Service
+              </a>
               <button
                 onClick={() => void signOut()}
                 className="mt-1 flex w-full items-center gap-2.5 rounded-lg px-2 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-surface hover:text-foreground"
