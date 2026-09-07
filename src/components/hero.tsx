@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link } from "@tanstack/react-router";
 import { NeuralHeroCanvas } from "./neural-hero-canvas";
+import { RotatingUrlPlaceholder } from "./rotating-url-placeholder";
 import {
   ArrowRight,
   Play,
@@ -149,13 +150,17 @@ export function Hero() {
               <div className="flex flex-col sm:flex-row items-center gap-2 rounded-2xl border border-border bg-card/90 backdrop-blur-md p-1.5 shadow-2xl">
                 <div className="flex flex-1 items-center gap-2 px-3 py-1.5 w-full">
                   <Youtube className="size-4 text-red-500 shrink-0" />
-                  <input
-                    type="text"
-                    value={inputUrl}
-                    onChange={(e) => setInputUrl(e.target.value)}
-                    placeholder="Tempel link YouTube (misal: youtube.com/...)"
-                    className="w-full bg-transparent text-xs sm:text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-                  />
+                  <div className="relative min-w-0 flex-1">
+                    <RotatingUrlPlaceholder />
+                    <input
+                      type="text"
+                      value={inputUrl}
+                      onChange={(e) => setInputUrl(e.target.value)}
+                      placeholder=" "
+                      aria-label="Tempel link video"
+                      className="absolute inset-0 w-full bg-transparent text-xs sm:text-sm text-foreground focus:outline-none"
+                    />
+                  </div>
                 </div>
                 <Link
                   to="/auth"

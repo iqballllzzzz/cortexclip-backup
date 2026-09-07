@@ -23,6 +23,7 @@ import {
 
 import { PremiumDialog } from "@/components/premium-dialog";
 import { AppNav } from "@/components/app-nav";
+import { RotatingUrlPlaceholder } from "@/components/rotating-url-placeholder";
 import { NumberTicker } from "@/components/magicui/number-ticker";
 import { BlurFade } from "@/components/magicui/blur-fade";
 import { DotPattern } from "@/components/magicui/dot-pattern";
@@ -510,15 +511,19 @@ function Dashboard() {
                 </h2>
               </div>
               <div className="mt-3.5 flex flex-col gap-2.5 sm:flex-row">
-                <input
-                  value={youtubeUrl}
-                  onChange={(e) => setYoutubeUrl(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void createFromYoutube();
-                  }}
-                  placeholder="https://youtu.be/…"
-                  className="min-w-0 flex-1 rounded-full border border-border bg-background px-4.5 py-2.5 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-accent"
-                />
+                <div className="relative flex min-w-0 flex-1 items-center">
+                  <RotatingUrlPlaceholder />
+                  <input
+                    value={youtubeUrl}
+                    onChange={(e) => setYoutubeUrl(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void createFromYoutube();
+                    }}
+                    placeholder=" "
+                    aria-label="Tempel link video"
+                    className="absolute inset-0 w-full rounded-full border border-border bg-background px-4.5 py-2.5 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-accent"
+                  />
+                </div>
                 <Button
                   variant="accent"
                   disabled={creating}

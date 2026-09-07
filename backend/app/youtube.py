@@ -464,8 +464,70 @@ async def hydra_download(url: str, out_path: str,
     menaikkan persen fase "Ambil media" (video 600 MB butuh 4-5 menit).
     """
     errors: list[str] = []
-    # Provider UTAMA: yt-dlp tv_embedded (gratis, lolos bot-check dari IP VPS,
-    # 1080p H.264). Gagal → provider API berbayar → yt-dlp standar.
+    # ────────────────────────────────────────────────────────────────────────
+    # 0) Jika platform BUKAN YouTube → langsung pakai provider gist (failover)
+    #    yang SUDAH TERBUKTI lolos blokir IP DC (densave/aio/savetik/vibetik/
+    #    snaptwitt/ssvid/tweeterdownloader/ytscribeto).
+    # ────────────────────────────────────────────────────────────────────────
+    from .gist_providers import detect_platform, hydra_any
+    try:
+        platform = detect_platform(url)
+        if platform != "youtube":
+            info = await hydra_any(url)
+            # unduh URL media langsung (twimg/tiktokcdn/ig fbcdn — lolos 403)
+            base = out_path.rsplit(".", 1)[0]
+            try:
+                await asyncio.to_thread(_download_stream, info["url"], out_path, 8, 6, on_progress)
+            except RuntimeError as exc:
+                if "403" in str(exc) or "Forbidden" in str(exc):
+                    print(f"[youtube-hydra] {info['provider']}: unduh 403 → refresh")
+                    info = await hydra_any(url)
+                    await asyncio.to_thread(_download_stream, info["url"], out_path, 8, 6, on_progress)
+                else:
+                    raise
+            if await asyncio.to_thread(_verify, out_path, info.get("duration") or 0.0):
+                return {"title": info["title"], "duration": info.get("duration") or 0.0,
+                        "provider": info["provider"]}
+            errors.append(f"{info['provider']}: file tidak valid")
+        else:
+            # YouTube: coba provider gist ringan (savetube/ytdl-rapid) yg
+            # mengembalikan URL CDN savetube — bebas 403. Gagal → pipeline lama.
+            try:
+                from .gist_providers import PROVIDERS_YOUTUBE
+                for prov_yt in PROVIDERS_YOUTUBE:
+                    pname = prov_yt.__name__.replace("prov_", "")
+                    try:
+                        cand = await prov_yt(url)
+                        if not cand.get("url"):
+                            continue
+                        base = out_path.rsplit(".", 1)[0]
+                        try:
+                            await asyncio.to_thread(_download_stream, cand["url"], out_path, 8, 6, on_progress)
+                        except RuntimeError as exc:
+                            if "403" in str(exc) or "Forbidden" in str(exc):
+                                print(f"[youtube-hydra] {pname}: 403 → coba provider berikutnya")
+                                continue
+                            raise
+                        if await asyncio.to_thread(_verify, out_path, cand.get("duration") or 0.0):
+                            print(f"[youtube-hydra] {pname} sukses (YouTube)")
+                            return {"title": cand["title"], "duration": cand.get("duration") or 0.0,
+                                    "provider": cand["provider"]}
+                        errors.append(f"{pname}: file tidak valid/terpotong")
+                    except Exception as exc:
+                        errors.append(f"{pname}: {str(exc)[:100]}")
+                        print(f"[youtube-hydra] {pname} gagal: {str(exc)[:120]}")
+                        continue
+            except Exception as exc:
+                print(f"[youtube-hydra] gist providers error: {exc}")
+    except Exception as exc:
+        # platform tidak didukung / hydra_any gagal — lanjut pipeline lama
+        if "platform tidak didukung" not in str(exc):
+            errors.append(f"gist: {str(exc)[:100]}")
+
+    # ────────────────────────────────────────────────────────────────────────
+    # 1) Provider UTAMA: yt-dlp tv_embedded (gratis, lolos bot-check dari IP VPS,
+    #    1080p H.264). Gagal → provider API berbayar → yt-dlp standar.
+    # ────────────────────────────────────────────────────────────────────────
     base = out_path.rsplit(".", 1)[0]
     try:
         await asyncio.to_thread(_prov_ytdlp_tvembedded, url, out_path)
