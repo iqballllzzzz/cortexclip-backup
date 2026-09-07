@@ -1,9 +1,11 @@
-"""YouTube pipeline (server-side) dengan HYDRA downloader 3 provider:
+"""YouTube pipeline (server-side) dengan HYDRA downloader 5 provider:
 
 1. RapidAPI autolink   (multi-situs: youtube, x/twitter, tiktok, dll)
 2. RapidAPI ytstream   (YouTube spesialis — progressive + adaptive formats)
 3. nexray aio          (multi-situs, gratis)
-4. yt-dlp (fallback terakhir, langsung dari VPS)
+4. Piped proxy         (instance komunitas; unduh lewat proxy server pihak
+                        ketiga → LOLOS blokir googlevideo utk IP datacenter)
+5. yt-dlp (fallback terakhir, langsung dari VPS)
 
 Kalau satu provider gagal/error → otomatis pindah ke provider berikutnya.
 File langsung di-download dari googlevideo (CDN YouTube) ke VPS lalu
@@ -184,7 +186,97 @@ async def _prov_nexray(url: str) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------
-# Provider 4: yt-dlp (fallback terakhir)
+# Provider 4: Piped proxy (unduh via server pihak ketiga, lolos blokir IP DC)
+# --------------------------------------------------------------------------
+# Instance Piped publik menyediakan endpoint /streams/{id} yang mengembalikan
+# URL video, DAN /proxy/... untuk streaming dari server mereka. Karena URL
+# googlevideo terikat ke IP instance (bukan IP VPS kita), unduh langsung dari
+# VPS akan kena 403 — maka kita unduh LEWAT proxy instance tersebut.
+PIPED_INSTANCES = [
+    "api.piped.private.coffee",
+    "pipedapi.adminforge.de",
+    "pipedapi.leptons.xyz",
+    "pipedapi.kavin.rocks",
+    "pipedapi.ducks.party",
+    "pipedapi.reallyaweso.me",
+]
+
+# Ambil URL instance + ID video dari sebuah instance Piped (return dict).
+async def _piped_get_streams(base: str, vid: str) -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+        r = await client.get(
+            f"https://{base}/streams/{vid}",
+            headers={"User-Agent": UA_BROWSER, "Accept": "application/json"},
+        )
+    r.raise_for_status()
+    d = r.json()
+    if not d or d.get("error"):
+        raise RuntimeError(f"piped: {d.get('error') or 'kosong'}")
+    return d
+
+
+async def _prov_piped(url: str, out_path: str) -> dict[str, Any]:
+    """Coba instance Piped yang memberi stream video+audio, unduh via proxy
+    instance (bukan langsung dari googlevideo) sehingga lolos blokir 403."""
+    vid = yt_video_id(url)
+    if not vid:
+        raise RuntimeError("piped: bukan link YouTube")
+    errors: list[str] = []
+    for base in PIPED_INSTANCES:
+        try:
+            d = await _piped_get_streams(base, vid)
+            streams = d.get("videoStreams") or []
+            audios = d.get("audioStreams") or []
+            if not streams:
+                errors.append(f"{base}: tanpa stream video")
+                continue
+            # Pilih video terbaik (videoOnly dulu utk kualitas; kalau tidak ada,
+            # progressive yg sudah ada audio-nya).
+            vids = [s for s in streams if s.get("videoOnly") and s.get("url")]
+            if not vids:
+                vids = [s for s in streams if s.get("url")]
+            vids.sort(key=lambda s: int(str(s.get("quality", "0")).replace("p", "") or 0), reverse=True)
+            v = vids[0]
+            # URL proxy yang dipakai Piped: kalau sudah /proxy/... langsung,
+            # kalau googlevideo asli, ganti ke proxy instance.
+            vurl = v["url"]
+            if not vurl.startswith("https://") or "googlevideo.com" in vurl:
+                # Beberapa instance mengembalikan /videoplayback relatif/proxy
+                vurl = f"https://{base}{vurl}" if vurl.startswith("/") else vurl
+
+            # Coba unduh dari proxy instance (bukan langsung googlevideo)
+            tmp = out_path + ".piped.part"
+            try:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, read=600.0),
+                                             follow_redirects=True) as client:
+                    async with client.stream("GET", vurl, headers={"User-Agent": UA_BROWSER}) as resp:
+                        if resp.status_code != 200:
+                            raise RuntimeError(f"piped {base}: HTTP {resp.status_code}")
+                        with open(tmp, "wb") as f:
+                            async for chunk in resp.aiter_bytes(1 << 20):
+                                f.write(chunk)
+                size = os.path.getsize(tmp)
+                if size < 500_000:
+                    raise RuntimeError(f"piped {base}: terlalu kecil ({size})")
+                os.replace(tmp, out_path)
+                return {
+                    "title": d.get("title") or "video",
+                    "duration": float(d.get("duration") or 0) / 1000.0
+                    if d.get("duration") and d["duration"] > 1000 else float(d.get("duration") or 0),
+                    "provider": f"piped-{base.split('.')[0]}",
+                    "needs_merge": False,
+                }
+            except Exception as exc:
+                errors.append(f"{base}: unduh gagal {str(exc)[:80]}")
+                continue
+        except Exception as exc:
+            errors.append(f"{base}: {str(exc)[:80]}")
+            continue
+    raise RuntimeError("piped: " + " | ".join(errors) or "piped: semua instance gagal")
+
+
+# --------------------------------------------------------------------------
+# Provider 5: yt-dlp (fallback terakhir)
 # --------------------------------------------------------------------------
 def _prov_ytdlp(url: str, out_path: str) -> None:
     import yt_dlp
@@ -384,9 +476,17 @@ async def hydra_download(url: str, out_path: str,
     except Exception as exc:
         errors.append(f"tv_embedded: {str(exc)[:140]}")
         print(f"[youtube-hydra] tv_embedded gagal: {str(exc)[:140]}")
-    for prov in (_prov_autolink, _prov_ytstream, _prov_nexray):
+    for prov in (_prov_autolink, _prov_ytstream, _prov_nexray, _prov_piped):
         name = prov.__name__.replace("_prov_", "")
         try:
+            if prov is _prov_piped:
+                # Piped mengunduh file sendiri lewat proxy instance (lolos 403)
+                info = await prov(url, out_path)
+                if await asyncio.to_thread(_verify, out_path):
+                    return {"title": info["title"], "duration": info.get("duration") or 0.0,
+                            "provider": info["provider"]}
+                errors.append(f"piped: file tidak valid")
+                continue
             info = await prov(url)
             base = out_path.rsplit(".", 1)[0]
             try:
@@ -397,7 +497,7 @@ async def hydra_download(url: str, out_path: str,
                 # Minta URL BARU (refresh) sampai 2x sebelum menyerah — terukur
                 # provider sukses memberi info, gagal hanya di unduhan.
                 pesan = str(exc)
-                if "403" in pesan or "Forbidden" in pesan:
+                if ("403" in pesan or "Forbidden" in pesan) and prov is not _prov_piped:
                     print(f"[youtube-hydra] {name}: unduh 403 → refresh URL")
                     segar = False
                     for _ in range(2):
