@@ -126,20 +126,6 @@ export function Hero() {
 
           {/* Foreground Editorial Headline & URL Generator */}
           <div className="relative z-10 mx-auto max-w-[1240px] px-4 sm:px-6 lg:px-8 text-center pt-6 sm:pt-10">
-            {/* Join WhatsApp Official Pill */}
-            <div className="mb-3 flex justify-center">
-              <a
-                href="https://chat.whatsapp.com/EQBUHFIuOTG4ziEGLWhZG5"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 backdrop-blur-md px-3.5 py-1 text-xs font-mono text-emerald-400 hover:bg-emerald-500/20 hover:border-emerald-500/50 transition-colors shadow-sm"
-              >
-                <span className="size-1.5 rounded-full bg-emerald-400 animate-ping" />
-                <span className="font-semibold">Join Grup WhatsApp Official CortexClip AI</span>
-                <ArrowRight className="size-3" />
-              </a>
-            </div>
-
             <div className="inline-flex items-center gap-2 rounded-full border border-border bg-surface/80 backdrop-blur-md px-4 py-1.5 text-xs font-medium text-foreground">
               <span className="size-2 rounded-full bg-accent animate-pulse" />
               <span>AI Auto-Clipper Bahasa Indonesia Pertama</span>

@@ -17,6 +17,7 @@ import {
   Trash2,
   TriangleAlert,
   Upload,
+  Users,
   Youtube,
 } from "lucide-react";
 
@@ -423,7 +424,7 @@ function Dashboard() {
             <p className="mt-3 max-w-[52ch] text-[14px] leading-relaxed text-muted-foreground">
               Tempel link atau unggah video panjang — sisanya AI yang kerjakan di server.
             </p>
-            <div className="mt-4 flex items-center gap-2">
+            <div className="mt-4 flex flex-wrap items-center gap-2">
               <Link
                 to="/unduh"
                 className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-3.5 py-2 text-xs font-semibold text-foreground hover:border-accent/40 hover:bg-surface transition-colors shadow-sm"
@@ -431,6 +432,15 @@ function Dashboard() {
                 <Download className="size-3.5 text-accent" />
                 <span>Lihat Unduhan Klip</span>
               </Link>
+              <a
+                href="https://chat.whatsapp.com/EQBUHFIuOTG4ziEGLWhZG5"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/20 hover:border-emerald-500/50 transition-colors shadow-sm"
+              >
+                <Users className="size-3.5" />
+                <span>Join Grup WhatsApp</span>
+              </a>
             </div>
           </div>
 
