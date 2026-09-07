@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { motion, useScroll, useMotionValueEvent } from "motion/react";
-import { Menu, X, LayoutDashboard, Sparkles, LogOut } from "lucide-react";
+import { Menu, X, LayoutDashboard, Sparkles, LogOut, ArrowRight } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -33,11 +33,29 @@ export function SiteHeader() {
   }
 
   return (
-    <header
-      className={`sticky top-0 z-[var(--z-sticky)] transition-colors duration-200 ${
-        scrolled ? "border-b border-border bg-background/92 backdrop-blur-xl" : "bg-transparent"
-      }`}
-    >
+    <>
+      {/* ═══ BARIS PENGUMUMAN GRUP WHATSAPP OFFICIAL ═══ */}
+      <div className="relative z-50 border-b border-white/10 bg-black/80 px-4 py-2 text-center text-xs font-mono select-none backdrop-blur-md">
+        <div className="mx-auto flex max-w-[1180px] items-center justify-center gap-2">
+          <span className="size-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-white/80">Komunitas Kreator:</span>
+          <a
+            href="https://chat.whatsapp.com/EQBUHFIuOTG4ziEGLWhZG5"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 font-semibold text-emerald-400 hover:text-emerald-300 hover:underline transition-colors"
+          >
+            <span>Join Grup WhatsApp Official CortexClip AI</span>
+            <ArrowRight className="size-3" />
+          </a>
+        </div>
+      </div>
+
+      <header
+        className={`sticky top-0 z-[var(--z-sticky)] transition-colors duration-200 ${
+          scrolled ? "border-b border-border bg-background/92 backdrop-blur-xl" : "bg-transparent"
+        }`}
+      >
       <div className="mx-auto flex h-16 max-w-[1180px] items-center gap-6 px-4 sm:px-6">
         <Link
           to="/"
@@ -140,5 +158,6 @@ export function SiteHeader() {
         </nav>
       ) : null}
     </header>
+    </>
   );
 }
