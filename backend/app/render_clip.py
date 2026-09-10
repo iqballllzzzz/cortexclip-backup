@@ -65,18 +65,47 @@ async def download_from_storage(path: str, dest: str) -> str:
     return dest
 
 
-async def upload_to_storage(local_path: str, storage_path: str) -> str:
-    """Upload a local file to Supabase storage, returns public/signed path."""
+async def upload_to_storage(local_path: str, storage_path: str, on_progress: Any = None) -> str:
+    """Upload a local file to Supabase storage with optional progress reporting."""
     url = f"{SUPABASE_URL}/storage/v1/object/{BUCKET}/{storage_path}"
-    with open(local_path, "rb") as f:
-        data = f.read()
+
     headers = {
         **_service_headers(),
         "Content-Type": "application/octet-stream",
         "x-upsert": "true",
     }
-    async with httpx.AsyncClient(timeout=600) as client:
-        resp = await client.post(url, headers=headers, content=data)
+
+    file_size = os.path.getsize(local_path)
+    if on_progress:
+        on_progress(92, "Menyiapkan unggah preview")
+
+    # Untuk file kecil (<1MB) upload langsung, file besar dengan progress generator
+    if file_size < 1_000_000 or not on_progress:
+        with open(local_path, "rb") as f:
+            data = f.read()
+        async with httpx.AsyncClient(timeout=600) as client:
+            resp = await client.post(url, headers=headers, content=data)
+    else:
+        # Stream upload dengan update progress
+        uploaded = 0
+
+        async def file_stream():
+            nonlocal uploaded
+            chunk_size = 512 * 1024  # 512KB chunks
+            with open(local_path, "rb") as f:
+                while True:
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    uploaded += len(chunk)
+                    pct = 92 + int((uploaded / file_size) * 6)  # 92% -> 98%
+                    if on_progress:
+                        on_progress(pct, f"Mengunggah preview ({pct}%)")
+                    yield chunk
+
+        async with httpx.AsyncClient(timeout=600) as client:
+            resp = await client.post(url, headers=headers, content=file_stream())
+
     if resp.status_code not in (200, 201):
         raise RuntimeError(f"Storage upload gagal ({resp.status_code}) {resp.text[:200]}")
     return storage_path
@@ -1134,7 +1163,7 @@ async def render_preview_clip(
         # berbeda tidak saling menimpa, dan toggle bolak-balik tinggal
         # memakai kembali berkas yang sudah ada.
         storage_key = f"{user_id}/previews/{clip_id}_{_mode_sufiks}.mp4"
-        await upload_to_storage(out_path, storage_key)
+        await upload_to_storage(out_path, storage_key, on_progress=lapor)
         # query param v=style_hash → browser cache-bust versi preview
         preview_url = (
             f"{PUBLIC_SUPABASE_URL}/storage/v1/object/public/{BUCKET}/{storage_key}"

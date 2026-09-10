@@ -131,16 +131,68 @@ export function LiveCaptionOverlay({
 }) {
   const scale = containerWidth / 360;
 
+  // 1. Sanitasi kata: pastikan selalu terurut monoton naik, tanpa tabrakan & waktu negatif
+  const cleanWords = useMemo(() => {
+    if (!words || !words.length) return [];
+    const sorted = [...words]
+      .map((w) => ({
+        word: String(w.word || "").trim(),
+        start: Number(w.start) || 0,
+        end: Number(w.end) || (Number(w.start) + 0.25),
+      }))
+      .filter((w) => w.word.length > 0);
+
+    sorted.sort((a, b) => a.start - b.start);
+
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const cur = sorted[i]!;
+      const nxt = sorted[i + 1]!;
+      if (nxt.start < cur.start) {
+        nxt.start = cur.start + 0.05;
+      }
+      if (cur.end > nxt.start) {
+        cur.end = Math.max(cur.start + 0.10, nxt.start);
+      }
+      if (cur.end <= cur.start) {
+        cur.end = cur.start + 0.15;
+      }
+    }
+    if (sorted.length > 0 && sorted[sorted.length - 1]!.end <= sorted[sorted.length - 1]!.start) {
+      sorted[sorted.length - 1]!.end = sorted[sorted.length - 1]!.start + 0.25;
+    }
+    return sorted;
+  }, [words]);
+
   // maxWords per baris — mirror max_words_per_line backend (parity persis)
   const maxWords = style.maxWords ?? (style.uppercase ? 4 : 5);
-  const lines = useMemo(() => chunkWords(words, maxWords), [words, maxWords]);
+  const lines = useMemo(() => chunkWords(cleanWords, maxWords), [cleanWords, maxWords]);
 
-  // cari baris aktif berdasarkan waktu
+  // cari baris aktif secara cerdas & tidak loncat sebelum baris berikutnya dimulai
   const activeLine = useMemo(() => {
-    const found = lines.find(
-      (l) => l.length > 0 && time >= l[0]!.start && time <= l[l.length - 1]!.end,
-    );
-    return found ?? lines.find((l) => l.length > 0 && time < l[0]!.start) ?? null;
+    if (!lines.length) return null;
+
+    for (let idx = 0; idx < lines.length; idx++) {
+      const l = lines[idx]!;
+      if (!l.length) continue;
+      const lineStart = l[0]!.start;
+      const nextLine = lines[idx + 1];
+      // Baris tetap tampil sampai baris berikutnya mulai atau max 0.8s setelah baris ini selesai
+      const lineEnd = nextLine && nextLine.length > 0
+        ? nextLine[0]!.start
+        : (l[l.length - 1]!.end + 0.8);
+
+      // Berikan toleransi masuk 0.12s agar kata pertama tidak terlambat muncul
+      if (time >= lineStart - 0.12 && time < lineEnd) {
+        return l;
+      }
+    }
+
+    // Jika di awal klip sebelum kata pertama, tampilkan baris 1 jika video berada <= 1.0s sebelum bicara
+    if (lines[0] && lines[0].length > 0 && time < lines[0][0]!.start && lines[0][0]!.start - time <= 1.0) {
+      return lines[0];
+    }
+
+    return null;
   }, [lines, time]);
 
   if (!activeLine || !words.length) return null;
@@ -177,7 +229,13 @@ export function LiveCaptionOverlay({
         }}
       >
         {activeLine.map((w, i) => {
-          const isActive = time >= w.start && time < w.end;
+          // KATA AKTIF KARAOKE:
+          // Kata aktif mengalir mulus dari w.start sampai kata berikutnya mulai.
+          // Ini menghilangkan jeda mati/kedip hitam di antara dua kata, dan memastikan
+          // tidak ada kata yang terlewat atau tidak berubah warna saat orangnya bicara.
+          const nextW = activeLine[i + 1];
+          const wordEnd = nextW ? nextW.start : (w.end + 0.35);
+          const isActive = time >= (w.start - 0.04) && time < wordEnd;
           const emphasized = isEmphasis(w.word);
           const text = style.uppercase ? w.word.toUpperCase() : w.word;
           const color = isActive
@@ -186,18 +244,23 @@ export function LiveCaptionOverlay({
               ? style.emphasisColor
               : style.fontColor;
 
+          const strokeColor = style.strokeColor || "#000000";
+          const strokePx = Math.max(1.2, strokeWidth * 0.85);
+
           return (
             <span
               key={`${w.word}-${i}`}
               style={{
                 color,
-                WebkitTextStroke: strokeWidth > 0 && style.strokeColor
-                  ? `${strokeWidth}px ${style.strokeColor}`
+                WebkitTextStroke: strokeWidth > 0
+                  ? `${strokeWidth}px ${strokeColor}`
                   : undefined,
                 paintOrder: "stroke fill",
-                textShadow: style.shadow
-                  ? `0 ${2 * scale}px ${4 * scale}px rgba(0,0,0,0.75)`
-                  : undefined,
+                textShadow: strokeWidth > 0
+                  ? `-${strokePx}px -${strokePx}px 0 ${strokeColor}, ${strokePx}px -${strokePx}px 0 ${strokeColor}, -${strokePx}px ${strokePx}px 0 ${strokeColor}, ${strokePx}px ${strokePx}px 0 ${strokeColor}, 0 ${strokePx * 1.2}px 0 ${strokeColor}, ${strokePx * 1.2}px 0 0 ${strokeColor}, 0 -${strokePx * 1.2}px 0 ${strokeColor}, -${strokePx * 1.2}px 0 0 ${strokeColor}, 0 ${3 * scale}px ${6 * scale}px rgba(0,0,0,0.95)`
+                  : style.shadow
+                    ? `0 ${2 * scale}px ${4 * scale}px rgba(0,0,0,0.85)`
+                    : undefined,
                 backgroundColor: isActive && style.wordBox && style.wordBoxColor
                   ? style.wordBoxColor
                   : undefined,

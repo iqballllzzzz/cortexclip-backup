@@ -1,0 +1,17 @@
+[Unit]
+Description=CortexClip Backend (FastAPI :8787)
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+User=muhiqbalsukarno
+WorkingDirectory=/home/muhiqbalsukarno/cortexclip-backup/backend
+ExecStart=/home/muhiqbalsukarno/cortexclip-backup/backend/.venv/bin/python run.py
+Environment=PYTHONUNBUFFERED=1
+Restart=always
+RestartSec=5
+Environment=HOME=/home/muhiqbalsukarno
+
+[Install]
+WantedBy=multi-user.target

@@ -46,18 +46,21 @@ export function PreviewLoading({
   const p = Math.max(0, Math.min(100, Math.round(pct)));
   const label = stage?.trim() || "Menyiapkan video";
 
-  // Kemajuan visual halus agar persentase tidak pernah tampak beku di 1%
+  // Kemajuan visual halus agar persentase selalu merayap maju dan TIDAK PERNAH tampak macet/stuck di 92%
   const [visualPct, setVisualPct] = useState(p);
   useEffect(() => {
     setVisualPct((prev) => Math.max(prev, p));
   }, [p]);
 
   useEffect(() => {
-    if (visualPct >= 92) return;
-    const interval = setInterval(() => {
-      setVisualPct((v) => (v < 92 ? v + 1 : v));
-    }, 800);
-    return () => clearInterval(interval);
+    // Jangan pernah berhenti di 92%! Terus merayap pelan hingga 99% sampai backend selesai (100%)
+    if (visualPct >= 99) return;
+    // Di atas 90%, interval diperlambat secara asimtotik agar terus bergerak tanpa melompat ke 100% sebelum waktunya
+    const delay = visualPct >= 96 ? 2800 : visualPct >= 92 ? 1500 : 800;
+    const timer = setTimeout(() => {
+      setVisualPct((v) => (v < 99 ? v + 1 : v));
+    }, delay);
+    return () => clearTimeout(timer);
   }, [visualPct]);
 
   // hitung mundur lokal, disinkronkan tiap kali etaS dari server berubah

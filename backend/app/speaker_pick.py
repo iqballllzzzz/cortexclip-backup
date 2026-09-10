@@ -215,25 +215,9 @@ def build_trajectory(targets: list[float], cuts: set[int], src_w: int,
         hi = s[int(len(s) * 0.90) - 1 if int(len(s) * 0.90) >= len(s) else int(len(s) * 0.90)]
         return float(hi - lo)
 
-    def stabilize(seq: list[float]) -> list[float]:
-        """KUNCI → GESER → KUNCI ulang. Untuk shot yang subjeknya berpindah.
-
-        KENAPA BUKAN MENGIKUTI TERUS-MENERUS.
-        Versi sebelumnya menjalankan SmoothDamp pada SETIAP frame shot yang
-        dinilai "bergerak". Hasilnya kamera tidak pernah benar-benar berhenti:
-        selama orangnya sedikit bergoyang, kamera ikut bergoyang pelan. Itu yang
-        user sebut "stabilizer over banget goyangnya" — dan memang bukan cara
-        kerja stabilizer/tripod. Editor manusia memegang bingkai DIAM, lalu
-        mengarahkan ulang hanya kalau subjeknya benar-benar pindah tempat.
-
-        Jadi di sini kamera punya dua keadaan:
-          DIAM   — posisi dipegang PERSIS (0 px/frame). Keluar dari keadaan ini
-                   hanya kalau target menjauh lebih dari BIG_MOVE_FRAC lebar crop
-                   dan bertahan minimal DWELL_S detik (jadi geleng-geleng,
-                   menunjuk, atau mencondongkan badan sesaat TIDAK menggerakkan
-                   kamera).
-          GESER  — SmoothDamp menuju target sampai selisihnya di bawah
-                   SETTLE_FRAC, lalu kamera KUNCI lagi di situ.
+    def stabilize(seq: list[float], profile: str = "TERATUR") -> list[float]:
+        """KUNCI → GESER → KUNCI ulang (Smart Adaptive Stabilizer).
+        Untuk shot yang subjeknya berpindah tempat secara nyata.
         """
         n = len(seq)
         if n == 0:
@@ -241,18 +225,16 @@ def build_trajectory(targets: list[float], cuts: set[int], src_w: int,
         big = BIG_MOVE_FRAC * crop_a        # ambang "orangnya pindah tempat"
         settle = SETTLE_FRAC * crop_a       # sudah cukup dekat → kunci lagi
         dwell = max(2, int(fps * DWELL_S))  # harus bertahan sekian frame
-        om = 2.0 / max(0.05, SMOOTH_TIME_S)
+
+        # Adaptasi waktu redam sesuai profil gerak:
+        # Gerak teratur -> lebih halus & tenang (1.3x)
+        # Gerak kencang & tak beraturan -> responsif & meredam getaran
+        st_time = SMOOTH_TIME_S * 1.30 if profile == "TERATUR" else SMOOTH_TIME_S * 0.90
+        om = 2.0 / max(0.05, st_time)
         x = om * dt
         peluruhan = 1.0 / (1.0 + x + 0.48 * x * x + 0.235 * x * x * x)
 
-        # POSISI MENETAP, bukan posisi sesaat. Keputusan "orangnya pindah"
-        # diambil dari MEDIAN target sepanjang jendela dwell, bukan dari satu
-        # frame. Terukur pada klip 51cb2158: versi lama menghasilkan 16 episode
-        # gerakan masing-masing 0,07 detik (satu frame) dengan total perpindahan
-        # 761px — kamera menyentak sedikit-sedikit sepanjang klip lalu mengunci
-        # di tempat baru. Itulah "goyang-goyang" dan "patah-patah" yang
-        # dikeluhkan: bukan durasi geraknya yang panjang, tapi kejadiannya
-        # banyak dan tiap kejadian berupa lompatan.
+        # POSISI MENETAP, bukan posisi sesaat.
         wdw = dwell
         menetap: list[float] = []
         for i in range(n):
@@ -268,8 +250,6 @@ def build_trajectory(targets: list[float], cuts: set[int], src_w: int,
         out: list[float] = []
         for i in range(n):
             tgt = seq[min(n - 1, i + look)]
-            # ambang diuji terhadap posisi MENETAP; gerak sesaat (geleng,
-            # menunjuk, badan condong) tidak menggeser median sejauh big.
             beda_tetap = abs(menetap[min(n - 1, i + look)] - cam)
             if cooldown > 0:
                 cooldown -= 1
@@ -292,19 +272,13 @@ def build_trajectory(targets: list[float], cuts: set[int], src_w: int,
                 vel = -max_vel
             cam = tgt + (beda + tmp) * peluruhan
             out.append(cam)
-            # KUNCI ULANG hanya kalau kamera sudah dekat DAN targetnya sendiri
-            # sudah tenang. Tanpa syarat kedua, kamera mengunci di tengah-tengah
-            # orang yang sedang berjalan lalu terpaksa membuka lagi beberapa
-            # frame kemudian — gerakan berhenti-jalan yang justru terlihat
-            # tersendat. Selama subjek masih berpindah, kamera mengikuti terus.
+
             j = min(n - 1, i + look)
             k0 = max(0, j - max(2, int(fps * 0.2)))
             laju = abs(seq[j] - seq[k0]) / max(1, j - k0)
             if abs(tgt - cam) <= settle and laju <= settle * 0.12:
                 geser = False               # sudah sampai → kunci di posisi ini
                 vel = 0.0
-                # JEDA setelah mengunci: tanpa ini kamera bisa langsung memulai
-                # episode berikutnya, menghasilkan rentetan sentakan kecil.
                 cooldown = max(dwell, int(fps * COOLDOWN_GESER_S))
         return out
 
@@ -334,6 +308,30 @@ def build_trajectory(targets: list[float], cuts: set[int], src_w: int,
             cur = bwd
         return cur
 
+    def analyze_motion_profile(seq: list[float]) -> str:
+        """Deteksi profil pergerakan (Smart Stabilizer):
+        - 'DIAM': gerakan minim atau jarang-jarang (orang duduk/bicara santai) -> KUNCI TOTAL (0 px goyang)
+        - 'TERATUR': gerakan satu arah atau perpindahan teratur -> peredaman halus tanpa sentakan
+        - 'KENCANG_TAK_BERATURAN': gerakan cepat & acak (banyak gerak/loncat) -> gimbal stabilizer aktif
+        """
+        if len(seq) < 4:
+            return "DIAM"
+        sp = rentang(seq)
+        if sp <= still_span:
+            return "DIAM"
+
+        diffs = [seq[i] - seq[i - 1] for i in range(1, len(seq))]
+        vels = [abs(d) for d in diffs]
+
+        # Hitung pergantian arah (reversals): mendeteksi getaran/gerak bolak-balik acak
+        reversals = sum(1 for i in range(1, len(diffs)) if diffs[i] * diffs[i - 1] < -1e-5)
+        reversal_ratio = reversals / max(1, len(diffs))
+
+        if reversal_ratio > 0.28 and max(vels) > 0.035 * crop_a:
+            return "KENCANG_TAK_BERATURAN"
+
+        return "TERATUR"
+
     bounds = [0] + sorted(c for c in cuts if 0 < c < len(targets)) + [len(targets)]
     win = max(3, int(fps * 0.9))
     out: list[float] = []
@@ -344,14 +342,14 @@ def build_trajectory(targets: list[float], cuts: set[int], src_w: int,
         # 1) buang derau landmark (median + penghalusan dua arah, non-kausal
         #    sehingga tidak menambah keterlambatan)
         bersih = zero_phase(median3(seg), win)
-        # 2) PUTUSKAN PER SHOT: kunci atau ikuti.
-        if rentang(bersih) <= still_span:
-            # KUNCI: satu angka untuk seluruh shot. Median dipakai (bukan
-            # rata-rata) supaya frame melenceng tidak menggeser kuncian.
+        # 2) PUTUSKAN PER SHOT: Smart Stabilizer
+        profile = analyze_motion_profile(bersih)
+        if profile == "DIAM":
+            # KUNCI TOTAL: satu angka untuk seluruh shot (0 px goyang)
             tetap = sorted(bersih)[len(bersih) // 2]
             out.extend([tetap] * len(seg))
         else:
-            out.extend(stabilize(bersih))
+            out.extend(stabilize(bersih, profile=profile))
 
     # ===== GUARD AKURASI (keluhan: "face tracking gak pas ke orangnya, yang
     # terlihat cuman pundaknya doang") =====

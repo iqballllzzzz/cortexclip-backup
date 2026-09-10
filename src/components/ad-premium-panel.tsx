@@ -28,6 +28,7 @@ type AdPlan = {
 
 type AdStatus = {
   adsense_client: string;
+  free_premium_status?: "open" | "closed" | "hidden";
   plans: AdPlan[];
   target: string | null;
   credits: number;
@@ -77,6 +78,10 @@ export function AdPremiumPanel({ onUpgraded }: { onUpgraded?: () => void }) {
 
   /** Pencet paket → langsung tayangkan iklan (atau tukar kalau kredit cukup). */
   async function mulai(p: AdPlan) {
+    if (st?.free_premium_status === "closed" || st?.free_premium_status === "hidden") {
+      toast.error("Maaf, premium gratis sedang ada kendala.");
+      return;
+    }
     const sudah = st?.target === p.key ? (st?.credits ?? 0) : 0;
     setPlan(p.key);
     kreditRef.current = sudah;
@@ -134,7 +139,7 @@ export function AdPremiumPanel({ onUpgraded }: { onUpgraded?: () => void }) {
     }
   }
 
-  if (!st) return null;
+  if (!st || st.free_premium_status === "hidden") return null;
 
   return (
     <div className="rounded-xl border border-accent/30 bg-accent/5 p-3">

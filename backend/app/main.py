@@ -1251,6 +1251,10 @@ class AdPlanIn(BaseModel):
     plan: str          # day | week | month
 
 
+class FreePremiumStateIn(BaseModel):
+    status: str        # open | closed | hidden
+
+
 @app.get("/api/ads/premium")
 async def api_ad_premium_status(request: Request,
                                 authorization: str | None = Header(None)):
@@ -1270,6 +1274,11 @@ async def api_ad_premium_status(request: Request,
 async def api_ad_premium_watch(body: AdPlanIn, request: Request,
                                authorization: str | None = Header(None)):
     """Catat SATU iklan selesai ditonton untuk paket premium tertentu."""
+    from .free_premium_config import get_free_premium_status
+    st = get_free_premium_status()
+    if st in ("closed", "hidden"):
+        raise HTTPException(400, "Maaf, premium gratis sedang ada kendala.")
+
     user = await get_user(request, authorization)
     from .ad_redeem import record_watch
     from .premium import sb
@@ -1283,6 +1292,11 @@ async def api_ad_premium_watch(body: AdPlanIn, request: Request,
 async def api_ad_premium_redeem(body: AdPlanIn, request: Request,
                                 authorization: str | None = Header(None)):
     """Tukar kredit iklan menjadi premium (watermark hilang selama aktif)."""
+    from .free_premium_config import get_free_premium_status
+    st = get_free_premium_status()
+    if st in ("closed", "hidden"):
+        raise HTTPException(400, "Maaf, premium gratis sedang ada kendala.")
+
     user = await get_user(request, authorization)
     from .ad_redeem import redeem
     from .premium import sb
@@ -1293,6 +1307,88 @@ async def api_ad_premium_redeem(body: AdPlanIn, request: Request,
     if not hasil.get("ok"):
         raise HTTPException(400, hasil.get("reason") or "gagal menukar")
     return hasil
+
+
+# ---- Admin: Pengaturan Status Free Premium (Iklan) -------------------------
+
+@app.get("/api/admin/free-premium")
+async def api_admin_get_free_premium(request: Request, authorization: str | None = Header(None)):
+    await require_admin_user(request, authorization)
+    from .free_premium_config import get_free_premium_status
+    return {"status": get_free_premium_status()}
+
+
+@app.post("/api/admin/free-premium")
+async def api_admin_set_free_premium(body: FreePremiumStateIn, request: Request, authorization: str | None = Header(None)):
+    me = await require_admin_user(request, authorization)
+    from .free_premium_config import set_free_premium_status
+    from .admin_logs import log_system
+    try:
+        st = set_free_premium_status(body.status)
+        log_system("Admin Action", f"Free premium status diubah menjadi: {st.upper()}", user=me["email"], level="WARN")
+        return {"ok": True, "status": st}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+# ---- Admin: Real-Time System & AI Logs ------------------------------------
+
+@app.get("/api/admin/logs/system")
+async def api_admin_get_system_logs(request: Request, authorization: str | None = Header(None), limit: int = 100):
+    await require_admin_user(request, authorization)
+    from .admin_logs import get_system_logs
+    from .limits import resource_status
+    return {
+        "logs": get_system_logs(min(limit, 200)),
+        "resources": resource_status(),
+        "timestamp": time.time()
+    }
+
+
+@app.get("/api/admin/logs/ai")
+async def api_admin_get_ai_logs(request: Request, authorization: str | None = Header(None), limit: int = 100):
+    await require_admin_user(request, authorization)
+    from .admin_logs import get_ai_logs
+    from .hydra import gateway
+    return {
+        "logs": get_ai_logs(min(limit, 200)),
+        "models_status": gateway.status(),
+        "timestamp": time.time()
+    }
+
+
+class FrontendErrorIn(BaseModel):
+    source: str
+    message: str
+    stack: str | None = ""
+
+
+@app.post("/api/logs/error")
+async def api_report_frontend_error(body: FrontendErrorIn, request: Request):
+    """Terima laporan error dari frontend/browser & catat ke admin log."""
+    from .admin_logs import log_error
+    ip = request.headers.get("x-forwarded-for", "") or (request.client.host if request.client else "")
+    log_error(body.source or "Frontend", body.message, stack=body.stack or "", user="browser", ip=ip)
+    return {"ok": True}
+
+
+@app.get("/api/admin/logs/export")
+async def api_admin_export_logs(
+    request: Request,
+    kind: str = "all",      # all | ai | error
+    fmt: str = "json",      # json | txt
+    authorization: str | None = Header(None),
+):
+    """Unduh seluruh log sistem/AI/error sebagai file .json atau .txt."""
+    await require_admin_user(request, authorization)
+    from .admin_logs import export_logs_content
+    from fastapi.responses import Response
+    content, filename, media_type = export_logs_content(kind, fmt)
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1317,15 +1413,8 @@ _UJI_MODEL_STATE: dict[str, Any] = {"jalan": False, "hasil": None, "mulai": 0.0}
 
 @app.post("/api/admin/uji-model")
 async def api_admin_uji_model(request: Request, authorization: str | None = Header(None)):
-    """Jalankan uji SEMUA model di LATAR BELAKANG. Balas seketika.
-
-    Dulu endpoint ini menunggu seluruh uji selesai (174-180 detik karena
-    ada model reasoning yang lambat). Permintaan selama itu menggantung —
-    browser/proxy memutusnya dan panel menampilkan "Failed to fetch".
-    Sekarang POST hanya MEMICU tugas latar dan langsung balas {jalan:true};
-    panel mem-poll /api/admin/uji-model/status sampai selesai.
-    """
-    await require_admin_user(request, authorization)
+    """Jalankan uji SEMUA model di LATAR BELAKANG. Balas seketika. (Hanya Owner)"""
+    await require_owner_user(request, authorization)
     if _UJI_MODEL_STATE["jalan"]:
         return {"jalan": True, "sudah_berjalan": True}
     _UJI_MODEL_STATE.update(jalan=True, mulai=time.time(), hasil=None)
@@ -1395,12 +1484,29 @@ async def admin_overview(authorization: str = Header(None)):
 # Admin panel (login pakai akun Supabase yang profiles.is_admin = true)
 # ---------------------------------------------------------------------------
 
-async def require_admin_user(request: Request, authorization: Optional[str]) -> dict[str, Any]:
+OWNER_EMAIL = "admin@cortexclip.app"
+OWNER_USER_ID = "d6a7ffe1-8168-4df4-848c-2ad4dac25835"
+
+def is_owner_account(user: dict[str, Any]) -> bool:
+    """Mengecek apakah akun adalah Owner / Superadmin utama (Iqbal)."""
+    return (
+        user.get("id") == OWNER_USER_ID or
+        str(user.get("email", "")).strip().lower() == OWNER_EMAIL.lower()
+    )
+
+async def require_admin_user(request: Request, authorization: str | None = Header(None)) -> dict[str, Any]:
     """Verifikasi JWT user + pastikan dia admin. Return user dict."""
     from . import admin as admin_mod
     user = await get_user(request, authorization, check_ban=False)
     if not await admin_mod.is_admin(user["id"]):
         raise HTTPException(403, "Akses ditolak — akun ini bukan admin.")
+    return user
+
+async def require_owner_user(request: Request, authorization: str | None = Header(None)) -> dict[str, Any]:
+    """Wajib akun Owner / Superadmin (Iqbal). Sub-admin ditolak (403)."""
+    user = await require_admin_user(request, authorization)
+    if not is_owner_account(user):
+        raise HTTPException(403, "Akses ditolak: Aksi ini hanya dapat dilakukan oleh Owner (Iqbal).")
     return user
 
 
@@ -1417,8 +1523,12 @@ class AdminFlagIn(BaseModel):
     is_admin: bool
 
 
+class PricingUpdateIn(BaseModel):
+    plans: dict[str, Any]
+
+
 @app.get("/api/me/status")
-async def api_me_status(request: Request, authorization: Optional[str] = Header(None)):
+async def api_me_status(request: Request, authorization: str | None = Header(None)):
     """Status akun untuk frontend: admin?, diban?, plan, kuota.
 
     Sengaja TIDAK memblokir user yang diban — halaman ban butuh endpoint ini.
@@ -1432,18 +1542,21 @@ async def api_me_status(request: Request, authorization: Optional[str] = Header(
     return {
         "user": {"id": user["id"], "email": user["email"]},
         "is_admin": await admin_mod.is_admin(user["id"]),
+        "is_owner": is_owner_account(user),
         "ban": ban,
         "quota": quota,
     }
 
 
 @app.post("/api/me/login-event")
-async def api_me_login_event(request: Request, authorization: Optional[str] = Header(None)):
+async def api_me_login_event(request: Request, authorization: str | None = Header(None)):
     from . import admin as admin_mod
+    from .admin_logs import log_system
     user = await get_user(request, authorization, check_ban=False)
     ua = request.headers.get("user-agent", "")
     ip = request.headers.get("x-forwarded-for", "") or (request.client.host if request.client else "")
     await admin_mod.record_login(user["id"], ua, ip)
+    log_system("User Activity", f"Pengguna aktif di platform (IP: {ip})", user=user["email"], ip=ip)
     return {"ok": True}
 
 
@@ -1485,12 +1598,12 @@ async def api_admin_user_detail(user_id: str, request: Request,
 
 @app.post("/api/admin/users/{user_id}/ban")
 async def api_admin_ban(user_id: str, body: BanIn, request: Request,
-                        authorization: Optional[str] = Header(None)):
+                        authorization: str | None = Header(None)):
     from . import admin as admin_mod
-    me = await require_admin_user(request, authorization)
+    me = await require_owner_user(request, authorization)
     ensure_uuid(user_id, "User")
-    if user_id == me["id"]:
-        raise HTTPException(400, "Tidak bisa mem-ban akun sendiri.")
+    if user_id == me["id"] or user_id == OWNER_USER_ID:
+        raise HTTPException(403, "Akun Owner / Superadmin tidak dapat diban.")
     try:
         return await admin_mod.ban_user(me["id"], user_id, body.duration, body.reason or "")
     except ValueError as exc:
@@ -1499,19 +1612,21 @@ async def api_admin_ban(user_id: str, body: BanIn, request: Request,
 
 @app.post("/api/admin/users/{user_id}/unban")
 async def api_admin_unban(user_id: str, request: Request,
-                          authorization: Optional[str] = Header(None)):
+                          authorization: str | None = Header(None)):
     from . import admin as admin_mod
-    me = await require_admin_user(request, authorization)
+    me = await require_owner_user(request, authorization)
     ensure_uuid(user_id, "User")
     return await admin_mod.unban_user(me["id"], user_id)
 
 
 @app.post("/api/admin/users/{user_id}/plan")
 async def api_admin_set_plan(user_id: str, body: PlanIn, request: Request,
-                             authorization: Optional[str] = Header(None)):
+                             authorization: str | None = Header(None)):
     from . import admin as admin_mod
-    me = await require_admin_user(request, authorization)
+    me = await require_owner_user(request, authorization)
     ensure_uuid(user_id, "User")
+    if user_id == OWNER_USER_ID:
+        raise HTTPException(403, "Plan akun Owner / Superadmin tidak dapat diubah.")
     try:
         return await admin_mod.set_plan(me["id"], user_id, body.plan)
     except ValueError as exc:
@@ -1520,20 +1635,24 @@ async def api_admin_set_plan(user_id: str, body: PlanIn, request: Request,
 
 @app.post("/api/admin/users/{user_id}/admin-flag")
 async def api_admin_set_admin(user_id: str, body: AdminFlagIn, request: Request,
-                              authorization: Optional[str] = Header(None)):
+                              authorization: str | None = Header(None)):
     from . import admin as admin_mod
-    me = await require_admin_user(request, authorization)
+    me = await require_owner_user(request, authorization)
     ensure_uuid(user_id, "User")
+    if user_id == OWNER_USER_ID:
+        raise HTTPException(403, "Status akun Owner / Superadmin tidak dapat diubah.")
     if user_id == me["id"] and not body.is_admin:
         raise HTTPException(400, "Tidak bisa mencabut akses admin dari diri sendiri.")
     return await admin_mod.set_admin(me["id"], user_id, body.is_admin)
 
 
 @app.delete("/api/admin/users/{user_id}")
-async def api_admin_delete_user(user_id: str, request: Request, authorization: Optional[str] = Header(None)):
+async def api_admin_delete_user(user_id: str, request: Request, authorization: str | None = Header(None)):
     from . import admin as admin_mod
-    me = await require_admin_user(request, authorization)
+    me = await require_owner_user(request, authorization)
     ensure_uuid(user_id, "User")
+    if user_id == OWNER_USER_ID:
+        raise HTTPException(403, "Akun Owner / Superadmin tidak dapat dihapus.")
     try:
         return await admin_mod.delete_user(me["id"], user_id)
     except ValueError as exc:
@@ -1543,14 +1662,94 @@ async def api_admin_delete_user(user_id: str, request: Request, authorization: O
 
 
 @app.delete("/api/admin/users/{user_id}/projects")
-async def api_admin_delete_user_projects(user_id: str, request: Request, authorization: Optional[str] = Header(None)):
+async def api_admin_delete_user_projects(user_id: str, request: Request, authorization: str | None = Header(None)):
     from . import admin as admin_mod
-    me = await require_admin_user(request, authorization)
+    me = await require_owner_user(request, authorization)
     ensure_uuid(user_id, "User")
+    if user_id == OWNER_USER_ID:
+        raise HTTPException(403, "Proyek akun Owner / Superadmin tidak dapat dihapus oleh pihak lain.")
     try:
         return await admin_mod.delete_user_projects(me["id"], user_id)
     except Exception as exc:
         raise HTTPException(500, f"Gagal menghapus project user: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Pengaturan Harga Paket Premium Dinamis
+# ---------------------------------------------------------------------------
+
+@app.get("/api/admin/pricing")
+async def api_admin_get_pricing(request: Request, authorization: str | None = Header(None)):
+    await require_admin_user(request, authorization)
+    from .pricing_config import get_pricing_plans, DEFAULT_PLANS
+    return {
+        "current": get_pricing_plans(),
+        "defaults": DEFAULT_PLANS,
+    }
+
+
+@app.post("/api/admin/pricing")
+async def api_admin_update_pricing(body: PricingUpdateIn, request: Request, authorization: str | None = Header(None)):
+    await require_admin_user(request, authorization)
+    from .pricing_config import set_pricing_plans
+    from .admin_logs import log_system
+    updated = set_pricing_plans(body.plans)
+    log_system("Admin Action", "Owner memperbarui harga & diskon paket premium", user="owner")
+    return {"ok": True, "plans": updated}
+
+
+@app.post("/api/admin/pricing/reset")
+async def api_admin_reset_pricing(request: Request, authorization: str | None = Header(None)):
+    await require_admin_user(request, authorization)
+    from .pricing_config import reset_pricing_plans
+    from .admin_logs import log_system
+    reset_plans = reset_pricing_plans()
+    log_system("Admin Action", "Owner me-reset harga paket premium ke default", user="owner")
+    return {"ok": True, "plans": reset_plans}
+
+
+
+class AdminRequestIn(BaseModel):
+    action_type: str
+    target_user_id: str
+    target_email: str
+    payload: dict
+    reason: str
+
+@app.post("/api/admin/requests")
+async def api_admin_submit_request(body: AdminRequestIn, request: Request, authorization: str | None = Header(None)):
+    from . import admin as admin_mod
+    me = await require_admin_user(request, authorization)
+    if is_owner_account(me):
+        raise HTTPException(400, "Owner tidak perlu meminta izin.")
+    try:
+        return await admin_mod.submit_admin_request(me, body)
+    except Exception as exc:
+        raise HTTPException(500, f"Gagal membuat permohonan: {exc}")
+
+@app.get("/api/admin/requests/pending")
+async def api_admin_get_pending_requests(request: Request, authorization: str | None = Header(None)):
+    me = await require_admin_user(request, authorization)
+    from . import admin as admin_mod
+    return await admin_mod.get_pending_requests(me)
+    
+@app.post("/api/admin/requests/{request_id}/approve")
+async def api_admin_approve_request(request_id: str, request: Request, authorization: str | None = Header(None)):
+    me = await require_owner_user(request, authorization)
+    from . import admin as admin_mod
+    try:
+        return await admin_mod.approve_admin_request(me["id"], request_id)
+    except Exception as exc:
+        raise HTTPException(400, str(exc))
+
+@app.post("/api/admin/requests/{request_id}/reject")
+async def api_admin_reject_request(request_id: str, request: Request, authorization: str | None = Header(None)):
+    me = await require_owner_user(request, authorization)
+    from . import admin as admin_mod
+    try:
+        return await admin_mod.reject_admin_request(me["id"], request_id)
+    except Exception as exc:
+        raise HTTPException(400, str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -1715,11 +1914,42 @@ class RegisterOtpIn(BaseModel):
 
 
 @app.post("/api/auth/register-otp")
-async def api_register_otp(body: RegisterOtpIn):
+async def api_register_otp(
+    body: RegisterOtpIn,
+    request: Request,
+    x_turnstile_token: Optional[str] = Header(None, alias="X-Turnstile-Token"),
+):
     """Daftar akun unconfirmed di GoTrue, buat kode OTP 6 angka, dan kirim via email."""
+    from .anti_bot import is_disposable_email, is_suspicious_bot, check_ip_rate_limit, verify_turnstile_token
+    from .admin_logs import log_system
+
+    ip = request.headers.get("x-forwarded-for", "") or (request.client.host if request.client else "127.0.0.1")
+    ua = request.headers.get("user-agent", "")
+
+    # 1. Anti-Bot / Anti-Headless checks
+    if is_suspicious_bot(ua, dict(request.headers)):
+        log_system("Security Alert", f"Blokir akses bot/headless browser: {ua[:50]} (IP: {ip})", level="WARNING")
+        raise HTTPException(403, "Akses ditolak: Terdeteksi aktivitas bot otomatis.")
+
+    # 2. Anti-Spam Rate Limit per IP
+    if not check_ip_rate_limit(ip):
+        log_system("Security Alert", f"Blokir spam pendaftaran: Terlalu banyak akun dari IP {ip}", level="WARNING")
+        raise HTTPException(429, "Terlalu banyak permintaan pendaftaran. Silakan coba lagi nanti.")
+
+    # 3. Cloudflare Turnstile Verification
+    token = x_turnstile_token or request.headers.get("cf-turnstile-response") or ""
+    if not await verify_turnstile_token(token, remote_ip=ip):
+        raise HTTPException(403, "Verifikasi keamanan Cloudflare Turnstile gagal. Silakan muat ulang halaman.")
+
     clean_email = body.email.strip().lower()
     if not clean_email or "@" not in clean_email:
         raise HTTPException(400, "Format email tidak valid.")
+
+    # 4. Anti-Nuyul: Blokir Temporary / Disposable Email
+    if is_disposable_email(clean_email):
+        log_system("Security Alert", f"Blokir pendaftaran email sementara/disposable: {clean_email} (IP: {ip})", level="WARNING")
+        raise HTTPException(400, "Penggunaan email sementara/disposable dilarang. Gunakan email resmi (Gmail, Yahoo, dll).")
+
     if len(body.password) < 6:
         raise HTTPException(400, "Password minimal 6 karakter.")
 
@@ -1787,10 +2017,19 @@ async def api_register_otp(body: RegisterOtpIn):
 
 @app.get("/api/premium/plans")
 async def api_premium_plans():
-    from .premium import PLANS
+    from .pricing_config import get_pricing_plans
+    plans = get_pricing_plans()
     return {"plans": [
-        {"key": k, "label": v["label"], "amount": v["amount"], "days": v["days"]}
-        for k, v in PLANS.items()
+        {
+            "key": k,
+            "label": v["label"],
+            "amount": v["amount"],
+            "original_amount": v.get("original_amount", v["amount"]),
+            "discount_percent": v.get("discount_percent", 0),
+            "discount_label": v.get("discount_label", ""),
+            "days": v["days"],
+        }
+        for k, v in plans.items()
     ]}
 
 

@@ -1,0 +1,16 @@
+[Unit]
+Description=CortexClip Frontend (Nitro :8080)
+After=network.target
+
+[Service]
+Type=simple
+User=muhiqbalsukarno
+WorkingDirectory=/home/muhiqbalsukarno/cortexclip-backup
+ExecStart=/usr/bin/node .output/server/index.mjs
+Environment=PORT=8080
+Environment=HOME=/home/muhiqbalsukarno
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

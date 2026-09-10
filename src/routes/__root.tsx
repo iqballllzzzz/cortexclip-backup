@@ -126,9 +126,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 });
 
 function RootShell({ children }: { children: ReactNode }) {
-  // Tema bawaan TERANG: terapkan sebelum paint (anti flash). Pilihan user
+  // Tema bawaan GELAP: terapkan sebelum paint (anti flash). Pilihan user
   // di localStorage meng-override; halaman app juga bisa toggle live.
-  const themeScript = `(function(){try{var t=localStorage.getItem("cortexclip-theme");if(t==="dark"){document.documentElement.classList.add("dark")}}catch(e){}})();`;
+  const themeScript = `(function(){try{var t=localStorage.getItem("cortexclip-theme");if(t!=="light"){document.documentElement.classList.add("dark")}}catch(e){}})();`;
 
   // Setelah deploy baru, hash asset berubah. Tab lama yang masih memegang HTML
   // versi sebelumnya meminta /assets/<hash-lama>.js → server balas 500/404 →

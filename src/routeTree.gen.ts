@@ -19,6 +19,7 @@ import { Route as StudioRouteImport } from './routes/studio'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedPengaturanRouteImport } from './routes/_authenticated/pengaturan'
 import { Route as AuthenticatedUnduhRouteImport } from './routes/_authenticated/unduh'
+import { Route as AdminLogRouteImport } from './routes/admin.log'
 import { Route as DocsBatasRouteImport } from './routes/docs/batas'
 import { Route as DocsCustomLogoRouteImport } from './routes/docs/custom-logo'
 import { Route as DocsEditorRouteImport } from './routes/docs/editor'
@@ -31,6 +32,7 @@ import { Route as DocsWhatIsCortexclipaiRouteImport } from './routes/docs/what-i
 import { Route as ShareTokenRouteImport } from './routes/share.$token'
 import { Route as AuthenticatedEditorClipIdRouteImport } from './routes/_authenticated/editor.$clipId'
 import { Route as AuthenticatedProjectsProjectIdRouteImport } from './routes/_authenticated/projects.$projectId'
+import { Route as AdminLogSystemaiRouteImport } from './routes/admin.log.systemai'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -80,6 +82,11 @@ const AuthenticatedUnduhRoute = AuthenticatedUnduhRouteImport.update({
   id: '/unduh',
   path: '/unduh',
   getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AdminLogRoute = AdminLogRouteImport.update({
+  id: '/log',
+  path: '/log',
+  getParentRoute: () => AdminRoute,
 } as any)
 const DocsBatasRoute = DocsBatasRouteImport.update({
   id: '/batas',
@@ -143,10 +150,15 @@ const AuthenticatedProjectsProjectIdRoute =
     path: '/projects/$projectId',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AdminLogSystemaiRoute = AdminLogSystemaiRouteImport.update({
+  id: '/systemai',
+  path: '/systemai',
+  getParentRoute: () => AdminLogRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/admin': typeof AdminRoute
+  '/admin': typeof AdminRouteWithChildren
   '/auth': typeof AuthRoute
   '/docs': typeof DocsRouteWithChildren
   '/reset-password': typeof ResetPasswordRoute
@@ -154,6 +166,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/pengaturan': typeof AuthenticatedPengaturanRoute
   '/unduh': typeof AuthenticatedUnduhRoute
+  '/admin/log': typeof AdminLogRouteWithChildren
   '/docs/batas': typeof DocsBatasRoute
   '/docs/custom-logo': typeof DocsCustomLogoRoute
   '/docs/editor': typeof DocsEditorRoute
@@ -166,10 +179,11 @@ export interface FileRoutesByFullPath {
   '/share/$token': typeof ShareTokenRoute
   '/editor/$clipId': typeof AuthenticatedEditorClipIdRoute
   '/projects/$projectId': typeof AuthenticatedProjectsProjectIdRoute
+  '/admin/log/systemai': typeof AdminLogSystemaiRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/admin': typeof AdminRoute
+  '/admin': typeof AdminRouteWithChildren
   '/auth': typeof AuthRoute
   '/docs': typeof DocsRouteWithChildren
   '/reset-password': typeof ResetPasswordRoute
@@ -177,6 +191,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/pengaturan': typeof AuthenticatedPengaturanRoute
   '/unduh': typeof AuthenticatedUnduhRoute
+  '/admin/log': typeof AdminLogRouteWithChildren
   '/docs/batas': typeof DocsBatasRoute
   '/docs/custom-logo': typeof DocsCustomLogoRoute
   '/docs/editor': typeof DocsEditorRoute
@@ -189,12 +204,13 @@ export interface FileRoutesByTo {
   '/share/$token': typeof ShareTokenRoute
   '/editor/$clipId': typeof AuthenticatedEditorClipIdRoute
   '/projects/$projectId': typeof AuthenticatedProjectsProjectIdRoute
+  '/admin/log/systemai': typeof AdminLogSystemaiRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
-  '/admin': typeof AdminRoute
+  '/admin': typeof AdminRouteWithChildren
   '/auth': typeof AuthRoute
   '/docs': typeof DocsRouteWithChildren
   '/reset-password': typeof ResetPasswordRoute
@@ -202,6 +218,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/pengaturan': typeof AuthenticatedPengaturanRoute
   '/_authenticated/unduh': typeof AuthenticatedUnduhRoute
+  '/admin/log': typeof AdminLogRouteWithChildren
   '/docs/batas': typeof DocsBatasRoute
   '/docs/custom-logo': typeof DocsCustomLogoRoute
   '/docs/editor': typeof DocsEditorRoute
@@ -214,6 +231,7 @@ export interface FileRoutesById {
   '/share/$token': typeof ShareTokenRoute
   '/_authenticated/editor/$clipId': typeof AuthenticatedEditorClipIdRoute
   '/_authenticated/projects/$projectId': typeof AuthenticatedProjectsProjectIdRoute
+  '/admin/log/systemai': typeof AdminLogSystemaiRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -227,6 +245,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/pengaturan'
     | '/unduh'
+    | '/admin/log'
     | '/docs/batas'
     | '/docs/custom-logo'
     | '/docs/editor'
@@ -239,6 +258,7 @@ export interface FileRouteTypes {
     | '/share/$token'
     | '/editor/$clipId'
     | '/projects/$projectId'
+    | '/admin/log/systemai'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -250,6 +270,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/pengaturan'
     | '/unduh'
+    | '/admin/log'
     | '/docs/batas'
     | '/docs/custom-logo'
     | '/docs/editor'
@@ -262,6 +283,7 @@ export interface FileRouteTypes {
     | '/share/$token'
     | '/editor/$clipId'
     | '/projects/$projectId'
+    | '/admin/log/systemai'
   id:
     | '__root__'
     | '/'
@@ -274,6 +296,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard'
     | '/_authenticated/pengaturan'
     | '/_authenticated/unduh'
+    | '/admin/log'
     | '/docs/batas'
     | '/docs/custom-logo'
     | '/docs/editor'
@@ -286,12 +309,13 @@ export interface FileRouteTypes {
     | '/share/$token'
     | '/_authenticated/editor/$clipId'
     | '/_authenticated/projects/$projectId'
+    | '/admin/log/systemai'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
-  AdminRoute: typeof AdminRoute
+  AdminRoute: typeof AdminRouteWithChildren
   AuthRoute: typeof AuthRoute
   DocsRoute: typeof DocsRouteWithChildren
   ResetPasswordRoute: typeof ResetPasswordRoute
@@ -370,6 +394,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/unduh'
       preLoaderRoute: typeof AuthenticatedUnduhRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/admin/log': {
+      id: '/admin/log'
+      path: '/log'
+      fullPath: '/admin/log'
+      preLoaderRoute: typeof AdminLogRouteImport
+      parentRoute: typeof AdminRoute
     }
     '/docs/batas': {
       id: '/docs/batas'
@@ -455,6 +486,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedProjectsProjectIdRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/admin/log/systemai': {
+      id: '/admin/log/systemai'
+      path: '/systemai'
+      fullPath: '/admin/log/systemai'
+      preLoaderRoute: typeof AdminLogSystemaiRouteImport
+      parentRoute: typeof AdminLogRoute
+    }
   }
 }
 
@@ -476,6 +514,28 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
 
 const AuthenticatedRouteRouteWithChildren =
   AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
+
+interface AdminLogRouteChildren {
+  AdminLogSystemaiRoute: typeof AdminLogSystemaiRoute
+}
+
+const AdminLogRouteChildren: AdminLogRouteChildren = {
+  AdminLogSystemaiRoute: AdminLogSystemaiRoute,
+}
+
+const AdminLogRouteWithChildren = AdminLogRoute._addFileChildren(
+  AdminLogRouteChildren,
+)
+
+interface AdminRouteChildren {
+  AdminLogRoute: typeof AdminLogRouteWithChildren
+}
+
+const AdminRouteChildren: AdminRouteChildren = {
+  AdminLogRoute: AdminLogRouteWithChildren,
+}
+
+const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 
 interface DocsRouteChildren {
   DocsBatasRoute: typeof DocsBatasRoute
@@ -506,7 +566,7 @@ const DocsRouteWithChildren = DocsRoute._addFileChildren(DocsRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
-  AdminRoute: AdminRoute,
+  AdminRoute: AdminRouteWithChildren,
   AuthRoute: AuthRoute,
   DocsRoute: DocsRouteWithChildren,
   ResetPasswordRoute: ResetPasswordRoute,

@@ -56,12 +56,9 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 #
 # Kenapa bisa: pemrosesan jalan di VPS sendiri (bukan GPU sewaan per menit),
 # dan STT/LLM memakai rantai penyedia gratis dengan failover (hydra.py).
-PLANS: dict[str, dict[str, Any]] = {
-    "day":   {"label": "1 Hari",  "days": 1,   "amount": 5000},
-    "5day":  {"label": "5 Hari",  "days": 5,   "amount": 19000},
-    "month": {"label": "1 Bulan", "days": 30,  "amount": 89000},
-    "year":  {"label": "1 Tahun", "days": 365, "amount": 299000},
-}
+from .pricing_config import get_pricing_plans
+
+PLANS: dict[str, dict[str, Any]] = get_pricing_plans()
 # Dipakai UI untuk menunjukkan penghematan nyata, bukan klaim kosong.
 # Angka pesaing WAJIB berasal dari halaman harga resmi mereka; kalau berubah,
 # perbarui di sini supaya satu sumber kebenaran.
@@ -149,7 +146,8 @@ async def quota_check_project(user_id: str) -> dict[str, Any]:
 
 
 async def grant_premium(user_id: str, plan_key: str) -> str:
-    plan = PLANS[plan_key]
+    plans = get_pricing_plans()
+    plan = plans[plan_key]
     rows = await sb("GET", f"profiles?user_id=eq.{user_id}&select=premium_until")
     base = datetime.now(timezone.utc)
     if rows and rows[0].get("premium_until"):
@@ -225,9 +223,10 @@ async def pakasir_cancel(order_id: str, amount: int) -> bool:
 
 
 async def create_checkout(user_id: str, plan_key: str) -> dict[str, Any]:
-    if plan_key not in PLANS:
+    plans = get_pricing_plans()
+    if plan_key not in plans:
         raise ValueError("Plan tidak dikenal")
-    plan = PLANS[plan_key]
+    plan = plans[plan_key]
     order_id = f"CX-{uuid.uuid4().hex[:10].upper()}"
     pay = await pakasir_create_qris(order_id, plan["amount"])
     # `expired_at` hanya dikembalikan saat create (tidak ada di transactiondetail),

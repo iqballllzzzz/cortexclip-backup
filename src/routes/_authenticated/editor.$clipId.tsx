@@ -84,7 +84,7 @@ const TOOLS: { id: ToolId; label: string; Icon: typeof Hash }[] = [
   { id: "subtitle", label: "Subtitle", Icon: Subtitles },
   { id: "teks", label: "Transkrip", Icon: Type },
   { id: "info", label: "Deskripsi", Icon: Hash },
-  { id: "broll", label: "Ikon", Icon: Sticker },
+  { id: "broll", label: "Lainnya", Icon: Sticker },
 ];
 
 interface Placement {
@@ -912,7 +912,7 @@ function EditorPage() {
             ruang nyata — dulu `shrink-0` + anak `flex-1` menghasilkan tinggi
             konten 38px alias preview mini — dan (b) panel tool dapat sisa
             layar yang pasti. DESKTOP: kolom mengisi sisa lebar seperti biasa. */}
-        <div className="flex h-[74dvh] shrink-0 flex-col items-center gap-2 border-b border-border bg-surface/30 px-2 py-2 lg:h-auto lg:min-h-0 lg:min-w-0 lg:flex-1 lg:border-b-0 lg:border-r lg:px-4 lg:py-4">
+        <div className="flex h-[52dvh] shrink-0 flex-col items-center gap-2 border-b border-border bg-surface/30 px-2 py-2 lg:h-auto lg:min-h-0 lg:min-w-0 lg:flex-1 lg:border-b-0 lg:border-r lg:px-4 lg:py-4">
           {/* PREVIEW + TOMBOL TITIK-TIGA DI KANANNYA (di luar kotak video):
               permintaan pengguna: "kasih tombol titik tiga di kanan nya
               preview alias diluar preview" — tombol edit di kolom sempit
@@ -945,6 +945,22 @@ function EditorPage() {
                     className="absolute inset-0 size-full object-cover"
                     onClick={togglePlay}
                     onLoadedMetadata={handleLoadedMetadata}
+                    onTimeUpdate={() => {
+                      const v = videoRef.current;
+                      const c = clipRef.current;
+                      if (v && c) {
+                        const raw = c.preview_url ? v.currentTime : v.currentTime - Number(c.start_time);
+                        setTime(Math.max(0, Math.min(duration, raw)));
+                      }
+                    }}
+                    onSeeked={() => {
+                      const v = videoRef.current;
+                      const c = clipRef.current;
+                      if (v && c) {
+                        const raw = c.preview_url ? v.currentTime : v.currentTime - Number(c.start_time);
+                        setTime(Math.max(0, Math.min(duration, raw)));
+                      }
+                    }}
                     onEnded={() => setPlaying(false)}
                     onPlay={() => setPlaying(true)}
                     onPause={() => setPlaying(false)}
@@ -1131,25 +1147,25 @@ function EditorPage() {
 
           {/* ————— TRANSPORT BAR: tombol BESAR & JELAS (permintaan: "toolbar
               nya naikin biar lebih keliatan") — play 56px, ±5s 48px ————— */}
-          <div className="flex w-full max-w-[560px] shrink-0 items-center gap-2">
+          <div className="flex w-full max-w-[560px] shrink-0 items-center gap-1.5">
             <button
               type="button"
               onClick={() => nudge(-5)}
-              className="grid size-12 shrink-0 place-items-center rounded-xl border border-border bg-card text-[13px] font-bold tabular-nums text-foreground transition-colors hover:border-accent/60 hover:text-accent active:scale-95"
+              className="grid size-10 shrink-0 place-items-center rounded-xl border border-border bg-card text-[12px] font-bold tabular-nums text-foreground transition-colors hover:border-accent/60 hover:text-accent active:scale-95"
               aria-label="Mundur 5 detik"
             >−5s</button>
             <button
               type="button"
               onClick={togglePlay}
-              className="grid size-14 shrink-0 place-items-center rounded-2xl bg-accent text-accent-foreground shadow-lg shadow-accent/30 transition-transform hover:brightness-105 active:scale-95"
+              className="grid size-11 shrink-0 place-items-center rounded-2xl bg-accent text-accent-foreground shadow-lg shadow-accent/30 transition-transform hover:brightness-105 active:scale-95"
               aria-label={playing ? "Jeda" : "Putar"}
             >
-              {playing ? <Pause className="size-7" /> : <Play className="size-7 translate-x-0.5" />}
+              {playing ? <Pause className="size-5" /> : <Play className="size-5 translate-x-0.5" />}
             </button>
             <button
               type="button"
               onClick={() => nudge(5)}
-              className="grid size-12 shrink-0 place-items-center rounded-xl border border-border bg-card text-[13px] font-bold tabular-nums text-foreground transition-colors hover:border-accent/60 hover:text-accent active:scale-95"
+              className="grid size-10 shrink-0 place-items-center rounded-xl border border-border bg-card text-[12px] font-bold tabular-nums text-foreground transition-colors hover:border-accent/60 hover:text-accent active:scale-95"
               aria-label="Maju 5 detik"
             >+5s</button>
 
@@ -1572,7 +1588,7 @@ function ToggleRow({ label, desc, enabled, onChange }: {
         aria-checked={enabled}
         aria-label={label}
         onClick={() => onChange(!enabled)}
-        className={`relative w-9 shrink-0 rounded-full transition-colors ${enabled ? "bg-accent" : "bg-border"}`}
+        className={`relative w-9 shrink-0 rounded-full transition-colors ${enabled ? "bg-accent" : "bg-foreground/20"}`}
         style={{ height: 20 }}
       >
         <span className={`absolute top-0.5 size-4 rounded-full bg-white shadow transition-all ${enabled ? "left-[19px]" : "left-0.5"}`} />

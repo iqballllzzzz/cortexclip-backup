@@ -98,27 +98,17 @@ SCENE_CUT_DIFF = 22.0     # ambang potongan adegan (beda rata-rata piksel)
 # dalam amplitudo kecil, karena target keluar-masuk zona mati terus-menerus dan
 # pegas selalu menyimpan sedikit kecepatan. Itu yang terlihat sebagai
 # "goyang-goyang" pada podcast orang duduk.
-STILL_SPAN_FRAC = 0.16    # sebaran target < 16% lebar crop → kamera DIKUNCI
-SMOOTH_TIME_S = 0.55      # perkiraan waktu kamera mencapai target (SmoothDamp)
+STILL_SPAN_FRAC = 0.24    # sebaran target < 24% lebar crop → kamera DIKUNCI (Smart lock)
+SMOOTH_TIME_S = 0.60      # perkiraan waktu kamera mencapai target (SmoothDamp)
 # KAPAN kamera BOLEH bergerak di dalam satu shot. User: "geleng-geleng, goyang-
 # goyang, nunjukin — itu JANGAN di-stabilizer; kalau jalan-jalan, loncat-loncat,
 # baru diarahkan." Jadi kamera diam PERSIS sampai target benar-benar pindah
 # tempat: jauh (BIG_MOVE_FRAC) DAN bertahan lama (DWELL_S). Setelah sampai
 # (SETTLE_FRAC) kamera mengunci lagi.
-BIG_MOVE_FRAC = 0.35      # target harus menjauh > 35% lebar crop
-                          # (0.20 terukur terlalu sensitif: geleng besar,
-                          # badan condong, dan menunjuk sudah memicu geser →
-                          # kamera "over" bergerak hampir sepanjang klip)
-DWELL_S = 0.90            # dan bertahan 0.9 detik (geleng biasanya < 0.4 s;
-                          # condong badan < 0.7 s) — hanya pindah tempat
-                          # sungguhan yang lolos
-SETTLE_FRAC = 0.05        # selisih <= 5% lebar crop → kunci ulang
-COOLDOWN_GESER_S = 1.20   # setelah kamera mengunci, DIAM minimal sekian detik
-                          # sebelum boleh bergerak lagi. Tanpa ini kamera
-                          # memulai episode baru tiap beberapa frame: terukur
-                          # 16 episode 0,07s dalam satu klip 62s — mata membaca
-                          # itu sebagai goyang & patah-patah, bukan sebagai
-                          # "kamera mengikuti".
+BIG_MOVE_FRAC = 0.30      # target harus menjauh > 30% lebar crop
+DWELL_S = 0.80            # dan bertahan 0.8 detik
+SETTLE_FRAC = 0.06        # selisih <= 6% lebar crop → kunci ulang
+COOLDOWN_GESER_S = 1.40   # setelah kamera mengunci, DIAM minimal 1.4s sebelum boleh geser lagi
 # Pemutus seri sinkron audio (dipakai HANYA saat dua skor mulut berdekatan)
 AV_TIE_RATIO = 0.70       # kandidat >= 70% skor yang disorot = dianggap "dekat"
 AV_TIE_MARGIN = 0.20      # dan sinkron audionya harus lebih baik >= 0.20

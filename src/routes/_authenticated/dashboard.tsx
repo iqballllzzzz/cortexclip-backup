@@ -426,6 +426,14 @@ function Dashboard() {
               Tempel link atau unggah video panjang — sisanya AI yang kerjakan di server.
             </p>
             <div className="mt-4 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPremiumOpen(true)}
+                className="inline-flex items-center gap-2 rounded-xl border border-amber-500/40 bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-amber-500/20 px-3.5 py-2 text-xs font-semibold text-amber-300 hover:border-amber-400 hover:from-amber-500/30 hover:to-orange-500/30 transition-all shadow-sm active:scale-[0.98]"
+              >
+                <Crown className="size-3.5 text-amber-400 fill-amber-400/30 animate-pulse" />
+                <span>Upgrade ke Premium</span>
+              </button>
               <Link
                 to="/unduh"
                 className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-3.5 py-2 text-xs font-semibold text-foreground hover:border-accent/40 hover:bg-surface transition-colors shadow-sm"

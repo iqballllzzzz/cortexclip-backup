@@ -416,26 +416,10 @@ def build_sendcmd_file(trajectory: list[float], src_w: int, src_h: int,
         nonlocal last_written, last_roll
         x = max(0, min(max_x, int(round(cx - crop_w / 2))))
         tulis_x = force or last_written is None or x != last_written
-        # rotate ditulis hanya kalau berubah >= 0.15 derajat: menulis tiap frame
-        # membuat berkas sendcmd membengkak tanpa efek yang terlihat
-        tulis_r = (roll is not None
-                   and (last_roll is None or abs(roll - last_roll) >= 0.15))
-        if not tulis_x and not tulis_r:
+        if not tulis_x:
             return
-        bagian: list[str] = []
-        if tulis_x:
-            bagian.append(f"crop x {x}")
-            last_written = x
-        if tulis_r and roll is not None:
-            # rotate memakai RADIAN; balik arah untuk meluruskan
-            bagian.append(f"rotate a {-math.radians(roll):.5f}")
-            last_roll = roll
-        # PENTING: beberapa perintah pada SATU waktu dipisah KOMA, bukan
-        # titik-koma. Titik-koma memisahkan interval, jadi
-        # "crop x 875; rotate a 0.1;" dibaca ffmpeg sebagai interval baru yang
-        # dimulai pada waktu bernama "rotate" → "Invalid start time
-        # specification 'rotate' in interval #1".
-        lines.append(f"{t:.3f} " + ", ".join(bagian) + ";")
+        last_written = x
+        lines.append(f"{t:.3f} crop x {x};")
 
     def roll_at(i: int) -> Optional[float]:
         if not rolls:
@@ -456,16 +440,14 @@ def build_sendcmd_file(trajectory: list[float], src_w: int, src_h: int,
             emit(t_i, cx_i, roll=roll_at(i))
         if i + 1 < n and (i + 1) not in cut_set:
             cx_next = trajectory[i + 1]
-            r_i = roll_at(i)
-            r_next = roll_at(i + 1)
-            # sisipkan titik antara supaya pergerakan mulus
+            # Sisipkan titik antara dengan kurva Smoothstep (Cubic ease-in-out):
+            # Memastikan percepatan dan perlambatan kamera mulus alami layaknya operator kamera pro (paparazzi style)
             sub = int(step)
             for k in range(1, sub):
                 f = k / step
-                r_mid = (None if r_i is None or r_next is None
-                         else r_i + (r_next - r_i) * f)
+                ease = f * f * (3.0 - 2.0 * f)
                 emit(t_i + (k / max(1.0, out_fps)),
-                     cx_i + (cx_next - cx_i) * f, roll=r_mid)
+                     cx_i + (cx_next - cx_i) * ease)
     fd, path = tempfile.mkstemp(suffix=".cmd", prefix="cam_")
     with os.fdopen(fd, "w") as f:
         f.write("\n".join(lines) + "\n")
@@ -540,12 +522,7 @@ def render_clip(
         crop_w = min(int(src_h * aspect), src_w)
         # dynamic crop with sendcmd-driven x
         vf_parts.append(f"sendcmd=f={cmdfile}")
-        # AFFINE DEROLL: rotate diletakkan SEBELUM crop supaya yang diputar
-        # adalah frame penuh — memutar setelah crop akan memasukkan sudut hitam
-        # ke dalam bingkai. Rotasi memakai piksel dari luar jendela crop, jadi
-        # tidak ada tepi kosong selama sudutnya kecil (dibatasi 12 derajat).
-        if camera_rolls:
-            vf_parts.append("rotate=a=0:c=none:ow=iw:oh=ih:bilinear=1")
+        # AFFINE DEROLL dimatikan: horizon kamera selalu datar (paparazzi style, tanpa warping/tarikan)
         vf_parts.append(f"crop=w={crop_w}:h={src_h}:x=0:y=0")
     else:
         # center crop to target aspect
@@ -801,10 +778,7 @@ def render_preview_fast(
             _f.write("\n".join(_cam_lines) + "\n")
         crop_w = min(int(src_h * ASPECT), src_w)
         vf_parts.append(f"sendcmd=f={cmdfile}")
-        # deroll juga di preview: kalau hanya hasil unduhan yang diluruskan,
-        # framing preview dan hasil akhir berbeda (user menilainya "masih miring")
-        if camera_rolls:
-            vf_parts.append("rotate=a=0:c=none:ow=iw:oh=ih:bilinear=1")
+        # AFFINE DEROLL dimatikan: horizon kamera selalu datar (paparazzi style, tanpa warping/tarikan)
         vf_parts.append(f"crop=w={crop_w}:h={src_h}:x=0:y=0")
     elif src_w / src_h > aspect:
         crop_w = int(src_h * aspect)

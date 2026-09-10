@@ -129,6 +129,31 @@ def quality_adjust(text: str, base_score: int) -> tuple[int, str]:
     return max(0, min(100, score)), "; ".join(notes)
 
 
+def text_in_range(transcript: dict[str, Any], start: float, end: float) -> str:
+    """Ambil teks ucapan dari transcript dalam rentang [start, end].
+    Memakai daftar kata (words) jika tersedia untuk akurasi presisi,
+    atau potongan teks segment jika words tidak ada.
+    """
+    words = []
+    for s in transcript.get("segments", []):
+        if "words" in s and s["words"]:
+            for w in s["words"]:
+                if w.get("start") is not None and w.get("end") is not None:
+                    if w["end"] > start and w["start"] < end:
+                        words.append(w.get("word", ""))
+    if words:
+        return " ".join(words).strip()
+
+    # Fallback jika words kosong
+    parts = []
+    for s in transcript.get("segments", []):
+        s_st = s.get("start", 0)
+        s_en = s.get("end", 0)
+        if s_en > start and s_st < end:
+            parts.append(str(s.get("text", "")))
+    return " ".join(parts).strip()
+
+
 def build_windows(transcript: dict[str, Any]) -> list[dict[str, Any]]:
     """Fixed windows over the transcript, like OpenShorts pass 1."""
     segments = transcript.get("segments", [])
@@ -141,13 +166,16 @@ def build_windows(transcript: dict[str, Any]) -> list[dict[str, Any]]:
     while start < duration:
         end = min(start + WINDOW_SECONDS, duration)
         if end - start >= 5:
-            segs = [s for s in segments if s["end"] > start and s["start"] < end]
-            if any(s.get("text", "").strip() for s in segs):
+            txt = text_in_range(transcript, start, end)
+            if not txt:
+                segs = [s for s in segments if s["end"] > start and s["start"] < end]
+                txt = " ".join(s.get("text", "") for s in segs)
+            if txt.strip():
                 windows.append({
                     "id": f"w{len(windows)}",
                     "start": round(start, 2),
                     "end": round(end, 2),
-                    "text": " ".join(s["text"] for s in segs)[:2000],
+                    "text": txt[:2000],
                 })
         start += step
     return windows
@@ -332,10 +360,12 @@ async def detail_pass(
     # tidak melewati batas token dan gagal total.
     per_window = max(900, min(4000, int(40000 / max(1, len(shortlist)))))
     for w in shortlist:
-        segs = [s for s in segments if s["end"] > w["start"] and s["start"] < w["end"]]
-        text = " ".join(s["text"] for s in segs)
+        txt = text_in_range(transcript, w["start"], w["end"])
+        if not txt:
+            segs = [s for s in segments if s["end"] > w["start"] and s["start"] < w["end"]]
+            txt = " ".join(s.get("text", "") for s in segs)
         listing.append(f"WINDOW {w['id']} [{w['start']:.0f}-{w['end']:.0f}s] "
-                       f"skor {w['score']}:\n{text[:per_window]}")
+                       f"skor {w['score']}:\n{txt[:per_window]}")
     duration = transcript.get("duration") or (segments[-1]["end"] if segments else 0)
     genre_note = (
         f"Genre video: **{genre}**. Judul, deskripsi, dan hashtag WAJIB terasa "
@@ -344,7 +374,7 @@ async def detail_pass(
     )
     prompt = (
         f"Dari window transkrip berikut, pilih total {target} klip TERBAIK "
-        f"(WAJIB minimal {floor}) untuk short-form vertikal. Durasi tiap klip "
+        f"(WAJIB minimal {floor} sampai {target} klip) untuk short-form vertikal. Durasi tiap klip "
         f"{MIN_CLIP}-{MAX_CLIP} detik, tidak boleh tumpang tindih, urut dari "
         f"skor tertinggi. Total durasi video: {duration:.0f} detik.\n\n"
         + genre_note
@@ -365,7 +395,7 @@ async def detail_pass(
         "ATURAN hashtag: 2 hashtag topik spesifik (mis. #investasisaham), "
         "2 hashtag genre/niche, 2 hashtag umum (#fyp #shorts). "
         "DILARANG hashtag yang tidak berhubungan dengan isi klip.\n\n"
-        f"Balas JSON object: {{\"shorts\": [ ... ]}}. Maksimal 600 kata total."
+        f"Balas JSON object: {{\"shorts\": [ ... ]}} berisi minimal {floor} klip."
     )
     content = await gateway.chat(
         [{"role": "system", "content": DETAIL_SYSTEM},
@@ -442,28 +472,55 @@ def snap_clip_to_words(
 
 
 def words_in_range(transcript: dict[str, Any], start: float, end: float) -> list[dict[str, Any]]:
-    """Caption words re-based to clip-local time."""
-    out = []
+    """Caption words re-based to clip-local time with monotonic timing sanity."""
+    raw = []
     for s in transcript.get("segments", []):
         for w in s.get("words", []):
+            if w.get("end") is None or w.get("start") is None:
+                continue
             if w["end"] <= start or w["start"] >= end:
                 continue
-            out.append({
-                "word": w["word"],
-                "start": round(max(0, w["start"] - start), 2),
-                "end": round(max(0.2, w["end"] - start), 2),
-            })
+            txt = str(w.get("word", "")).strip()
+            if txt:
+                raw.append({
+                    "word": txt,
+                    "start": float(w["start"]),
+                    "end": float(w["end"]),
+                })
+    if not raw:
+        return []
+
+    # Sort strictly by absolute start time
+    raw.sort(key=lambda w: w["start"])
+
+    # Sanitize overlapping/inverted timings
+    for i in range(len(raw) - 1):
+        if raw[i + 1]["start"] < raw[i]["start"]:
+            raw[i + 1]["start"] = raw[i]["start"] + 0.05
+        if raw[i]["end"] > raw[i + 1]["start"]:
+            raw[i]["end"] = max(raw[i]["start"] + 0.10, raw[i + 1]["start"])
+        if raw[i]["end"] <= raw[i]["start"]:
+            raw[i]["end"] = raw[i]["start"] + 0.15
+
+    if raw[-1]["end"] <= raw[-1]["start"]:
+        raw[-1]["end"] = raw[-1]["start"] + 0.25
+
+    # Re-base to clip local time [0..clip_duration]
+    out = []
+    for w in raw:
+        w_st = max(0.0, round(w["start"] - start, 2))
+        w_en = max(w_st + 0.12, round(w["end"] - start, 2))
+        out.append({
+            "word": w["word"],
+            "start": w_st,
+            "end": w_en,
+        })
     return out
 
 
 def clip_text(transcript: dict[str, Any], start: float, end: float) -> str:
     """Teks ucapan dalam rentang klip (untuk validasi kualitas)."""
-    parts = []
-    for s in transcript.get("segments", []):
-        if s["end"] <= start or s["start"] >= end:
-            continue
-        parts.append(str(s.get("text", "")))
-    return " ".join(parts).strip()
+    return text_in_range(transcript, start, end)
 
 
 async def detect_clips(
@@ -480,6 +537,7 @@ async def detect_clips(
     windows = build_windows(transcript)
     if not windows:
         return []
+    floor, ceiling = clip_count_targets(len(windows))
     # anggaran langkah: tiap batch skor 1 langkah + 1 langkah detail_pass
     batch_size = int(os.environ.get("SCORE_BATCH", "24"))
     n_batch = max(1, math.ceil(len(windows) / batch_size))
@@ -534,10 +592,15 @@ async def detect_clips(
             print(f"[clip_selection] buang klip skor {final_score} ({note})")
             continue
         out.append(c)
-    # kalau filter terlalu ganas dan semua terbuang, pakai 3 terbaik apa adanya
-    if not out and clips:
-        for c in clips[:3]:
-            c["caption_words"] = words_in_range(transcript, c["start"], c["end"])
-            out.append(c)
+
+    # Pastikan kuota klip terpenuhi minimal 'floor' agar video panjang tidak cuma dapat 1 klip
+    if len(out) < floor and clips:
+        for c in clips:
+            if not any(o["start"] == c["start"] and o["end"] == c["end"] for o in out):
+                c["caption_words"] = words_in_range(transcript, c["start"], c["end"])
+                out.append(c)
+                if len(out) >= floor:
+                    break
+
     out.sort(key=lambda c: c["score"], reverse=True)
     return out

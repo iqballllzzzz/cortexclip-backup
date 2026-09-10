@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
 import { Link } from "@tanstack/react-router";
-import { NeuralHeroCanvas } from "./neural-hero-canvas";
 import { RotatingUrlPlaceholder } from "./rotating-url-placeholder";
 import {
   ArrowRight,
@@ -16,6 +15,8 @@ import {
   Zap,
   Sliders,
   Youtube,
+  Layers,
+  Wand2,
 } from "lucide-react";
 
 type SubtitleTheme = {
@@ -71,25 +72,6 @@ export function Hero() {
   const [faceTrackingActive, setFaceTrackingActive] = useState(true);
   const [inputUrl, setInputUrl] = useState("");
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-  const [morphProgress, setMorphProgress] = useState(0);
-
-  useEffect(() => {
-    const handleScroll = () => {
-      const container = scrollContainerRef.current;
-      if (!container) return;
-      const rect = container.getBoundingClientRect();
-      const maxScroll = container.offsetHeight - window.innerHeight;
-      if (maxScroll <= 0) return;
-      const raw = -rect.top / maxScroll;
-      const clamped = Math.min(Math.max(raw, 0), 1);
-      setMorphProgress(clamped);
-    };
-
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    handleScroll();
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
 
   const realVideoUrl =
     "https://cortexclip.eu.cc/storage/v1/object/public/video-uploads/d6a7ffe1-8168-4df4-848c-2ad4dac25835/rendered/1dd9e460-1e2a-4585-bd12-7c1a758c44c3.mp4";
@@ -113,99 +95,88 @@ export function Hero() {
 
   return (
     <>
-      {/* ═══ PINNED 3D SCROLLYTELLING STAGE (250vh TRACK) ═══ */}
-      <section ref={scrollContainerRef} className="relative h-[250vh] bg-background">
-        <div className="sticky top-0 h-screen w-full overflow-hidden flex flex-col justify-between pt-14 pb-5 select-none">
-          {/* 3D WebGL HD Particles Engine (Phone -> Morph -> Bohlam) */}
-          <NeuralHeroCanvas scrollProgress={morphProgress} />
+      {/* ═══ CLEAN, ULTRA-FAST HERO SECTION ═══ */}
+      <section className="relative overflow-hidden bg-background pt-24 pb-16 sm:pt-32 sm:pb-24">
+        {/* Subtle Ambient Radial Glow (Pure CSS, 0 CPU) */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-40 left-1/2 -translate-x-1/2 h-[500px] w-[800px] max-w-full rounded-full bg-gradient-to-b from-accent/15 via-accent/5 to-transparent blur-3xl opacity-70"
+        />
 
-          {/* Technical Mesh Background */}
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 opacity-[0.03] [background-image:linear-gradient(to_right,#fff_1px,transparent_1px),linear-gradient(to_bottom,#fff_1px,transparent_1px)] [background-size:4rem_4rem]"
-          />
+        {/* Technical Subtle Grid Overlay */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 opacity-[0.025] [background-image:linear-gradient(to_right,#fff_1px,transparent_1px),linear-gradient(to_bottom,#fff_1px,transparent_1px)] [background-size:3rem_3rem]"
+        />
 
-          {/* Foreground Editorial Headline & URL Generator */}
-          <div className="relative z-10 mx-auto max-w-[1240px] px-4 sm:px-6 lg:px-8 text-center pt-6 sm:pt-10">
-            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-surface/80 backdrop-blur-md px-4 py-1.5 text-xs font-medium text-foreground">
-              <span className="size-2 rounded-full bg-accent animate-pulse" />
-              <span>AI Auto-Clipper Bahasa Indonesia Pertama</span>
-              <span className="text-muted-foreground">·</span>
-              <Link to="/auth" className="text-accent font-semibold inline-flex items-center gap-1 hover:underline">
-                Coba Gratis <ArrowRight className="size-3" />
+        <div className="relative z-10 mx-auto max-w-[1240px] px-4 sm:px-6 lg:px-8 text-center">
+          {/* Badge */}
+          <div className="inline-flex items-center gap-2 rounded-full border border-border bg-surface/90 px-4 py-1.5 text-xs font-medium text-foreground shadow-sm">
+            <span className="size-2 rounded-full bg-accent animate-pulse" />
+            <span>AI Auto-Clipper Bahasa Indonesia Pertama</span>
+            <span className="text-muted-foreground">·</span>
+            <Link to="/auth" className="text-accent font-semibold inline-flex items-center gap-1 hover:underline">
+              Coba Gratis <ArrowRight className="size-3" />
+            </Link>
+          </div>
+
+          {/* Main Title */}
+          <h1 className="mt-5 font-display text-[38px] sm:text-[62px] lg:text-[76px] font-extrabold tracking-[-0.035em] leading-[1.04] text-foreground">
+            Satu Video Panjang. <br />
+            <span className="text-accent">Puluhan Klip Siap Viral.</span>
+          </h1>
+
+          {/* Subtitle */}
+          <p className="mt-4 mx-auto max-w-[58ch] text-sm sm:text-base md:text-lg leading-relaxed text-muted-foreground font-sans">
+            Tempel link podcast atau webinar YouTube. AI mendeteksi hook 3 detik pertama, melacak wajah pembicara, dan merender subtitle karaoke dengan akurasi 99.8%.
+          </p>
+
+          {/* Interactive URL Generator Demo Input */}
+          <div className="mt-6 mx-auto max-w-lg">
+            <div className="flex flex-col sm:flex-row items-center gap-2 rounded-2xl border border-border bg-card/90 backdrop-blur-md p-1.5 shadow-2xl">
+              <div className="flex flex-1 items-center gap-2 px-3 py-1.5 w-full">
+                <Youtube className="size-4 text-red-500 shrink-0" />
+                <div className="relative min-w-0 flex-1">
+                  <RotatingUrlPlaceholder />
+                  <input
+                    type="text"
+                    value={inputUrl}
+                    onChange={(e) => setInputUrl(e.target.value)}
+                    placeholder=" "
+                    aria-label="Tempel link video"
+                    className="absolute inset-0 w-full bg-transparent text-xs sm:text-sm text-foreground focus:outline-none"
+                  />
+                </div>
+              </div>
+              <Link
+                to="/auth"
+                className="w-full sm:w-auto py-2.5 px-5 rounded-xl bg-accent text-accent-foreground font-semibold text-xs flex items-center justify-center gap-1.5 hover:opacity-90 active:scale-98 transition-all shrink-0"
+              >
+                <Zap className="size-3.5 fill-current" />
+                Generate Klip
               </Link>
             </div>
 
-            <h1 className="mt-3 font-display text-[36px] sm:text-[60px] lg:text-[72px] font-extrabold tracking-[-0.035em] leading-[1.04] text-foreground">
-              Satu Video Panjang. <br />
-              <span className="text-accent">Puluhan Klip Siap Viral.</span>
-            </h1>
-
-            <p className="mt-3 mx-auto max-w-[55ch] text-xs sm:text-sm md:text-base leading-relaxed text-muted-foreground font-sans">
-              Tempel link podcast atau webinar YouTube. AI mendeteksi hook 3 detik pertama, melacak wajah pembicara, dan merender subtitle karaoke dengan akurasi 99.8%.
-            </p>
-
-            {/* Interactive URL Generator Demo Input */}
-            <div className="mt-5 mx-auto max-w-lg">
-              <div className="flex flex-col sm:flex-row items-center gap-2 rounded-2xl border border-border bg-card/90 backdrop-blur-md p-1.5 shadow-2xl">
-                <div className="flex flex-1 items-center gap-2 px-3 py-1.5 w-full">
-                  <Youtube className="size-4 text-red-500 shrink-0" />
-                  <div className="relative min-w-0 flex-1">
-                    <RotatingUrlPlaceholder />
-                    <input
-                      type="text"
-                      value={inputUrl}
-                      onChange={(e) => setInputUrl(e.target.value)}
-                      placeholder=" "
-                      aria-label="Tempel link video"
-                      className="absolute inset-0 w-full bg-transparent text-xs sm:text-sm text-foreground focus:outline-none"
-                    />
-                  </div>
-                </div>
-                <Link
-                  to="/auth"
-                  className="w-full sm:w-auto py-2.5 px-5 rounded-xl bg-accent text-accent-foreground font-semibold text-xs flex items-center justify-center gap-1.5 hover:opacity-90 active:scale-98 transition-colors shrink-0"
+            {/* Quick Presets */}
+            <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5 text-xs">
+              <span className="text-muted-foreground text-[11px]">Preset:</span>
+              {PRESET_LINKS.map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => setInputUrl(p.url)}
+                  className="px-2.5 py-1 rounded-md border border-border bg-surface text-muted-foreground hover:text-foreground hover:border-accent/40 text-[11px] transition-colors"
                 >
-                  <Zap className="size-3.5 fill-current" />
-                  Generate Klip
-                </Link>
-              </div>
-
-              {/* Quick Presets */}
-              <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5 text-xs">
-                <span className="text-muted-foreground text-[11px]">Preset:</span>
-                {PRESET_LINKS.map((p) => (
-                  <button
-                    key={p.label}
-                    type="button"
-                    onClick={() => setInputUrl(p.url)}
-                    className="px-2 py-0.5 rounded border border-border bg-surface text-muted-foreground hover:text-foreground hover:border-accent/40 text-[11px] transition-colors"
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Dynamic Interactive Progress Pill at Bottom */}
-          <div className="relative z-10 mx-auto text-center pb-3 px-4">
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-black/80 border border-white/10 backdrop-blur-md text-xs font-mono text-muted-foreground shadow-2xl">
-              <span className="size-1.5 rounded-full bg-accent animate-ping" />
-              <span>
-                {morphProgress >= 0.95
-                  ? "Transformasi Bohlam Selesai · Gulir Lanjut ke Studio ↓"
-                  : morphProgress > 0.15
-                  ? `Merangkai Bohlam Ide: ${Math.round(morphProgress * 100)}% ↓`
-                  : "Gulir ke bawah untuk melihat transformasi [Ponsel → Bohlam] ↓"}
-              </span>
+                  {p.label}
+                </button>
+              ))}
             </div>
           </div>
         </div>
       </section>
 
       {/* ═══ WORKSTATION STUDIO STAGE (Cinema 9:16 Monitor) ═══ */}
-      <section id="demo-interactive" className="relative py-16 lg:py-24 bg-background border-t border-border">
+      <section id="demo-interactive" className="relative py-16 lg:py-24 bg-surface/40 border-t border-border">
         <div className="relative mx-auto max-w-[1240px] px-4 sm:px-6 lg:px-8">
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-4">
             <div className="flex items-center gap-3">
@@ -314,45 +285,39 @@ export function Hero() {
                     >
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
-                          <span className="font-display text-sm font-bold text-foreground">
+                          <span className="font-display text-sm font-semibold text-foreground">
                             {theme.name}
                           </span>
-                          <span className="text-xs font-mono px-2 py-0.5 rounded bg-surface border border-border text-foreground font-medium">
+                          <span className="rounded bg-surface px-1.5 py-0.5 text-[10px] font-mono font-medium text-muted-foreground">
                             {theme.badge}
                           </span>
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          Animasi presisi per kata · Auto-highlight
+                          Font tebal gaya viral dengan efek highlight kata aktif per suku kata.
                         </p>
                       </div>
-
-                      <span
-                        className="size-4 rounded-full border-2 flex items-center justify-center shrink-0"
-                        style={{ borderColor: isSelected ? theme.accentColor : "currentColor" }}
-                      >
-                        {isSelected && (
-                          <span
-                            className="size-2 rounded-full"
-                            style={{ backgroundColor: theme.accentColor }}
-                          />
-                        )}
-                      </span>
+                      <div className="size-4 shrink-0 rounded-full border border-border flex items-center justify-center">
+                        {isSelected ? <CheckCircle2 className="size-4 text-accent" /> : null}
+                      </div>
                     </button>
                   );
                 })}
               </div>
 
-              <div className="space-y-2 pt-2">
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-foreground font-medium">AI Virality & Hook Score</span>
-                  <span className="font-bold font-mono text-accent">100 / 100</span>
+              {/* Studio Telemetry Chips */}
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <div className="rounded-xl border border-border bg-surface p-3 space-y-1">
+                  <span className="text-[11px] font-mono text-muted-foreground flex items-center gap-1">
+                    <Wand2 className="size-3 text-accent" /> Virality Engine
+                  </span>
+                  <p className="font-display text-base font-bold text-foreground">Hook 3s Otomatis</p>
                 </div>
-                <div className="h-2 w-full bg-surface rounded-full overflow-hidden">
-                  <div className="h-full bg-accent w-full" />
+                <div className="rounded-xl border border-border bg-surface p-3 space-y-1">
+                  <span className="text-[11px] font-mono text-muted-foreground flex items-center gap-1">
+                    <Layers className="size-3 text-accent" /> Aspect Ratio
+                  </span>
+                  <p className="font-display text-base font-bold text-foreground">9:16 Vertical HD</p>
                 </div>
-                <p className="text-xs text-muted-foreground leading-relaxed pt-1 max-w-[50ch]">
-                  Klip terdeteksi memiliki kontras cerita tinggi: rekomendasi utama untuk langsung diunggah ke TikTok & Reels.
-                </p>
               </div>
             </div>
           </div>

@@ -1,11 +1,10 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, redirect } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { Hero } from "@/components/hero";
 import { Features } from "@/components/features";
 import { Pipeline } from "@/components/pipeline";
-import { Studio3DShowcase } from "@/components/studio-3d-showcase";
 import { PricingFaq } from "@/components/pricing-faq";
 import { supabase } from "@/integrations/supabase/client";
 import { FAQS } from "@/components/pricing-faq";
@@ -25,6 +24,28 @@ const description =
   "CortexClip AI (CortexclipAI) mengubah podcast, webinar, atau ceramah jadi puluhan klip vertikal siap unggah: subtitle karaoke, virality score, face tracking, ikon & b-roll otomatis.";
 
 export const Route = createFileRoute("/")({
+  ssr: false,
+  beforeLoad: async () => {
+    if (typeof window !== "undefined") {
+      const tokenKey = Object.keys(localStorage).find(
+        (k) => k.startsWith("sb-") && k.endsWith("-auth-token")
+      );
+      if (tokenKey) {
+        try {
+          const raw = localStorage.getItem(tokenKey);
+          if (raw && raw.includes("access_token")) {
+            throw redirect({ to: "/dashboard" });
+          }
+        } catch (e: any) {
+          if (e?.to) throw e;
+        }
+      }
+      const { data } = await supabase.auth.getSession();
+      if (data?.session) {
+        throw redirect({ to: "/dashboard" });
+      }
+    }
+  },
   head: () => ({
     meta: [
       { title },
@@ -78,7 +99,6 @@ function Index() {
       <SiteHeader />
       <main>
         <Hero />
-        <Studio3DShowcase />
         <Features />
         <Pipeline />
         <PricingFaq />

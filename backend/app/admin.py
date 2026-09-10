@@ -446,9 +446,11 @@ async def list_users(search: str = "", limit: int = 100, offset: int = 0) -> dic
             "user_id": uid,
             "email": r.get("email"),
             "display_name": r.get("display_name"),
+            "auth_provider": r.get("auth_provider") or "email",
             "plan": "premium" if is_prem else "free",
             "premium_until": r.get("premium_until"),
             "is_admin": bool(r.get("is_admin")),
+            "is_owner": (uid == "d6a7ffe1-8168-4df4-848c-2ad4dac25835" or str(r.get("email", "")).strip().lower() == "admin@cortexclip.app"),
             "banned": banned,
             "ban_permanent": bool(ban_until and ban_until.year >= 9999),
             "banned_until": r.get("banned_until") if banned else None,
@@ -518,3 +520,84 @@ async def delete_user_projects(actor_id: str, target_id: str) -> dict[str, Any]:
     await sb("DELETE", f"projects?user_id=eq.{target_id}")
     return {"ok": True, "user_id": target_id}
 
+
+
+async def submit_admin_request(me: dict, body: Any) -> dict:
+    from .premium import sb
+    ensure_uuid(body.target_user_id, "Target User")
+    
+    # Check if target is owner
+    if body.target_user_id == "d6a7ffe1-8168-4df4-848c-2ad4dac25835":
+        raise ValueError("Tidak bisa mengubah akun Owner.")
+        
+    data = {
+        "requester_id": me["id"],
+        "requester_email": me.get("email", ""),
+        "action_type": body.action_type,
+        "target_user_id": body.target_user_id,
+        "target_email": body.target_email,
+        "payload": body.payload,
+        "reason": body.reason,
+        "status": "pending"
+    }
+    
+    res = await sb("POST", "admin_requests", json=data)
+    return {"ok": True, "message": "Permohonan berhasil dikirim ke Owner."}
+
+async def get_pending_requests(me: dict) -> list[dict]:
+    from .premium import sb
+    is_owner = (me.get("id") == "d6a7ffe1-8168-4df4-848c-2ad4dac25835" or str(me.get("email")).lower() == "admin@cortexclip.app")
+    
+    query = "admin_requests?select=*&order=created_at.desc"
+    if not is_owner:
+        # Sub-admin hanya melihat request mereka sendiri
+        query += f"&requester_id=eq.{me['id']}"
+        
+    rows = await sb("GET", query) or []
+    return rows
+
+async def approve_admin_request(owner_id: str, request_id: str) -> dict:
+    from .premium import sb
+    ensure_uuid(request_id, "Request")
+    rows = await sb("GET", f"admin_requests?id=eq.{request_id}")
+    if not rows:
+        raise ValueError("Request tidak ditemukan")
+    req = rows[0]
+    
+    if req["status"] != "pending":
+        raise ValueError("Request sudah diproses")
+        
+    action = req["action_type"]
+    target_id = req["target_user_id"]
+    payload = req.get("payload", {})
+    
+    # Execute the action!
+    if action == "set_plan":
+        await set_plan(owner_id, target_id, payload.get("plan", "free"))
+    elif action == "delete_user":
+        await delete_user(owner_id, target_id)
+    elif action == "delete_projects":
+        await delete_user_projects(owner_id, target_id)
+    elif action == "ban_user":
+        await ban_user(owner_id, target_id, payload.get("duration", "1d"), payload.get("reason", ""))
+    elif action == "unban_user":
+        await unban_user(owner_id, target_id)
+    else:
+        raise ValueError("Aksi tidak didukung")
+        
+    # Mark as approved
+    await sb("PATCH", f"admin_requests?id=eq.{request_id}", json={"status": "approved"})
+    return {"ok": True, "message": "Disetujui dan dieksekusi."}
+    
+async def reject_admin_request(owner_id: str, request_id: str) -> dict:
+    from .premium import sb
+    ensure_uuid(request_id, "Request")
+    rows = await sb("GET", f"admin_requests?id=eq.{request_id}")
+    if not rows:
+        raise ValueError("Request tidak ditemukan")
+        
+    if rows[0]["status"] != "pending":
+        raise ValueError("Request sudah diproses")
+        
+    await sb("PATCH", f"admin_requests?id=eq.{request_id}", json={"status": "rejected"})
+    return {"ok": True, "message": "Permohonan ditolak."}

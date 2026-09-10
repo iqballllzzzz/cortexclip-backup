@@ -22,6 +22,10 @@ SOURCE_DIRS=(
   "$HOME_DIR/cortexclip-backup"                      # repo: frontend + backend + .env
   "$HOME_DIR/.hermes"                                # hermes profile (skills, memories, cron)
   "$HOME_DIR/.config/rclone/rclone.conf"             # config rclone (token drive)
+  "$HOME_DIR/supabase-docker/docker/.env"            # config supabase env (JWT secret, DB pass, keys)
+  "$HOME_DIR/supabase-docker/docker/docker-compose.yml" # compose file supabase
+  "$HOME_DIR/AKUN-ADMIN.txt"                         # kredensial akun admin resmi
+  "$HOME_DIR/cortexclip-nginx.conf"                  # konfigurasi reverse-proxy nginx
 )
 
 LOG="$HOME_DIR/cortexclip-backup/backup.log"

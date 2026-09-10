@@ -263,7 +263,24 @@ function ProjectPage() {
     return () => clearInterval(iv);
   }, [busy, load]);
 
-  const pct = persenTampil(project?.status, project?.progress);
+  const rawPct = persenTampil(project?.status, project?.progress);
+  const [visualPct, setVisualPct] = useState(rawPct);
+
+  useEffect(() => {
+    setVisualPct((prev) => Math.max(prev, rawPct));
+  }, [rawPct]);
+
+  useEffect(() => {
+    if (!busy || visualPct >= 99) return;
+    // Di atas 90%, interval diperlambat secara asimtotik agar terus bergerak dan tidak macet di 92%
+    const delay = visualPct >= 96 ? 2800 : visualPct >= 92 ? 1500 : 900;
+    const timer = setTimeout(() => {
+      setVisualPct((v) => (v < 99 ? v + 1 : v));
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [busy, visualPct]);
+
+  const pct = busy ? visualPct : rawPct;
 
   /* --- ESTIMASI SELESAI: dari LAJU NYATA (EMA 0.3), bukan karangan --- */
   const lajuRef = useRef<number | null>(null);

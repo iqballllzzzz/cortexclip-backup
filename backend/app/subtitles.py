@@ -606,6 +606,27 @@ def build_ass(
             style = {}
     style = style or {}
 
+    # Sanitasi & pastikan timing kata terurut monoton (anti loncat / anti overlap)
+    words_clean = []
+    for w in (words or []):
+        st = float(w.get("start", 0) or 0)
+        en = float(w.get("end", 0) or 0)
+        txt = str(w.get("word") or w.get("text") or "").strip()
+        if txt:
+            words_clean.append({"word": txt, "start": st, "end": max(st + 0.12, en)})
+    if words_clean:
+        words_clean.sort(key=lambda w: w["start"])
+        for i in range(len(words_clean) - 1):
+            if words_clean[i + 1]["start"] < words_clean[i]["start"]:
+                words_clean[i + 1]["start"] = words_clean[i]["start"] + 0.05
+            if words_clean[i]["end"] > words_clean[i + 1]["start"]:
+                words_clean[i]["end"] = max(words_clean[i]["start"] + 0.10, words_clean[i + 1]["start"])
+            if words_clean[i]["end"] <= words_clean[i]["start"]:
+                words_clean[i]["end"] = words_clean[i]["start"] + 0.15
+        if words_clean[-1]["end"] <= words_clean[-1]["start"]:
+            words_clean[-1]["end"] = words_clean[-1]["start"] + 0.25
+        words = words_clean
+
     template_name = str(style.get("preset", "default"))
     template = get_template(template_name)
 

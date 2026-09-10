@@ -20,6 +20,7 @@ export interface BanInfo {
 export interface MeStatus {
   user: { id: string; email: string };
   is_admin: boolean;
+  is_owner?: boolean;
   ban: BanInfo | null;
   quota: {
     ok: boolean;
@@ -35,9 +36,11 @@ export interface AdminUser {
   user_id: string;
   email: string | null;
   display_name: string | null;
+  auth_provider?: string | null;
   plan: "free" | "premium";
   premium_until: string | null;
   is_admin: boolean;
+  is_owner?: boolean;
   banned: boolean;
   ban_permanent: boolean;
   banned_until: string | null;
@@ -282,4 +285,171 @@ export async function statusUjiModel(): Promise<{
   hasil: HasilUjiModel | { error: string } | null;
 }> {
   return json(await authFetch("/api/admin/uji-model/status"));
+}
+
+/* -------------------------------------------------------- free premium admin */
+
+export type FreePremiumStatusType = "open" | "closed" | "hidden";
+
+export async function fetchFreePremiumStatus(): Promise<{ status: FreePremiumStatusType }> {
+  return json(await authFetch("/api/admin/free-premium"));
+}
+
+export async function updateFreePremiumStatus(
+  status: FreePremiumStatusType,
+): Promise<{ ok: boolean; status: FreePremiumStatusType }> {
+  return json(
+    await authFetch("/api/admin/free-premium", {
+      method: "POST",
+      body: JSON.stringify({ status }),
+    }),
+  );
+}
+
+/* ----------------------------------------------------------- live logs admin */
+
+export interface SystemLogEntry {
+  id: number;
+  timestamp: string;
+  time_epoch: number;
+  level: "INFO" | "WARN" | "ERROR";
+  category: string;
+  user: string;
+  action: string;
+  detail: string;
+  ip: string;
+}
+
+export interface AILogEntry {
+  id: number;
+  timestamp: string;
+  time_epoch: number;
+  provider: string;
+  model: string;
+  task: string;
+  latency_ms: number;
+  status: string;
+  detail: string;
+}
+
+export async function fetchSystemLogs(): Promise<{
+  logs: SystemLogEntry[];
+  resources: Record<string, number | string | string[]>;
+  timestamp: number;
+}> {
+  return json(await authFetch("/api/admin/logs/system"));
+}
+
+export async function fetchAILogs(): Promise<{
+  logs: AILogEntry[];
+  models_status: Record<string, unknown>;
+  timestamp: number;
+}> {
+  return json(await authFetch("/api/admin/logs/ai"));
+}
+
+export async function downloadAdminLogs(
+  kind: "all" | "ai" | "error" = "all",
+  fmt: "json" | "txt" = "json",
+): Promise<void> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) throw new Error("Sesi login habis.");
+  const res = await fetch(`/api/admin/logs/export?kind=${kind}&fmt=${fmt}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`Gagal mengunduh log (${res.status})`);
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `cortexclip-logs-${kind}-${Date.now()}.${fmt}`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+/* ------------------------------------------------------------- pricing admin */
+
+export interface PlanItemConfig {
+  label: string;
+  days: number;
+  amount: number;
+  original_amount: number;
+  discount_percent: number;
+  discount_label: string;
+}
+
+export async function fetchPricingAdmin(): Promise<{
+  current: Record<string, PlanItemConfig>;
+  defaults: Record<string, PlanItemConfig>;
+}> {
+  return json(await authFetch("/api/admin/pricing"));
+}
+
+export async function updatePricingAdmin(
+  plans: Record<string, { amount: number; original_amount: number; discount_label?: string }>,
+): Promise<{ ok: boolean; plans: Record<string, PlanItemConfig> }> {
+  return json(
+    await authFetch("/api/admin/pricing", {
+      method: "POST",
+      body: JSON.stringify({ plans }),
+    }),
+  );
+}
+
+export async function resetPricingAdmin(): Promise<{
+  ok: boolean;
+  plans: Record<string, PlanItemConfig>;
+}> {
+  return json(
+    await authFetch("/api/admin/pricing/reset", {
+      method: "POST",
+    }),
+  );
+}
+
+/* ------------------------------------------------------------- permission requests */
+
+export interface AdminRequest {
+  id: string;
+  requester_id: string;
+  requester_email: string;
+  action_type: string;
+  target_user_id: string;
+  target_email: string;
+  payload: any;
+  reason: string;
+  status: "pending" | "approved" | "rejected";
+  created_at: string;
+}
+
+export async function submitAdminRequest(data: {
+  action_type: string;
+  target_user_id: string;
+  target_email?: string;
+  payload: any;
+  reason: string;
+}) {
+  return json(
+    await authFetch("/api/admin/requests", {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
+  );
+}
+
+export async function fetchAdminRequests(): Promise<AdminRequest[]> {
+  return json(await authFetch("/api/admin/requests/pending"));
+}
+
+export async function approveAdminRequest(id: string) {
+  return json(await authFetch(`/api/admin/requests/${id}/approve`, { method: "POST" }));
+}
+
+export async function rejectAdminRequest(id: string) {
+  return json(await authFetch(`/api/admin/requests/${id}/reject`, { method: "POST" }));
 }

@@ -9,6 +9,9 @@ interface Plan {
   key: string;
   label: string;
   amount: number;
+  original_amount?: number;
+  discount_percent?: number;
+  discount_label?: string;
   days: number;
 }
 
@@ -248,12 +251,24 @@ export function PremiumDialog({
                     <span className="block text-[13px] font-semibold leading-tight">
                       {p.label}
                     </span>
-                    <span className="mt-0.5 block font-bold tabular-nums text-accent">
-                      Rp{p.amount.toLocaleString("id-ID")}
-                    </span>
-                    <span className="mt-0.5 block text-[10px] leading-tight text-muted-foreground">
-                      {p.days} hari · Rp{perHari.toLocaleString("id-ID")}/hari
-                    </span>
+                    <div className="mt-1 flex items-baseline gap-1.5 flex-wrap">
+                      <span className="font-bold tabular-nums text-accent">
+                        Rp{p.amount.toLocaleString("id-ID")}
+                      </span>
+                      {p.original_amount && p.original_amount > p.amount ? (
+                        <span className="text-[11px] text-muted-foreground line-through">
+                          Rp{p.original_amount.toLocaleString("id-ID")}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="mt-1 flex items-center justify-between gap-1 text-[10px] leading-tight text-muted-foreground">
+                      <span>{p.days} hari · Rp{perHari.toLocaleString("id-ID")}/hari</span>
+                      {p.discount_label ? (
+                        <span className="shrink-0 rounded bg-emerald-500/15 border border-emerald-500/30 px-1 py-0.5 text-[9px] font-bold text-emerald-400">
+                          {p.discount_label}
+                        </span>
+                      ) : null}
+                    </div>
                   </button>
                 );
               })}

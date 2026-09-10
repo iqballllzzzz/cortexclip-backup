@@ -325,9 +325,11 @@ def split_filtergraph_parts(src_w: int, src_h: int, out_w: int, out_h: int,
     la, lb = labels
     split_line = f"[{in_label}]split=2[{la}][{lb}]"
     part0 = (f"[{la}]crop=w={w0}:h={h0}:x={x0}:y={y0},"
-             f"scale={out_w}:{half_h}[{la}p]")
+             f"scale={out_w}:{half_h}:force_original_aspect_ratio=increase,"
+             f"crop={out_w}:{half_h},setsar=1[{la}p]")
     part1 = (f"[{lb}]crop=w={w1}:h={h1}:x={x1}:y={y1},"
-             f"scale={out_w}:{half_h}[{lb}p]")
+             f"scale={out_w}:{half_h}:force_original_aspect_ratio=increase,"
+             f"crop={out_w}:{half_h},setsar=1[{lb}p]")
     vstack = (f"[{la}p][{lb}p]vstack=inputs=2,"
               f"pad={out_w}:{out_h}:0:0,setsar=1[{kanan.get('si', 0)}comp]")
     if aksi0 != "utuh" or aksi1 != "utuh":
@@ -613,9 +615,11 @@ def split_filtergraph(src_w: int, src_h: int, out_w: int, out_h: int,
     return (
         f"[0:v]split=2[ta][ba];"
         f"[ta]crop=w={w0}:h={h0}:x={x0}:y={y0},"
-        f"scale={out_w}:{half_h}[top];"
+        f"scale={out_w}:{half_h}:force_original_aspect_ratio=increase,"
+        f"crop={out_w}:{half_h},setsar=1[top];"
         f"[ba]crop=w={w1}:h={h1}:x={x1}:y={y1},"
-        f"scale={out_w}:{half_h}[bot];"
+        f"scale={out_w}:{half_h}:force_original_aspect_ratio=increase,"
+        f"crop={out_w}:{half_h},setsar=1[bot];"
         f"[top][bot]vstack=inputs=2,"
         f"pad={out_w}:{out_h}:0:0,setsar=1[v]"
     )

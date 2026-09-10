@@ -53,10 +53,12 @@ def plan_info(key: str) -> dict[str, Any]:
 
 def summary(profile: dict[str, Any]) -> dict[str, Any]:
     """Ringkasan progres iklan user untuk ditampilkan di UI."""
+    from .free_premium_config import get_free_premium_status
     target = profile.get("ad_target") or None
     credits = int(profile.get("ad_credits") or 0)
     out: dict[str, Any] = {
         "adsense_client": ADSENSE_CLIENT,
+        "free_premium_status": get_free_premium_status(),
         "plans": [
             {"key": k, "label": v["label"], "ads": v["ads"],
              "days": v["days"], "installment": v["installment"]}

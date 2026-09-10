@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
+import { CloudflareTurnstile } from "@/components/cloudflare-turnstile";
 
 const title = "Masuk atau Daftar — CortexClip";
 const description =
@@ -50,6 +51,7 @@ function AuthPage() {
   // jadi akun benar-benar belum bisa dipakai.
   const [kode, setKode] = useState("");
   const [kirimUlangSisa, setKirimUlangSisa] = useState(0);
+  const [turnstileToken, setTurnstileToken] = useState("");
 
   // Sudah login → langsung dashboard (jangan tampilkan halaman auth lagi)
   useEffect(() => {
@@ -130,7 +132,7 @@ function AuthPage() {
       if (mode === "signup") {
         const res = await fetch("/api/auth/register-otp", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-Turnstile-Token": turnstileToken || "dummy" },
           body: JSON.stringify({ email, password, display_name: displayName }),
         });
         if (!res.ok) {
@@ -141,7 +143,10 @@ function AuthPage() {
         setKirimUlangSisa(60);
         toast.success("Kode verifikasi 6 angka telah dikirim ke email kamu!");
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { error } = await supabase.auth.signInWithPassword({ 
+          email, 
+          password,
+        });
         if (error) {
           // Akun yang belum diverifikasi DITOLAK server. Tampilkan layar kode
           // alih-alih pesan teknis "Email not confirmed".
@@ -298,7 +303,7 @@ function AuthPage() {
           <TabsContent value="signup" />
         </Tabs>
 
-        <form onSubmit={handleSubmit} className="mt-5 space-y-4">
+        <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           {mode === "signup" && (
             <div className="space-y-1.5">
               <Label htmlFor="name" className="text-xs text-muted-foreground">{t("auth.nama_tampilan")}</Label>
@@ -329,7 +334,10 @@ function AuthPage() {
               <Input id="password" type="password" required minLength={6} placeholder="Minimal 6 karakter" value={password} onChange={(e) => setPassword(e.target.value)} className="pl-10" />
             </div>
           </div>
-          <Button type="submit" variant="accent" className="w-full rounded-full" disabled={busy}>
+          
+          <CloudflareTurnstile onVerify={(t) => setTurnstileToken(t)} />
+
+          <Button type="submit" variant="accent" className="w-full rounded-full" disabled={busy || (mode === "signup" && !turnstileToken)}>
             {busy ? "Memproses…" : mode === "login" ? "Masuk" : "Buat Akun"}
             {!busy && <ArrowRight className="size-4" />}
           </Button>
