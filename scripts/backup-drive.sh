@@ -51,18 +51,15 @@ else
 fi
 
 # --- 0b. STORAGE files (video uploads + rendered clips) ---
+# Sinkronisasi bertahap (incremental) langsung ke remote tanpa membuat tarball 13GB
+# yang mencekik I/O dan jaringan VPS.
+SYNC_STORAGE=false
 if [ -d "$SUPA_DIR/volumes/storage" ]; then
-  mkdir -p "$STAGE/supabase-storage"
-  if cp -a "$SUPA_DIR/volumes/storage/." "$STAGE/supabase-storage/" 2>>"$LOG"; then
-    log "  + storage files OK ($(du -sh "$STAGE/supabase-storage" | cut -f1))"
-  else
-    log "  ! sebagian storage files gagal ke-copy (permission) — backup lanjut"
-  fi
-else
-  log "  ! storage dir tidak ada, skip"
+  SYNC_STORAGE=true
+  log "  + storage dir terdeteksi ($(du -sh "$SUPA_DIR/volumes/storage" | cut -f1))"
 fi
 
-# --- 1. salin source dirs ke staging ---
+# --- 1. salin source dirs ke staging (kode, db, env, keys) ---
 for src in "${SOURCE_DIRS[@]}"; do
   if [ -e "$src" ]; then
     rel="${src#/}"
@@ -74,7 +71,7 @@ for src in "${SOURCE_DIRS[@]}"; do
   fi
 done
 
-# --- 2. archive tunggal ---
+# --- 2. archive tunggal kode & database (ringan & instan) ---
 TS=$(date +%Y%m%d-%H%M%S)
 ARCHIVE="$STAGE/cortexclip-backup-$TS.tar.gz"
 tar -czf "$ARCHIVE" -C "$STAGE" \
@@ -83,15 +80,21 @@ tar -czf "$ARCHIVE" -C "$STAGE" \
   --exclude=".output" \
   --exclude=".venv" \
   --exclude="__pycache__" \
+  --exclude="supabase-storage" \
   --warning=no-file-changed . 2>>"$LOG" || true
 mv "$ARCHIVE" /tmp/cortexclip-backup-$TS.tar.gz
 rm -rf "$STAGE"
-log "  archive: $(stat -c%s /tmp/cortexclip-backup-$TS.tar.gz) bytes"
+log "  archive kode & db: $(stat -c%s /tmp/cortexclip-backup-$TS.tar.gz) bytes"
 
-# --- 3. upload ke Drive ---
-log "  upload: cortexclip-backup-$TS.tar.gz"
-"$RCLONE" copy /tmp/cortexclip-backup-$TS.tar.gz "$REMOTE" --drive-chunk-size 64M 2>>"$LOG"
+# --- 3. upload ke Drive dengan pembatasan bandwidth (anti-lag) ---
+log "  upload archive: cortexclip-backup-$TS.tar.gz"
+"$RCLONE" copy /tmp/cortexclip-backup-$TS.tar.gz "$REMOTE" --bwlimit 4M --drive-chunk-size 32M 2>>"$LOG"
 rm -f /tmp/cortexclip-backup-$TS.tar.gz
+
+if [ "$SYNC_STORAGE" = true ]; then
+  log "  sync storage files (incremental)..."
+  "$RCLONE" copy "$SUPA_DIR/volumes/storage" "$REMOTE/storage" --bwlimit 3M 2>>"$LOG" || true
+fi
 
 # --- 4. rotasi ---
 mapfile -t OLD < <("$RCLONE" lsf "$REMOTE" --files-only --include "cortexclip-backup-*.tar.gz" 2>>"$LOG")

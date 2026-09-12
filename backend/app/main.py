@@ -1374,15 +1374,22 @@ class ReferralClaimIn(BaseModel):
 
 @app.post("/api/referral/claim")
 async def api_referral_claim(body: ReferralClaimIn, request: Request, authorization: str | None = Header(None)):
-    """Klaim kode referral oleh pengguna baru (hanya bisa 1x klaim)."""
+    """Klaim kode referral oleh pengguna baru (hanya untuk akun baru, anti-cloning & anti-IP ganda)."""
     user = await get_user(request, authorization)
     code = body.code.strip().lower()
     if not code:
         raise HTTPException(400, "Kode referral tidak valid")
 
+    # Deteksi IP klien asli
+    client_ip = (
+        request.headers.get("cf-connecting-ip")
+        or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        or (request.client.host if request.client else "")
+    )
+
     async with httpx.AsyncClient(timeout=15) as client:
         r_me = await client.get(
-            f"{SUPABASE_URL}/rest/v1/profiles?user_id=eq.{user['id']}&select=referral_code,referred_by,bonus_credits",
+            f"{SUPABASE_URL}/rest/v1/profiles?user_id=eq.{user['id']}&select=referral_code,referred_by,bonus_credits,created_at,last_ip",
             headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
         )
         me_rows = r_me.json() if r_me.status_code == 200 else []
@@ -1390,18 +1397,35 @@ async def api_referral_claim(body: ReferralClaimIn, request: Request, authorizat
             raise HTTPException(404, "Profil tidak ditemukan")
         me = me_rows[0]
         if me.get("referred_by"):
-            raise HTTPException(400, "Kamu sudah pernah mengklaim kode referral sebelumnya.")
+            raise HTTPException(400, "Akun ini sudah pernah menggunakan kode referral sebelumnya.")
         if (me.get("referral_code") or "").lower() == code:
             raise HTTPException(400, "Tidak dapat menggunakan kode referral milik sendiri.")
 
+        # Proteksi Waktu: Hanya akun baru (< 48 jam) yang berhak klaim referral
+        created_at_str = me.get("created_at")
+        if created_at_str:
+            try:
+                from datetime import datetime, timezone
+                c_dt = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+                age_hours = (datetime.now(timezone.utc) - c_dt).total_seconds() / 3600.0
+                if age_hours > 48:
+                    raise HTTPException(400, "Kode referral hanya berlaku untuk pendaftar akun baru dalam waktu 48 jam pertama.")
+            except (ValueError, TypeError):
+                pass
+
         r_ref = await client.get(
-            f"{SUPABASE_URL}/rest/v1/profiles?referral_code=eq.{code}&select=user_id,referral_count,bonus_credits",
+            f"{SUPABASE_URL}/rest/v1/profiles?referral_code=eq.{code}&select=user_id,referral_count,bonus_credits,last_ip",
             headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
         )
         ref_rows = r_ref.json() if r_ref.status_code == 200 else []
         if not ref_rows:
             raise HTTPException(404, "Kode referral tidak ditemukan")
         referrer = ref_rows[0]
+
+        # Proteksi Anti-Cloning & Anti-Nuyul: Tolak jika IP sama (kecuali localhost)
+        ref_ip = referrer.get("last_ip")
+        if client_ip and ref_ip and client_ip == ref_ip and client_ip not in ("127.0.0.1", "localhost", "::1"):
+            raise HTTPException(400, "Klaim referral ditolak: terdeteksi dari jaringan atau perangkat yang sama (anti-self-referral).")
 
         new_ref_count = int(referrer.get("referral_count") or 0) + 1
         new_ref_bonus = int(referrer.get("bonus_credits") or 0) + 1
@@ -1415,7 +1439,7 @@ async def api_referral_claim(body: ReferralClaimIn, request: Request, authorizat
         await client.patch(
             f"{SUPABASE_URL}/rest/v1/profiles?user_id=eq.{user['id']}",
             headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
-            json={"referred_by": code, "bonus_credits": new_my_bonus},
+            json={"referred_by": code, "bonus_credits": new_my_bonus, "last_ip": client_ip},
         )
 
     return {

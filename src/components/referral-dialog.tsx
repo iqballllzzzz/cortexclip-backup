@@ -21,15 +21,11 @@ export function ReferralDialog({
   onClose: () => void;
 }) {
   const [data, setData] = useState<ReferralData | null>(null);
-  const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [inputCode, setInputCode] = useState("");
-  const [claiming, setClaiming] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     (async () => {
-      setLoading(true);
       try {
         const token = await getAccessToken();
         const res = await fetch("/api/referral/my-code", {
@@ -40,50 +36,17 @@ export function ReferralDialog({
         }
       } catch {
         /* ignore */
-      } finally {
-        setLoading(false);
       }
     })();
   }, [open]);
 
   const handleCopy = () => {
-    if (!data?.share_url) return;
-    navigator.clipboard.writeText(data.share_url);
+    const url = data?.share_url;
+    if (!url) return;
+    navigator.clipboard.writeText(url);
     setCopied(true);
     toast.success("Link referral berhasil disalin ke clipboard!");
     setTimeout(() => setCopied(false), 2000);
-  };
-
-  const handleClaim = async () => {
-    if (!inputCode.trim()) return;
-    setClaiming(true);
-    try {
-      const token = await getAccessToken();
-      const res = await fetch("/api/referral/claim", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ code: inputCode.trim() }),
-      });
-      const resData = await res.json();
-      if (!res.ok) {
-        toast.error(resData.detail || "Gagal mengklaim kode referral.");
-        return;
-      }
-      toast.success(resData.message || "Selamat! Bonus tiket berhasil diklaim.");
-      setInputCode("");
-      // refresh data
-      const refRes = await fetch("/api/referral/my-code", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (refRes.ok) setData(await refRes.json());
-    } catch {
-      toast.error("Terjadi kesalahan koneksi saat mengklaim.");
-    } finally {
-      setClaiming(false);
-    }
   };
 
   if (!open) return null;
@@ -132,12 +95,13 @@ export function ReferralDialog({
             <input
               type="text"
               readOnly
-              value={data?.share_url || "Memuat..."}
+              value={data?.share_url || "Menyiapkan link..."}
               className="min-w-0 flex-1 bg-transparent px-1 text-xs text-foreground outline-none font-mono"
             />
             <Button
               size="sm"
               variant="accent"
+              disabled={!data?.share_url}
               onClick={handleCopy}
               className="h-8 gap-1 rounded-lg px-3 text-xs"
             >
@@ -146,38 +110,9 @@ export function ReferralDialog({
             </Button>
           </div>
           <p className="text-[11px] leading-relaxed text-muted-foreground">
-            🎁 Setiap 1 teman yang mendaftar lewat tautanmu, kamu langsung mendapatkan <strong>1 tiket unduh bebas watermark</strong>!
+            🎁 Setiap 1 teman baru yang mendaftar lewat tautanmu, kamu langsung mendapatkan <strong>1 tiket unduh bebas watermark</strong>!
           </p>
         </div>
-
-        {/* KLAIM KODE TEMAN */}
-        {!data?.referred_by ? (
-          <div className="mt-6 border-t border-border pt-4">
-            <label className="text-xs font-semibold text-foreground">Punya kode dari teman?</label>
-            <div className="mt-2 flex items-center gap-2">
-              <input
-                type="text"
-                placeholder="Masukkan kode referral..."
-                value={inputCode}
-                onChange={(e) => setInputCode(e.target.value)}
-                className="min-w-0 flex-1 rounded-xl border border-border bg-background px-3 py-2 text-xs text-foreground outline-none focus:border-accent"
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={claiming || !inputCode.trim()}
-                onClick={handleClaim}
-                className="h-9 rounded-xl px-4 text-xs font-semibold"
-              >
-                {claiming ? "Mengklaim..." : "Klaim"}
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <div className="mt-5 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-center text-xs text-emerald-400">
-            ✓ Kamu terdaftar melalui referral teman ({data.referred_by}).
-          </div>
-        )}
       </div>
     </div>
   );

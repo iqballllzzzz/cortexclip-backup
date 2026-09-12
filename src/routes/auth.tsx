@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { ArrowRight, Lock, Mail, User, CheckCircle2, Captions, TrendingUp, Zap } from "lucide-react";
+import { ArrowRight, Lock, Mail, User, CheckCircle2, Captions, TrendingUp, Zap, Gift } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useI18n } from "@/lib/i18n";
@@ -52,16 +52,18 @@ function AuthPage() {
   const [kode, setKode] = useState("");
   const [kirimUlangSisa, setKirimUlangSisa] = useState(0);
   const [turnstileToken, setTurnstileToken] = useState("");
+  const [referralCode, setReferralCode] = useState("");
 
   // Sudah login → langsung dashboard (jangan tampilkan halaman auth lagi)
   useEffect(() => {
     if (typeof window !== "undefined") {
       const p = new URLSearchParams(window.location.search);
-      const r = p.get("ref");
+      const r = p.get("ref") || localStorage.getItem("cortexclip-ref") || "";
       if (r) {
+        setReferralCode(r.toLowerCase());
         localStorage.setItem("cortexclip-ref", r.toLowerCase());
         setMode("signup");
-        toast.info(`Kode referral ${r} terdeteksi! Daftar untuk klaim bonus tiket.`);
+        toast.info(`Kode referral ${r} terdeteksi!`);
       }
     }
 
@@ -362,6 +364,32 @@ function AuthPage() {
               <Input id="password" type="password" required minLength={6} placeholder="Minimal 6 karakter" value={password} onChange={(e) => setPassword(e.target.value)} className="pl-10" />
             </div>
           </div>
+
+          {mode === "signup" && (
+            <div className="space-y-1.5 pt-0.5">
+              <Label htmlFor="referral" className="text-xs text-muted-foreground flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <Gift className="size-3 text-accent" /> Kode Referral
+                </span>
+                <span className="text-[10px] text-muted-foreground/70 font-normal">Opsional</span>
+              </Label>
+              <div className="relative">
+                <Input
+                  id="referral"
+                  type="text"
+                  placeholder="Contoh: d6a7ffe1"
+                  value={referralCode}
+                  onChange={(e) => {
+                    const val = e.target.value.trim().toLowerCase();
+                    setReferralCode(val);
+                    if (val) localStorage.setItem("cortexclip-ref", val);
+                    else localStorage.removeItem("cortexclip-ref");
+                  }}
+                  className="font-mono text-xs uppercase"
+                />
+              </div>
+            </div>
+          )}
           
           <CloudflareTurnstile onVerify={(t) => setTurnstileToken(t)} />
 

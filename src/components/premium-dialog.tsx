@@ -70,6 +70,13 @@ async function api(path: string, init?: RequestInit) {
   return res.json();
 }
 
+const DEFAULT_PLANS: Plan[] = [
+  { key: "day", label: "1 Hari", days: 1, amount: 5000, original_amount: 5000, discount_percent: 0, discount_label: "" },
+  { key: "5day", label: "5 Hari", days: 5, amount: 19000, original_amount: 25000, discount_percent: 24, discount_label: "Diskon 24%" },
+  { key: "month", label: "1 Bulan", days: 30, amount: 60000, original_amount: 80000, discount_percent: 25, discount_label: "Diskon 22%" },
+  { key: "year", label: "1 Tahun", days: 365, amount: 299000, original_amount: 499000, discount_percent: 40, discount_label: "Diskon 40%" },
+];
+
 export function PremiumDialog({
   open,
   onClose,
@@ -79,7 +86,7 @@ export function PremiumDialog({
   onClose: () => void;
   onUpgraded?: () => void;
 }) {
-  const [plans, setPlans] = useState<Plan[]>([]);
+  const [plans, setPlans] = useState<Plan[]>(DEFAULT_PLANS);
   const [loading, setLoading] = useState(false);
   const [order, setOrder] = useState<Order | null>(null);
   const [waiting, setWaiting] = useState(false);
