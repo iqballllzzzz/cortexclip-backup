@@ -90,8 +90,18 @@ def get_progress(clip_id: str) -> dict[str, Any] | None:
         _state.pop(clip_id, None)
         return None
     return {"pct": row["pct"], "tahap": row["tahap"],
+            "url": row.get("url"),
+            "selesai": row.get("selesai", False),
             "eta_s": _eta_detik(row),
             "elapsed_s": int(time.time() - row.get("mulai", row["ts"]))}
+
+
+def set_selesai(clip_id: str, url: str) -> None:
+    """Tandai preview selesai dengan URL hasil render."""
+    now = time.time()
+    row = _state.get(clip_id) or {"pct": 100, "tahap": "Selesai", "titik": [], "mulai": now}
+    row.update({"ts": now, "pct": 100, "tahap": "Selesai", "url": url, "selesai": True})
+    _state[clip_id] = row
 
 
 def clear_progress(clip_id: str) -> None:

@@ -1,5 +1,5 @@
 {
-  "free_premium_status": "closed",
+  "free_premium_status": "hidden",
   "pricing_plans": {
     "day": {
       "label": "1 Hari",

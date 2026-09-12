@@ -971,8 +971,9 @@ async def render_preview_clip(
                         headers=_user_headers(token),
                         json={"preview_url": _url_cache, "preview_ready": True,
                               "preview_style_hash": style_hash})
-                from .preview_progress import set_progress as _sp
+                from .preview_progress import set_progress as _sp, set_selesai as _ss
                 _sp(clip_id, 100, "Siap")
+                _ss(clip_id, _url_cache)
                 print(f"[preview] cache mode {_mode_sufiks} terpakai — "
                       "tanpa render ulang")
                 return {
@@ -1233,6 +1234,8 @@ async def render_preview_clip(
             )
 
         lapor(100, "Selesai")
+        from .preview_progress import set_selesai
+        set_selesai(clip_id, preview_url)
         return {
             "file": out_name,
             "storage_path": storage_key,

@@ -125,6 +125,15 @@ _UUID_RE = re.compile(
 # cache showcase landing page: (waktu_isi, payload) — lihat /api/showcase
 _SHOWCASE_CACHE: tuple[float, dict[str, Any]] | None = None
 
+# Concurrency Gates untuk mengamankan CPU/RAM saat traffic meledak (60+ users)
+MAX_CONCURRENT_PREVIEWS = int(os.environ.get("MAX_CONCURRENT_PREVIEWS", "2"))
+_preview_gate = asyncio.Semaphore(MAX_CONCURRENT_PREVIEWS)
+
+MAX_CONCURRENT_YOUTUBE = int(os.environ.get("MAX_CONCURRENT_YOUTUBE", "2"))
+_youtube_gate = asyncio.Semaphore(MAX_CONCURRENT_YOUTUBE)
+
+_clip_ready_cache: dict[str, tuple[float, str]] = {}
+
 
 def ensure_uuid(value: str, label: str = "Proyek") -> str:
     """ID yang dipakai di query Postgres WAJIB UUID.
@@ -382,44 +391,44 @@ async def api_preview_clip(body: RenderClipIn, request: Request, authorization: 
 
     async def run_preview():
         t0 = time.time()
-        try:
-            await render_preview_clip(
-                body.project_id, body.clip_id, token=token,
-                caption_style=body.caption_style,
-            )
-            from .admin import log_usage
-            await log_usage(user["id"], "preview", model="ffmpeg-preview",
-                            provider="local",
-                            latency_ms=int((time.time() - t0) * 1000),
-                            project_id=body.project_id)
-        except asyncio.CancelledError:
-            # dibatalkan karena layout berubah — bukan kegagalan, jangan
-            # ditandai gagal (klien akan memulai render baru yang benar)
-            from .preview_progress import clear_progress as _cp
-            _cp(body.clip_id)
-            raise
-        except Exception as exc:
-            print(f"[preview] gagal: {exc}")
-            # TANDAI GAGAL. Tanpa ini task mati → status "idle" → klien memulai
-            # render baru dari nol, berulang tanpa akhir dan tanpa memberi tahu
-            # penyebabnya (keluhan: "5 persen terus 3 persen terus 60 persen
-            # terus nurun lagi, gaada habisnya").
+        from .preview_progress import set_progress
+        set_progress(body.clip_id, 1, "Mengantre antrean preview…")
+        async with _preview_gate:
+            set_progress(body.clip_id, 3, "Menyiapkan video")
             try:
-                from .preview_progress import set_gagal
-                pesan = str(exc)
-                if "returned non-zero exit status" in pesan:
-                    pesan = "Render video gagal di server (ffmpeg)"
-                set_gagal(body.clip_id, pesan)
-            except Exception:
-                pass
-            try:
+                await render_preview_clip(
+                    body.project_id, body.clip_id, token=token,
+                    caption_style=body.caption_style,
+                )
                 from .admin import log_usage
                 await log_usage(user["id"], "preview", model="ffmpeg-preview",
-                                provider="local", status="error",
-                                project_id=body.project_id,
-                                meta={"error": str(exc)[:200]})
-            except Exception:
-                pass
+                                provider="local",
+                                latency_ms=int((time.time() - t0) * 1000),
+                                project_id=body.project_id)
+            except asyncio.CancelledError:
+                # dibatalkan karena layout berubah — bukan kegagalan, jangan
+                # ditandai gagal (klien akan memulai render baru yang benar)
+                from .preview_progress import clear_progress as _cp
+                _cp(body.clip_id)
+                raise
+            except Exception as exc:
+                print(f"[preview] gagal: {exc}")
+                try:
+                    from .preview_progress import set_gagal
+                    pesan = str(exc)
+                    if "returned non-zero exit status" in pesan:
+                        pesan = "Render video gagal di server (ffmpeg)"
+                    set_gagal(body.clip_id, pesan)
+                except Exception:
+                    pass
+                try:
+                    from .admin import log_usage
+                    await log_usage(user["id"], "preview", model="ffmpeg-preview",
+                                    provider="local", status="error",
+                                    project_id=body.project_id,
+                                    meta={"error": str(exc)[:200]})
+                except Exception:
+                    pass
 
     # spawn() menyimpan referensi KUAT ke task (lihat background.py): task tanpa
     # referensi boleh dibuang GC kapan saja menurut dokumentasi asyncio, dan itu
@@ -939,12 +948,43 @@ async def api_preview_status(clip_id: str, request: Request,
                              authorization: str | None = Header(None)):
     """Status preview: processing | ready | idle (+ url kalau sudah siap).
 
-    Menyertakan `progress` (0-100) dan `stage` supaya UI bisa menampilkan
-    "Memuat preview 42%" alih-alih layar hitam tanpa keterangan.
+    Dioptimalkan: RAM cache dibaca lebih dulu (0ms) untuk mencegah puluhan
+    request polling per detik membanjiri koneksi database Supabase.
     """
     await get_user(request, authorization)
     ensure_uuid(clip_id, "Klip")
-    async with httpx.AsyncClient(timeout=15) as client:
+
+    from .preview_progress import get_progress, ambil_gagal
+    prog = get_progress(clip_id) or {}
+
+    # 1. Cepat: Jika RAM progress sudah mencatat selesai & URL ada, langsung balas!
+    if prog.get("selesai") and prog.get("url"):
+        return {"status": "ready", "url": prog["url"],
+                "progress": 100, "stage": "Selesai", "cached": True}
+
+    now = time.time()
+    # 2. Cepat: Cek in-memory ready cache (TTL 5s)
+    if clip_id in _clip_ready_cache:
+        ts, cached_url = _clip_ready_cache[clip_id]
+        if now - ts < 5.0 and cached_url:
+            return {"status": "ready", "url": cached_url,
+                    "progress": 100, "stage": "Selesai", "cached": True}
+
+    key = f"preview:{clip_id}"
+    from .background import sedang_jalan
+    running = sedang_jalan(key)
+
+    # 3. Cepat: Jika background task sedang jalan dan ada progress di RAM, balas langsung
+    pct = prog.get("pct")
+    if running and pct is not None and int(pct) < 100:
+        return {"status": "processing", "url": None,
+                "progress": int(pct),
+                "stage": prog.get("tahap") or "Menyiapkan",
+                "eta_s": prog.get("eta_s"),
+                "elapsed_s": prog.get("elapsed_s", 0)}
+
+    # 4. Fallback cek DB
+    async with httpx.AsyncClient(timeout=10) as client:
         r = await client.get(
             f"{SUPABASE_URL}/rest/v1/clips?id=eq.{clip_id}"
             "&select=preview_url,preview_ready",
@@ -953,17 +993,12 @@ async def api_preview_status(clip_id: str, request: Request,
         )
     rows = r.json() if r.status_code == 200 else []
     row = rows[0] if rows else {}
-    from .preview_progress import get_progress
-    prog = get_progress(clip_id) or {}
     if row.get("preview_ready") and row.get("preview_url"):
+        _clip_ready_cache[clip_id] = (now, row["preview_url"])
         return {"status": "ready", "url": row["preview_url"],
                 "progress": 100, "stage": "Selesai"}
-    key = f"preview:{clip_id}"
-    from .background import sedang_jalan
-    running = sedang_jalan(key)
+
     if not running:
-        # kegagalan nyata dilaporkan apa adanya supaya klien BERHENTI mengulang
-        from .preview_progress import ambil_gagal
         info = ambil_gagal(clip_id)
         if info:
             return {"status": "failed", "url": None, "progress": 0,
@@ -971,8 +1006,6 @@ async def api_preview_status(clip_id: str, request: Request,
     return {"status": "processing" if running else "idle", "url": None,
             "progress": int(prog.get("pct", 0)),
             "stage": prog.get("tahap") or ("Menyiapkan" if running else ""),
-            # estimasi sisa detik dari laju NYATA (lihat preview_progress.py) —
-            # dipakai UI untuk hitung mundur; None kalau belum bisa dihitung
             "eta_s": prog.get("eta_s"),
             "elapsed_s": prog.get("elapsed_s", 0)}
 
@@ -1931,7 +1964,8 @@ async def api_youtube_process(body: YoutubeIn, request: Request, authorization: 
 
 async def _youtube_task(project_id: str, user_id: str, url: str, target: int) -> None:
     from .youtube import run_youtube_pipeline
-    await run_youtube_pipeline(project_id, user_id, url, target)
+    async with _youtube_gate:
+        await run_youtube_pipeline(project_id, user_id, url, target)
 
 
 @app.get("/api/quota")
