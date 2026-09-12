@@ -372,16 +372,8 @@ function DownloadsPage() {
                             size="sm"
                             className="relative overflow-hidden rounded-full shine"
                             onClick={() => {
-                              const name = clipFileName(title);
-                              const url = new URL(job.rendered_url!);
-                              url.searchParams.set("download", name);
-                              const a = document.createElement("a");
-                              a.href = url.toString();
-                              a.download = name;
-                              a.rel = "noopener";
-                              document.body.appendChild(a);
-                              a.click();
-                              a.remove();
+                              // Langsung redirect ke endpoint unduhan MP4
+                              window.location.href = `/api/download/${job.id}`;
                             }}
                           >
                             <Download className="size-4" />

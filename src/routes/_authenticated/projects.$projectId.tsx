@@ -105,17 +105,12 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 function sisaWaktu(sec: number): string {
-  if (sec >= 3600) {
-    const j = Math.floor(sec / 3600);
-    const m = Math.round((sec % 3600) / 60);
-    return m > 0 ? `${j} jam ${m} menit` : `${j} jam`;
-  }
-  if (sec >= 60) {
-    const m = Math.floor(sec / 60);
-    const s = Math.round(sec % 60);
-    return s > 0 ? `${m} menit ${s} detik` : `${m} menit`;
-  }
-  return `${Math.max(1, Math.round(sec))} detik`;
+  // Pemrosesan video pendek / podcast berkisar 1-3 menit, batasi estimasi agar realistis
+  const sisa = Math.max(1, Math.min(240, Math.round(sec)));
+  const m = Math.floor(sisa / 60);
+  const s = sisa % 60;
+  if (m > 0) return `${m} mnt ${s > 0 ? `${s} dtk` : ""}`.trim();
+  return `${s} dtk`;
 }
 
 function formatClock(seconds: number) {
@@ -310,7 +305,8 @@ function ProjectPage() {
         lajuRef.current = lajuRef.current
           ? lajuRef.current * (1 - alpha) + laju * alpha
           : laju;
-        setEtaS(Math.max(1, Math.round((100 - pct) / lajuRef.current)));
+        const lajuAman = Math.max(0.18, lajuRef.current || 0.18);
+        setEtaS(Math.max(1, Math.min(240, Math.round((100 - pct) / lajuAman))));
       }
     }
     sampelRef.current = { pct, t: now };

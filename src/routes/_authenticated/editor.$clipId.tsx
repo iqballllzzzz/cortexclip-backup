@@ -806,32 +806,11 @@ function EditorPage() {
   // hook harus jalan di setiap render; dulu taruh di bawah → React #310.
   const videoSrc = clip?.preview_ready && clip.preview_url ? clip.preview_url : null;
   const [urlTampil, setUrlTampil] = useState<string | null>(null);
-  const urlBaruRef = useRef<string | null>(null);
   useEffect(() => {
     if (videoSrc && videoSrc !== urlTampil) {
-      urlBaruRef.current = videoSrc;
-      if (!urlTampil) setUrlTampil(videoSrc);
+      setUrlTampil(videoSrc);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [videoSrc]);
-  const videoSiapBaru = () => {
-    if (urlBaruRef.current && urlBaruRef.current !== urlTampil) {
-      const urlLama = urlTampil;
-      setUrlTampil(urlBaruRef.current);
-      urlBaruRef.current = null;
-      // AUTO-REFRESH (permintaan pengguna): preview baru (mis. setelah Auto
-      // Split dinyalakan) langsung diputar dari awal — pengguna tidak perlu
-      // memuat ulang halaman lagi untuk melihat hasil splitnya.
-      if (urlLama) {
-        const v = videoRef.current;
-        if (v) {
-          v.currentTime = 0;
-          v.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
-        }
-        toast.success("Preview diperbarui");
-      }
-    }
-  };
+  }, [videoSrc, urlTampil]);
 
   if (loading || !clip) {
     return <PageLoading fullscreen label="Memuat editor" />;
@@ -917,23 +896,11 @@ function EditorPage() {
               >
               {urlTampil ? (
                 <>
-                  {videoSrc && videoSrc !== urlTampil ? (
-                    <video
-                      key={videoSrc}
-                      src={videoSrc}
-                      playsInline
-                      preload="auto"
-                      muted
-                      className="absolute inset-0 size-full object-cover opacity-0"
-                      onLoadedData={videoSiapBaru}
-                      aria-hidden
-                    />
-                  ) : null}
                   <video
                     ref={videoRef}
                     src={urlTampil}
                     playsInline
-                    preload="auto"
+                    preload="metadata"
                     className="absolute inset-0 size-full object-cover"
                     onClick={togglePlay}
                     onLoadedMetadata={handleLoadedMetadata}

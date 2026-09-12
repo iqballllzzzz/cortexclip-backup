@@ -69,9 +69,10 @@ async def upload_to_storage(local_path: str, storage_path: str, on_progress: Any
     """Upload a local file to Supabase storage with optional progress reporting."""
     url = f"{SUPABASE_URL}/storage/v1/object/{BUCKET}/{storage_path}"
 
+    content_type = "video/mp4" if local_path.lower().endswith(".mp4") else "application/octet-stream"
     headers = {
         **_service_headers(),
-        "Content-Type": "application/octet-stream",
+        "Content-Type": content_type,
         "x-upsert": "true",
     }
 

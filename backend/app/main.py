@@ -1149,6 +1149,35 @@ async def api_get_render_job(job_id: str, request: Request,
     return row
 
 
+@app.get("/api/download/{job_id}")
+@app.head("/api/download/{job_id}")
+async def api_direct_download_job(job_id: str):
+    """Langsung mengarahkan/redirect browser ke berkas unduhan MP4 siap simpan."""
+    ensure_uuid(job_id, "Job")
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            f"{SUPABASE_URL}/rest/v1/render_jobs?id=eq.{job_id}"
+            "&select=id,status,rendered_url,clip_title",
+            headers={"apikey": SUPABASE_SERVICE_KEY,
+                     "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
+        )
+    rows = r.json() if r.status_code == 200 else []
+    if not rows or not rows[0].get("rendered_url"):
+        raise HTTPException(404, "Klip belum selesai dirender atau tidak ditemukan.")
+    
+    row = rows[0]
+    raw_url = row["rendered_url"]
+    title = row.get("clip_title") or "cortexclip"
+    safe_title = "".join(c for c in title if c.isalnum() or c in (" ", "-", "_")).strip() or "clip"
+    clean_filename = f"{safe_title}.mp4"
+    from urllib.parse import quote
+    from starlette.responses import RedirectResponse
+    
+    sep = "&" if "?" in raw_url else "?"
+    redirect_url = f"{raw_url}{sep}download={quote(clean_filename)}"
+    return RedirectResponse(url=redirect_url, status_code=307)
+
+
 @app.delete("/api/render-jobs/{job_id}")
 async def api_delete_render_job(job_id: str, request: Request, authorization: Optional[str] = Header(None)):
     """Hapus satu job unduhan (row render_jobs milik user)."""
