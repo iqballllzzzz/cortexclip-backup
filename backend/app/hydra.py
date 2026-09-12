@@ -134,6 +134,7 @@ BASE_URLS = {
     "openrouter": "https://openrouter.ai/api/v1",
     "tokenrouter": "https://api.tokenrouter.com/v1",
     "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "free_deepseek": "http://127.0.0.1:5001/v1",
     "unlimitedai": "https://app.unlimitedai.chat",
     "publicai": "https://publicai.co",
 }
@@ -147,16 +148,14 @@ KEY_ENV = {
     "openrouter": "OPENROUTER_API_KEYS",
     "tokenrouter": "TOKENROUTER_API_KEYS",
     "gemini": "GEMINI_API_KEYS",
+    "free_deepseek": "FREE_DEEPSEEK_API_KEYS",
     "unlimitedai": "UNLIMITEDAI_ENABLED",
     "publicai": "PUBLICAI_ENABLED",
 }
 
 # Provider yang DIUTAMAKAN untuk pekerjaan penting (pemilihan momen viral).
-# Ditetapkan dari UJI NYATA `backend/test-model-hidup.py` (2026-09-06):
-# 30 dari 48 (provider, model) menjawab. groq tercepat (0,6-1,4s, JSON rapi,
-# 14.400 req/hari) dan gemini paling pintar untuk penilaian momen — keduanya
-# dicoba lebih dulu. justwoker DIKELUARKAN: providernya balas HTML Cloudflare.
-PRIORITAS_TINGGI = ("groq", "gemini")
+# Ditetapkan dari UJI NYATA: groq (1), gemini (2), dan free_deepseek vision (3).
+PRIORITAS_TINGGI = ("groq", "gemini", "free_deepseek")
 
 # Order matters within a provider: model TERBAIK dulu, lalu cadangan.
 #
@@ -213,6 +212,11 @@ DEFAULT_MODELS: dict[str, list[str]] = {
         "gemini-3-flash-preview",    # lambat saat ramai (16s)
         "gemini-3.8-flash",          # 503 overload saat diuji; cooldown menangani
         "gemini-flash-latest",       # 503 overload saat diuji
+    ],
+    # free-deepseek (MrFadiAi / ds2api): model DeepSeek Vision & Chat lokal
+    "free_deepseek": [
+        "deepseek-v4-vision",
+        "deepseek-v4-vision-nothinking",
     ],
     # openrouter :free — 12 hidup. Urut dari tercepat/terpintar.
     "openrouter": [
