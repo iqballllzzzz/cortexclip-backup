@@ -8,25 +8,29 @@ const cols = [
     links: [
       { label: "Cara kerja", href: "/#cara" },
       { label: "Fitur", href: "/#fitur" },
-      { label: "Harga", href: "/#harga" },
+      { label: "Harga & QRIS", href: "/#harga" },
       { label: "FAQ", href: "/#faq" },
-    ],
-  },
-  {
-    title: "Bantuan",
-    links: [
-      { label: "Dokumentasi", href: "/docs" },
-      { label: "Cara pakai", href: "/docs#mulai" },
-      { label: "Batas & harga", href: "/docs#batas" },
-      { label: "Masalah umum", href: "/docs#masalah" },
-    ],
-  },
-  {
-    title: "Akun",
-    links: [
       { label: "Dashboard", href: "/dashboard" },
-      { label: "Masuk", href: "/auth" },
-      { label: "Unduhan", href: "/unduh" },
+    ],
+  },
+  {
+    title: "Panduan & Artikel",
+    links: [
+      { label: "Dokumentasi Lengkap", href: "/docs" },
+      { label: "Panduan Konten Viral", href: "/docs/panduan-konten-viral" },
+      { label: "Optimasi Subtitle Karaoke", href: "/docs/optimasi-karaoke-subtitle" },
+      { label: "Monetisasi Video Pendek", href: "/docs/monetisasi-video-pendek" },
+      { label: "Mulai Cepat 5 Menit", href: "/docs/mulai-cepat" },
+    ],
+  },
+  {
+    title: "Legal & Kepatuhan",
+    links: [
+      { label: "Kebijakan Privasi", href: "/kebijakan-privasi" },
+      { label: "Syarat & Ketentuan", href: "/syarat-ketentuan" },
+      { label: "Tentang Kami", href: "/tentang-kami" },
+      { label: "Hubungi Kami", href: "/kontak" },
+      { label: "Keamanan Data", href: "/docs/keamanan" },
     ],
   },
 ];
@@ -34,15 +38,14 @@ const cols = [
 export function SiteFooter() {
   return (
     <footer className="border-t border-border">
-      <div className="mx-auto grid max-w-[1180px] gap-10 px-4 py-14 sm:grid-cols-2 sm:px-6 md:grid-cols-4">
-        <div className="md:col-span-2">
+      <div className="mx-auto grid max-w-[1180px] gap-8 px-4 py-14 sm:grid-cols-2 sm:px-6 lg:grid-cols-5">
+        <div className="lg:col-span-2">
           <div className="flex items-center gap-2">
             <img src="/cortexclip-logo.png" alt="CortexClip" draggable={false} loading="lazy" className="size-6 select-none object-contain" onContextMenu={(e) => e.preventDefault()} />
-            <span className="font-display text-base font-bold tracking-tight">CortexClip</span>
+            <span className="font-display text-base font-bold tracking-tight">CortexClip AI</span>
           </div>
           <p className="mt-3 max-w-sm text-sm leading-relaxed text-muted-foreground">
-            Satu video panjang, puluhan klip vertikal siap unggah — caption karaoke, skor
-            viralitas, dan face tracking otomatis.
+            Platform otomatisasi kurasi klip video vertikal AI buatan Indonesia — takarir karaoke akurat, pelacakan wajah cerdas, dan skor viralitas instan.
           </p>
           <div className="mt-5 flex gap-2">
             {[Twitter, Youtube, Github].map((Icon, i) => (

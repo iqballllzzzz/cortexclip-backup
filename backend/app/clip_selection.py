@@ -409,6 +409,15 @@ async def detail_pass(
         return []
     if isinstance(data, list):
         data = {"shorts": data}
+    elif isinstance(data, dict) and "shorts" not in data:
+        for k in ["clips", "highlights", "videos", "results"]:
+            if isinstance(data.get(k), list) and data[k]:
+                data["shorts"] = data[k]
+                break
+        else:
+            lists = [v for v in data.values() if isinstance(v, list) and v]
+            if lists:
+                data["shorts"] = max(lists, key=len)
     clips = []
     for c in data.get("shorts", []):
         if not isinstance(c, dict):
@@ -594,13 +603,42 @@ async def detect_clips(
         out.append(c)
 
     # Pastikan kuota klip terpenuhi minimal 'floor' agar video panjang tidak cuma dapat 1 klip
+    # Tahap 1: Ambil sisa dari hasil AI jika ada
     if len(out) < floor and clips:
         for c in clips:
-            if not any(o["start"] == c["start"] and o["end"] == c["end"] for o in out):
+            if not any(not (c["end"] <= o["start"] or c["start"] >= o["end"]) for o in out):
                 c["caption_words"] = words_in_range(transcript, c["start"], c["end"])
                 out.append(c)
                 if len(out) >= floor:
                     break
+
+    # Tahap 2: BACKFILL CERDAS dari shortlist / candidate windows jika AI model pelit/hanya kasih 1 klip
+    if len(out) < floor and shortlist:
+        print(f"[clip_selection] out={len(out)} < floor={floor} -> backfilling dari candidate windows...")
+        for w in shortlist:
+            w_st = float(w["start"])
+            w_en = float(w["end"])
+            # Cek non-overlapping dengan klip yang sudah ada
+            overlap = any(not (w_en <= o["start"] or w_st >= o["end"]) for o in out)
+            if not overlap:
+                cand = {
+                    "start": w_st,
+                    "end": w_en,
+                    "score": int(w.get("score") or 82),
+                    "hook": w.get("hook") or "Momen penting dan menarik di segmen ini",
+                    "title": (w.get("hook") or f"Highlight {int(w_st)//60}:{int(w_st)%60:02d}")[:60],
+                    "description": f"Highlight podcast pilihan AI di menit {int(w_st)//60}. Simpan dan tonton sampai habis!",
+                    "hashtags": ["#podcast", "#highlight", "#fyp", "#viral", "#shorts"],
+                    "quote": w.get("hook") or "",
+                    "topic": "Highlight Video",
+                    "source_window_id": w.get("id"),
+                }
+                cand = snap_clip_to_words(cand, transcript)
+                cand["caption_words"] = words_in_range(transcript, cand["start"], cand["end"])
+                if len(cand["caption_words"]) >= 10:
+                    out.append(cand)
+                    if len(out) >= floor:
+                        break
 
     out.sort(key=lambda c: c["score"], reverse=True)
     return out

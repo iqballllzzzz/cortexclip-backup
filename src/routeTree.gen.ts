@@ -14,8 +14,12 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as DocsRouteImport } from './routes/docs'
+import { Route as KebijakanPrivasiRouteImport } from './routes/kebijakan-privasi'
+import { Route as KontakRouteImport } from './routes/kontak'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as StudioRouteImport } from './routes/studio'
+import { Route as SyaratKetentuanRouteImport } from './routes/syarat-ketentuan'
+import { Route as TentangKamiRouteImport } from './routes/tentang-kami'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedPengaturanRouteImport } from './routes/_authenticated/pengaturan'
 import { Route as AuthenticatedUnduhRouteImport } from './routes/_authenticated/unduh'
@@ -27,7 +31,10 @@ import { Route as DocsHargaRouteImport } from './routes/docs/harga'
 import { Route as DocsKeamananRouteImport } from './routes/docs/keamanan'
 import { Route as DocsManualTrackingRouteImport } from './routes/docs/manual-tracking'
 import { Route as DocsMasalahRouteImport } from './routes/docs/masalah'
+import { Route as DocsMonetisasiVideoPendekRouteImport } from './routes/docs/monetisasi-video-pendek'
 import { Route as DocsMulaiCepatRouteImport } from './routes/docs/mulai-cepat'
+import { Route as DocsOptimasiKaraokeSubtitleRouteImport } from './routes/docs/optimasi-karaoke-subtitle'
+import { Route as DocsPanduanKontenViralRouteImport } from './routes/docs/panduan-konten-viral'
 import { Route as DocsWhatIsCortexclipaiRouteImport } from './routes/docs/what-is-cortexclipai'
 import { Route as ShareTokenRouteImport } from './routes/share.$token'
 import { Route as AuthenticatedEditorClipIdRouteImport } from './routes/_authenticated/editor.$clipId'
@@ -58,6 +65,16 @@ const DocsRoute = DocsRouteImport.update({
   path: '/docs',
   getParentRoute: () => rootRouteImport,
 } as any)
+const KebijakanPrivasiRoute = KebijakanPrivasiRouteImport.update({
+  id: '/kebijakan-privasi',
+  path: '/kebijakan-privasi',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KontakRoute = KontakRouteImport.update({
+  id: '/kontak',
+  path: '/kontak',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
   id: '/reset-password',
   path: '/reset-password',
@@ -66,6 +83,16 @@ const ResetPasswordRoute = ResetPasswordRouteImport.update({
 const StudioRoute = StudioRouteImport.update({
   id: '/studio',
   path: '/studio',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SyaratKetentuanRoute = SyaratKetentuanRouteImport.update({
+  id: '/syarat-ketentuan',
+  path: '/syarat-ketentuan',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TentangKamiRoute = TentangKamiRouteImport.update({
+  id: '/tentang-kami',
+  path: '/tentang-kami',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
@@ -123,9 +150,26 @@ const DocsMasalahRoute = DocsMasalahRouteImport.update({
   path: '/masalah',
   getParentRoute: () => DocsRoute,
 } as any)
+const DocsMonetisasiVideoPendekRoute =
+  DocsMonetisasiVideoPendekRouteImport.update({
+    id: '/monetisasi-video-pendek',
+    path: '/monetisasi-video-pendek',
+    getParentRoute: () => DocsRoute,
+  } as any)
 const DocsMulaiCepatRoute = DocsMulaiCepatRouteImport.update({
   id: '/mulai-cepat',
   path: '/mulai-cepat',
+  getParentRoute: () => DocsRoute,
+} as any)
+const DocsOptimasiKaraokeSubtitleRoute =
+  DocsOptimasiKaraokeSubtitleRouteImport.update({
+    id: '/optimasi-karaoke-subtitle',
+    path: '/optimasi-karaoke-subtitle',
+    getParentRoute: () => DocsRoute,
+  } as any)
+const DocsPanduanKontenViralRoute = DocsPanduanKontenViralRouteImport.update({
+  id: '/panduan-konten-viral',
+  path: '/panduan-konten-viral',
   getParentRoute: () => DocsRoute,
 } as any)
 const DocsWhatIsCortexclipaiRoute = DocsWhatIsCortexclipaiRouteImport.update({
@@ -161,8 +205,12 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AdminRouteWithChildren
   '/auth': typeof AuthRoute
   '/docs': typeof DocsRouteWithChildren
+  '/kebijakan-privasi': typeof KebijakanPrivasiRoute
+  '/kontak': typeof KontakRoute
   '/reset-password': typeof ResetPasswordRoute
   '/studio': typeof StudioRoute
+  '/syarat-ketentuan': typeof SyaratKetentuanRoute
+  '/tentang-kami': typeof TentangKamiRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/pengaturan': typeof AuthenticatedPengaturanRoute
   '/unduh': typeof AuthenticatedUnduhRoute
@@ -174,7 +222,10 @@ export interface FileRoutesByFullPath {
   '/docs/keamanan': typeof DocsKeamananRoute
   '/docs/manual-tracking': typeof DocsManualTrackingRoute
   '/docs/masalah': typeof DocsMasalahRoute
+  '/docs/monetisasi-video-pendek': typeof DocsMonetisasiVideoPendekRoute
   '/docs/mulai-cepat': typeof DocsMulaiCepatRoute
+  '/docs/optimasi-karaoke-subtitle': typeof DocsOptimasiKaraokeSubtitleRoute
+  '/docs/panduan-konten-viral': typeof DocsPanduanKontenViralRoute
   '/docs/what-is-cortexclipai': typeof DocsWhatIsCortexclipaiRoute
   '/share/$token': typeof ShareTokenRoute
   '/editor/$clipId': typeof AuthenticatedEditorClipIdRoute
@@ -186,8 +237,12 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminRouteWithChildren
   '/auth': typeof AuthRoute
   '/docs': typeof DocsRouteWithChildren
+  '/kebijakan-privasi': typeof KebijakanPrivasiRoute
+  '/kontak': typeof KontakRoute
   '/reset-password': typeof ResetPasswordRoute
   '/studio': typeof StudioRoute
+  '/syarat-ketentuan': typeof SyaratKetentuanRoute
+  '/tentang-kami': typeof TentangKamiRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/pengaturan': typeof AuthenticatedPengaturanRoute
   '/unduh': typeof AuthenticatedUnduhRoute
@@ -199,7 +254,10 @@ export interface FileRoutesByTo {
   '/docs/keamanan': typeof DocsKeamananRoute
   '/docs/manual-tracking': typeof DocsManualTrackingRoute
   '/docs/masalah': typeof DocsMasalahRoute
+  '/docs/monetisasi-video-pendek': typeof DocsMonetisasiVideoPendekRoute
   '/docs/mulai-cepat': typeof DocsMulaiCepatRoute
+  '/docs/optimasi-karaoke-subtitle': typeof DocsOptimasiKaraokeSubtitleRoute
+  '/docs/panduan-konten-viral': typeof DocsPanduanKontenViralRoute
   '/docs/what-is-cortexclipai': typeof DocsWhatIsCortexclipaiRoute
   '/share/$token': typeof ShareTokenRoute
   '/editor/$clipId': typeof AuthenticatedEditorClipIdRoute
@@ -213,8 +271,12 @@ export interface FileRoutesById {
   '/admin': typeof AdminRouteWithChildren
   '/auth': typeof AuthRoute
   '/docs': typeof DocsRouteWithChildren
+  '/kebijakan-privasi': typeof KebijakanPrivasiRoute
+  '/kontak': typeof KontakRoute
   '/reset-password': typeof ResetPasswordRoute
   '/studio': typeof StudioRoute
+  '/syarat-ketentuan': typeof SyaratKetentuanRoute
+  '/tentang-kami': typeof TentangKamiRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/pengaturan': typeof AuthenticatedPengaturanRoute
   '/_authenticated/unduh': typeof AuthenticatedUnduhRoute
@@ -226,7 +288,10 @@ export interface FileRoutesById {
   '/docs/keamanan': typeof DocsKeamananRoute
   '/docs/manual-tracking': typeof DocsManualTrackingRoute
   '/docs/masalah': typeof DocsMasalahRoute
+  '/docs/monetisasi-video-pendek': typeof DocsMonetisasiVideoPendekRoute
   '/docs/mulai-cepat': typeof DocsMulaiCepatRoute
+  '/docs/optimasi-karaoke-subtitle': typeof DocsOptimasiKaraokeSubtitleRoute
+  '/docs/panduan-konten-viral': typeof DocsPanduanKontenViralRoute
   '/docs/what-is-cortexclipai': typeof DocsWhatIsCortexclipaiRoute
   '/share/$token': typeof ShareTokenRoute
   '/_authenticated/editor/$clipId': typeof AuthenticatedEditorClipIdRoute
@@ -240,8 +305,12 @@ export interface FileRouteTypes {
     | '/admin'
     | '/auth'
     | '/docs'
+    | '/kebijakan-privasi'
+    | '/kontak'
     | '/reset-password'
     | '/studio'
+    | '/syarat-ketentuan'
+    | '/tentang-kami'
     | '/dashboard'
     | '/pengaturan'
     | '/unduh'
@@ -253,7 +322,10 @@ export interface FileRouteTypes {
     | '/docs/keamanan'
     | '/docs/manual-tracking'
     | '/docs/masalah'
+    | '/docs/monetisasi-video-pendek'
     | '/docs/mulai-cepat'
+    | '/docs/optimasi-karaoke-subtitle'
+    | '/docs/panduan-konten-viral'
     | '/docs/what-is-cortexclipai'
     | '/share/$token'
     | '/editor/$clipId'
@@ -265,8 +337,12 @@ export interface FileRouteTypes {
     | '/admin'
     | '/auth'
     | '/docs'
+    | '/kebijakan-privasi'
+    | '/kontak'
     | '/reset-password'
     | '/studio'
+    | '/syarat-ketentuan'
+    | '/tentang-kami'
     | '/dashboard'
     | '/pengaturan'
     | '/unduh'
@@ -278,7 +354,10 @@ export interface FileRouteTypes {
     | '/docs/keamanan'
     | '/docs/manual-tracking'
     | '/docs/masalah'
+    | '/docs/monetisasi-video-pendek'
     | '/docs/mulai-cepat'
+    | '/docs/optimasi-karaoke-subtitle'
+    | '/docs/panduan-konten-viral'
     | '/docs/what-is-cortexclipai'
     | '/share/$token'
     | '/editor/$clipId'
@@ -291,8 +370,12 @@ export interface FileRouteTypes {
     | '/admin'
     | '/auth'
     | '/docs'
+    | '/kebijakan-privasi'
+    | '/kontak'
     | '/reset-password'
     | '/studio'
+    | '/syarat-ketentuan'
+    | '/tentang-kami'
     | '/_authenticated/dashboard'
     | '/_authenticated/pengaturan'
     | '/_authenticated/unduh'
@@ -304,7 +387,10 @@ export interface FileRouteTypes {
     | '/docs/keamanan'
     | '/docs/manual-tracking'
     | '/docs/masalah'
+    | '/docs/monetisasi-video-pendek'
     | '/docs/mulai-cepat'
+    | '/docs/optimasi-karaoke-subtitle'
+    | '/docs/panduan-konten-viral'
     | '/docs/what-is-cortexclipai'
     | '/share/$token'
     | '/_authenticated/editor/$clipId'
@@ -318,8 +404,12 @@ export interface RootRouteChildren {
   AdminRoute: typeof AdminRouteWithChildren
   AuthRoute: typeof AuthRoute
   DocsRoute: typeof DocsRouteWithChildren
+  KebijakanPrivasiRoute: typeof KebijakanPrivasiRoute
+  KontakRoute: typeof KontakRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   StudioRoute: typeof StudioRoute
+  SyaratKetentuanRoute: typeof SyaratKetentuanRoute
+  TentangKamiRoute: typeof TentangKamiRoute
   ShareTokenRoute: typeof ShareTokenRoute
 }
 
@@ -360,6 +450,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/kebijakan-privasi': {
+      id: '/kebijakan-privasi'
+      path: '/kebijakan-privasi'
+      fullPath: '/kebijakan-privasi'
+      preLoaderRoute: typeof KebijakanPrivasiRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/kontak': {
+      id: '/kontak'
+      path: '/kontak'
+      fullPath: '/kontak'
+      preLoaderRoute: typeof KontakRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/reset-password': {
       id: '/reset-password'
       path: '/reset-password'
@@ -372,6 +476,20 @@ declare module '@tanstack/react-router' {
       path: '/studio'
       fullPath: '/studio'
       preLoaderRoute: typeof StudioRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/syarat-ketentuan': {
+      id: '/syarat-ketentuan'
+      path: '/syarat-ketentuan'
+      fullPath: '/syarat-ketentuan'
+      preLoaderRoute: typeof SyaratKetentuanRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tentang-kami': {
+      id: '/tentang-kami'
+      path: '/tentang-kami'
+      fullPath: '/tentang-kami'
+      preLoaderRoute: typeof TentangKamiRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/dashboard': {
@@ -451,11 +569,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsMasalahRouteImport
       parentRoute: typeof DocsRoute
     }
+    '/docs/monetisasi-video-pendek': {
+      id: '/docs/monetisasi-video-pendek'
+      path: '/monetisasi-video-pendek'
+      fullPath: '/docs/monetisasi-video-pendek'
+      preLoaderRoute: typeof DocsMonetisasiVideoPendekRouteImport
+      parentRoute: typeof DocsRoute
+    }
     '/docs/mulai-cepat': {
       id: '/docs/mulai-cepat'
       path: '/mulai-cepat'
       fullPath: '/docs/mulai-cepat'
       preLoaderRoute: typeof DocsMulaiCepatRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/optimasi-karaoke-subtitle': {
+      id: '/docs/optimasi-karaoke-subtitle'
+      path: '/optimasi-karaoke-subtitle'
+      fullPath: '/docs/optimasi-karaoke-subtitle'
+      preLoaderRoute: typeof DocsOptimasiKaraokeSubtitleRouteImport
+      parentRoute: typeof DocsRoute
+    }
+    '/docs/panduan-konten-viral': {
+      id: '/docs/panduan-konten-viral'
+      path: '/panduan-konten-viral'
+      fullPath: '/docs/panduan-konten-viral'
+      preLoaderRoute: typeof DocsPanduanKontenViralRouteImport
       parentRoute: typeof DocsRoute
     }
     '/docs/what-is-cortexclipai': {
@@ -545,7 +684,10 @@ interface DocsRouteChildren {
   DocsKeamananRoute: typeof DocsKeamananRoute
   DocsManualTrackingRoute: typeof DocsManualTrackingRoute
   DocsMasalahRoute: typeof DocsMasalahRoute
+  DocsMonetisasiVideoPendekRoute: typeof DocsMonetisasiVideoPendekRoute
   DocsMulaiCepatRoute: typeof DocsMulaiCepatRoute
+  DocsOptimasiKaraokeSubtitleRoute: typeof DocsOptimasiKaraokeSubtitleRoute
+  DocsPanduanKontenViralRoute: typeof DocsPanduanKontenViralRoute
   DocsWhatIsCortexclipaiRoute: typeof DocsWhatIsCortexclipaiRoute
 }
 
@@ -557,7 +699,10 @@ const DocsRouteChildren: DocsRouteChildren = {
   DocsKeamananRoute: DocsKeamananRoute,
   DocsManualTrackingRoute: DocsManualTrackingRoute,
   DocsMasalahRoute: DocsMasalahRoute,
+  DocsMonetisasiVideoPendekRoute: DocsMonetisasiVideoPendekRoute,
   DocsMulaiCepatRoute: DocsMulaiCepatRoute,
+  DocsOptimasiKaraokeSubtitleRoute: DocsOptimasiKaraokeSubtitleRoute,
+  DocsPanduanKontenViralRoute: DocsPanduanKontenViralRoute,
   DocsWhatIsCortexclipaiRoute: DocsWhatIsCortexclipaiRoute,
 }
 
@@ -569,8 +714,12 @@ const rootRouteChildren: RootRouteChildren = {
   AdminRoute: AdminRouteWithChildren,
   AuthRoute: AuthRoute,
   DocsRoute: DocsRouteWithChildren,
+  KebijakanPrivasiRoute: KebijakanPrivasiRoute,
+  KontakRoute: KontakRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   StudioRoute: StudioRoute,
+  SyaratKetentuanRoute: SyaratKetentuanRoute,
+  TentangKamiRoute: TentangKamiRoute,
   ShareTokenRoute: ShareTokenRoute,
 }
 export const routeTree = rootRouteImport

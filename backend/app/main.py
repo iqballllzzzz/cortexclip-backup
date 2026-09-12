@@ -1235,12 +1235,22 @@ async def api_ads_status(request: Request, authorization: str | None = Header(No
                      "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
         )
         rows = r.json() if r.status_code == 200 else []
-    watched = int(rows[0].get("ads_watched") or 0) if rows else 0
-    removed = bool(rows[0].get("watermark_removed")) if rows else False
     prof = rows[0] if rows else {}
+    watched = int(prof.get("ads_watched") or 0)
+    # Cek apakah user premium aktif: jika premium, watermark otomatis bebas (removed = True)
+    is_prem = False
+    pu = prof.get("premium_until")
+    if pu:
+        try:
+            from datetime import datetime, timezone
+            is_prem = datetime.fromisoformat(pu.replace("Z", "+00:00")) > datetime.now(timezone.utc)
+        except Exception:
+            is_prem = False
+
+    removed = is_prem or bool(prof.get("watermark_removed")) or watched >= 4
     from .ad_premium import summary as ad_summary
     return {"ads_watched": watched, "watermark_removed": removed,
-            "remaining": max(0, 4 - watched),
+            "remaining": 0 if removed else max(0, 4 - watched),
             "premium_until": prof.get("premium_until"),
             "ad_premium": ad_summary(prof)}
 

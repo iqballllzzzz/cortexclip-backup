@@ -38,6 +38,7 @@ import { useCameraFraming, useCameraTrack } from "@/lib/camera-framing";
 import { LiveCaptionOverlay, type LiveCaptionStyle, type LiveWord } from "@/components/live-caption-overlay";
 import { startRenderJob, getAccessToken } from "@/lib/backend-api";
 import { Button } from "@/components/ui/button";
+import { useAccountStatus } from "@/hooks/use-account-status";
 import type { Database } from "@/integrations/supabase/types";
 
 type Project = Database["public"]["Tables"]["projects"]["Row"];
@@ -153,10 +154,12 @@ function EditorPage() {
   >(null);
   const [layoutListOpen, setLayoutListOpen] = useState(false);
 
-  // watermark ads
+  // watermark ads & status akun
+  const { status: account } = useAccountStatus();
   const [adsWatched, setAdsWatched] = useState(0);
   const [watermarkRemoved, setWatermarkRemoved] = useState(false);
   const [adPlaying, setAdPlaying] = useState(false);
+  const isWatermarkHidden = Boolean(watermarkRemoved || account?.quota?.plan === "premium");
 
   // unduhan
   const [downloadLocked, setDownloadLocked] = useState(false);
@@ -865,9 +868,9 @@ function EditorPage() {
           </p>
         </div>
 
-        {watermarkRemoved ? (
-          <span className="hidden items-center gap-1.5 rounded-full border border-[var(--color-success)]/30 bg-[color-mix(in_oklab,var(--color-success)_10%,transparent)] px-2.5 py-1.5 text-[11px] font-semibold md:inline-flex">
-            <span className="max-w-[96px] truncate">Tanpa watermark</span>
+        {isWatermarkHidden ? (
+          <span className="hidden items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-amber-300 md:inline-flex">
+            <span className="max-w-[120px] truncate">Tanpa watermark 👑</span>
           </span>
         ) : (
           <button
@@ -1085,8 +1088,8 @@ function EditorPage() {
                   })
                 : null}
 
-              {/* PARITY watermark: x=3%, y=4.5% — WAJIB sama dgn ffmpeg */}
-              {!watermarkRemoved ? (
+              {/* PARITY watermark: x=3%, y=4.5% — disembunyikan jika user premium atau sudah hapus watermark */}
+              {!isWatermarkHidden ? (
                 <div className="pointer-events-none absolute left-[3%] top-[4.5%] flex items-center opacity-65" style={{ gap: Math.max(2, fit.w * 0.012) }}>
                   <img src="/watermark-logo.png" alt="" className="shrink-0 object-contain" style={{ width: fit.w * 0.095, height: fit.w * 0.095 }} />
                   <div className="min-w-0 leading-tight">
