@@ -728,9 +728,16 @@ function EditorPage() {
         const d = await res.json();
         const mine = (d.jobs ?? []).filter((j: { clip_id?: string }) => j.clip_id === clip!.id);
         const latest = mine[0];
-        if (latest && (latest.status === "completed" || latest.status === "failed")) {
+        if (latest && latest.status === "completed") {
           clearInterval(iv);
           setDownloadLocked(false);
+          toast.success("Render selesai! Mengunduh video...");
+          // Otomatis redirect ke unduhan video tanpa harus pencet lagi
+          window.location.href = `/api/download/${latest.id}`;
+        } else if (latest && latest.status === "failed") {
+          clearInterval(iv);
+          setDownloadLocked(false);
+          toast.error(latest.error || "Render gagal");
         }
       } catch {
         /* keep polling */
