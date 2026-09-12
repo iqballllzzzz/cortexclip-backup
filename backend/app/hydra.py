@@ -154,8 +154,8 @@ KEY_ENV = {
 }
 
 # Provider yang DIUTAMAKAN untuk pekerjaan penting (pemilihan momen viral).
-# Ditetapkan dari UJI NYATA: groq (1), gemini (2), dan free_deepseek vision (3).
-PRIORITAS_TINGGI = ("groq", "gemini", "free_deepseek")
+# Ditetapkan atas instruksi: deepseek (1), gemini (2), dan groq (3).
+PRIORITAS_TINGGI = ("free_deepseek", "gemini", "groq")
 
 # Order matters within a provider: model TERBAIK dulu, lalu cadangan.
 #
@@ -456,10 +456,9 @@ class HydraGateway:
         by_provider: dict[str, list[Endpoint]] = {}
         for e in pool:
             by_provider.setdefault(e.provider, []).append(e)
-        # PRIORITAS_TINGGI selalu dicoba PALING AWAL (provider berbayar milik
-        # pengguna dengan model kuat). Lalu provider ber-key lain, lalu provider
-        # anonim sebagai jaring pengaman. Rotasi tetap jalan di dalam tier.
-        prio = [p for p in by_provider if p in PRIORITAS_TINGGI and by_provider[p]]
+        # PRIORITAS_TINGGI selalu dicoba PALING AWAL secara urut sesuai definisi
+        # PRIORITAS_TINGGI: deepseek (1), gemini (2), groq (3).
+        prio = [p for p in PRIORITAS_TINGGI if p in by_provider and by_provider[p]]
         keyed = [p for p in by_provider
                  if p not in PRIORITAS_TINGGI and by_provider[p] and by_provider[p][0].key]
         anon = [p for p in by_provider
