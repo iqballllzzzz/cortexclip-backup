@@ -17,6 +17,7 @@ import {
   Sparkles,
   Subtitles,
   Sticker,
+  Trash2,
   X,
   Type,
 } from "lucide-react";
@@ -761,6 +762,25 @@ function EditorPage() {
     }
   }
 
+  async function handleHapusLogo() {
+    if (!clip) return;
+    try {
+      const token = await getAccessToken();
+      const res = await fetch(`/api/logo/${clip.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Gagal menghapus logo");
+      setLogo(null);
+      toast.success("Custom logo berhasil dihapus");
+      setClip((c) => (c ? { ...c, preview_ready: false, preview_url: null } : c));
+      setPrevPct(0);
+      setPrevStage("Menyiapkan");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Gagal menghapus logo");
+    }
+  }
+
   /** Muat placement ikon/b-roll. refresh=true memaksa AI merencanakan ulang. */
   async function loadPlacements(refresh = false) {
     if (!clip) return;
@@ -1084,6 +1104,31 @@ function EditorPage() {
                 </span>
               </button>
 
+              {/* PETUNJUK CUSTOM LOGO + TOMBOL HAPUS LOGO */}
+              {logo && !sedangDiproses ? (
+                <div
+                  className="pointer-events-auto absolute top-2 left-2 right-2 z-30 flex items-center justify-between gap-1.5 rounded-xl border border-amber-500/40 bg-black/85 px-2.5 py-1.5 shadow-lg backdrop-blur-md"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <p className="flex items-center gap-1.5 text-[10.5px] font-medium text-amber-200 leading-tight">
+                    <span>💡</span>
+                    <span>Logo bisa <strong className="text-white">digerakkan</strong> & <strong className="text-white">diperbesar/kecil</strong></span>
+                  </p>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleHapusLogo();
+                    }}
+                    title="Hapus logo custom"
+                    className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-red-500/20 border border-red-500/40 px-2 py-0.5 text-[10px] font-bold text-red-300 hover:bg-red-500/30 active:scale-95 transition-all cursor-pointer"
+                  >
+                    <Trash2 className="size-3 text-red-400" />
+                    <span>Hapus</span>
+                  </button>
+                </div>
+              ) : null}
+
               {/* LOGO CUSTOM (premium) — draggable + resize di atas preview.
                   z di atas tombol play supaya bisa dipegang. */}
               {logo && !sedangDiproses ? (
@@ -1093,6 +1138,7 @@ function EditorPage() {
                   boxH={fit.h}
                   logo={logo}
                   onChange={setLogo}
+                  onDelete={handleHapusLogo}
                 />
               ) : null}
             </div>

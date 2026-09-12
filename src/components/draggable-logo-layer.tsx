@@ -12,6 +12,7 @@
  * di pojok kanan-bawah; drag badan untuk pindah.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
 import { toast } from "sonner";
 
 import { getAccessToken } from "@/lib/backend-api";
@@ -29,12 +30,14 @@ export function DraggableLogoLayer({
   boxH,
   logo,
   onChange,
+  onDelete,
 }: {
   clipId: string;
   boxW: number;
   boxH: number;
   logo: LogoState;
   onChange: (l: LogoState) => void;
+  onDelete?: () => void;
 }) {
   const [draft, setDraft] = useState<LogoState>(logo);
   const dragRef = useRef<{ mode: "move" | "resize"; px: number; py: number; cx: number; cy: number; scale: number } | null>(null);
@@ -137,13 +140,27 @@ export function DraggableLogoLayer({
         {aktif ? (
           <>
             <span className="pointer-events-none absolute -inset-1.5 rounded-md border-2 border-dashed border-white/90" />
+            {onDelete ? (
+              <button
+                type="button"
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  onDelete();
+                }}
+                aria-label="Hapus logo"
+                title="Hapus logo"
+                className="absolute -top-2.5 -right-2.5 grid size-5 place-items-center rounded-full border-2 border-white bg-red-600 text-white shadow-md hover:scale-110 active:scale-95 transition-all cursor-pointer z-30"
+              >
+                <X className="size-3 stroke-[3]" />
+              </button>
+            ) : null}
             <button
               type="button"
               onPointerDown={onPointerDown("resize")}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
               aria-label="Ubah ukuran logo"
-              className="absolute -bottom-2 -right-2 grid size-5 cursor-nwse-resize place-items-center rounded-full border-2 border-white bg-accent"
+              className="absolute -bottom-2 -right-2 grid size-5 cursor-nwse-resize place-items-center rounded-full border-2 border-white bg-accent shadow-md"
             >
               <span className="size-1 rounded-full bg-white" />
             </button>

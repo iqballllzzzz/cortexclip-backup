@@ -119,7 +119,7 @@ export function CustomLogoDialog({
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || "Gagal menyimpan logo");
       const d = await res.json();
       onAgree(d.logo?.url ?? "");
-      toast.success("Logo terpasang — geser di preview untuk atur posisinya");
+      toast.success("Logo berhasil ditambahkan! Kamu bisa menggeser posisinya & memperbesar/memperkecil ukuran logo langsung di preview.", { duration: 6000 });
       onClose();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Gagal menyimpan logo");
