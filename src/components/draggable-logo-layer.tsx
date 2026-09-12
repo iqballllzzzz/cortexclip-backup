@@ -1,15 +1,12 @@
 "use client";
 /**
- * LOGO LAYER — logo custom di atas preview, bisa di-DRAG & resize.
+ * LOGO LAYER — logo custom di atas preview, bisa di-DRAG, RESIZE, & HAPUS.
  *
- * Drag langsung di preview (permintaan pengguna: "drag nya langsung di
- * previewnya... munculin kotak yang bisa gedein kecilin logo"). Posisi &
- * skala dinormalisasi (0..1) terhadap kotak preview, lalu disimpan via
- * PATCH /api/logo/{clip_id} (debounce 700ms). Render unduhan memakai
- * nilai yang sama — preview == unduhan.
- *
- * Kotak seleksi ala CapCut/Canva: bingkai putus-putus + pegangan resize
- * di pojok kanan-bawah; drag badan untuk pindah.
+ * Dioptimalkan untuk layar mobile:
+ * 1. Seleksi persisten saat diketuk (tidak langsung hilang saat jari diangkat).
+ * 2. Hit area tombol hapus (✕) & resize dibuat besar (36px+) agar mudah dipencet jari.
+ * 3. Batas tepi (safety margin) mencegah logo & tombol terpotong di tepi preview.
+ * 4. Mendukung cubit (pinch-to-zoom) dua jari untuk memperbesar/memperkecil di HP.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
@@ -40,11 +37,31 @@ export function DraggableLogoLayer({
   onDelete?: () => void;
 }) {
   const [draft, setDraft] = useState<LogoState>(logo);
-  const dragRef = useRef<{ mode: "move" | "resize"; px: number; py: number; cx: number; cy: number; scale: number } | null>(null);
-  const [aktif, setAktif] = useState(false);
+  const [terpilih, setTerpilih] = useState(false);
+  const dragRef = useRef<{
+    mode: "move" | "resize";
+    px: number;
+    py: number;
+    cx: number;
+    cy: number;
+    scale: number;
+  } | null>(null);
+  const pinchRef = useRef<{ dist: number; startScale: number } | null>(null);
   const simpanTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => setDraft(logo), [logo]);
+
+  // Klik di luar area logo mematikan seleksi
+  useEffect(() => {
+    function onDocClick(e: MouseEvent | TouchEvent) {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest("[data-logo-layer]")) {
+        setTerpilih(false);
+      }
+    }
+    window.addEventListener("pointerdown", onDocClick);
+    return () => window.removeEventListener("pointerdown", onDocClick);
+  }, []);
 
   const simpan = useCallback(
     (l: LogoState) => {
@@ -52,33 +69,53 @@ export function DraggableLogoLayer({
       simpanTimer.current = setTimeout(async () => {
         try {
           const token = await getAccessToken();
-          const res = await fetch(`/api/logo/${clipId}`, {
-            method: "POST",
+          const res = await fetch(`/api/logo/${clipId}/pos`, {
+            method: "PATCH",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ png_b64: "", cx: l.cx, cy: l.cy, scale: l.scale }),
+            body: JSON.stringify({ cx: l.cx, cy: l.cy, scale: l.scale }),
           });
           if (!res.ok) {
-            // backend butuh png_b64; posisi update pakai endpoint ringkas
-            const res2 = await fetch(`/api/logo/${clipId}/pos`, {
-              method: "PATCH",
+            // fallback coba endpoint POST jika PATCH belum ter-cache
+            await fetch(`/api/logo/${clipId}`, {
+              method: "POST",
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-              body: JSON.stringify({ cx: l.cx, cy: l.cy, scale: l.scale }),
+              body: JSON.stringify({ png_b64: "", cx: l.cx, cy: l.cy, scale: l.scale }),
             });
-            if (!res2.ok) throw new Error("gagal");
           }
         } catch {
-          toast.error("Posisi logo gagal tersimpan");
+          toast.error("Posisi logo gagal disimpan");
         }
-      }, 700);
+      }, 600);
     },
     [clipId],
   );
 
+  // Batas aman agar logo & tombol tidak pernah terpotong di tepi video
+  // Minimal 10% dari tepi samping dan 12% dari tepi atas/bawah
+  const clampPosisi = (cx: number, cy: number, scale: number) => {
+    const halfW = scale / 2;
+    const marginX = 0.10;
+    const marginY = 0.12;
+    const minX = halfW + marginX;
+    const maxX = 1 - halfW - marginX;
+    const minY = halfW + marginY;
+    const maxY = 1 - halfW - marginY;
+    return {
+      cx: Math.max(minX, Math.min(maxX, cx)),
+      cy: Math.max(minY, Math.min(maxY, cy)),
+    };
+  };
+
+  useEffect(() => {
+    const safe = clampPosisi(logo.cx, logo.cy, logo.scale);
+    setDraft({ ...logo, ...safe });
+  }, [logo]);
+
   const onPointerDown = (mode: "move" | "resize") => (e: React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    setAktif(true);
+    setTerpilih(true);
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     dragRef.current = {
       mode,
       px: e.clientX,
@@ -94,52 +131,102 @@ export function DraggableLogoLayer({
     if (!d) return;
     const dx = (e.clientX - d.px) / boxW;
     const dy = (e.clientY - d.py) / boxH;
+
     if (d.mode === "move") {
-      const cx = Math.max(0.04, Math.min(0.96, d.cx + dx));
-      const cy = Math.max(0.04, Math.min(0.96, d.cy + dy));
+      const rawCx = d.cx + dx;
+      const rawCy = d.cy + dy;
+      const { cx, cy } = clampPosisi(rawCx, rawCy, draft.scale);
       setDraft((s) => ({ ...s, cx, cy }));
     } else {
-      const pertumbuhan = dx + dy;
-      const scale = Math.max(0.05, Math.min(1.0, d.scale + pertumbuhan));
-      setDraft((s) => ({ ...s, scale }));
+      const pertambahan = (dx + dy) * 1.2;
+      const scale = Math.max(0.08, Math.min(0.5, d.scale + pertambahan));
+      const { cx, cy } = clampPosisi(draft.cx, draft.cy, scale);
+      setDraft((s) => ({ ...s, scale, cx, cy }));
     }
   };
 
-  const onPointerUp = () => {
+  const onPointerUp = (e: React.PointerEvent) => {
     if (!dragRef.current) return;
+    try {
+      (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
+    } catch {
+      /* ignore */
+    }
     dragRef.current = null;
-    setAktif(false);
     onChange(draft);
     simpan(draft);
   };
 
-  const w = boxW * draft.scale;
+  // Dukungan gesture cubit (pinch-to-zoom) dua jari untuk HP
+  const onTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      setTerpilih(true);
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      if (!t1 || !t2) return;
+      const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+      pinchRef.current = { dist, startScale: draft.scale };
+    }
+  };
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    if (e.touches.length === 2 && pinchRef.current) {
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      if (!t1 || !t2) return;
+      const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+      const ratio = dist / (pinchRef.current.dist || 1);
+      const newScale = Math.max(0.08, Math.min(0.5, pinchRef.current.startScale * ratio));
+      const { cx, cy } = clampPosisi(draft.cx, draft.cy, newScale);
+      const updated = { ...draft, scale: newScale, cx, cy };
+      setDraft(updated);
+      onChange(updated);
+    }
+  };
+
+  const onTouchEnd = () => {
+    if (pinchRef.current) {
+      pinchRef.current = null;
+      simpan(draft);
+    }
+  };
+
+  const w = Math.max(32, boxW * draft.scale);
 
   return (
     <div
-      className="absolute z-25 touch-none select-none"
+      data-logo-layer
+      className="absolute z-30 touch-none select-none"
       style={{
         left: `${draft.cx * 100}%`,
         top: `${draft.cy * 100}%`,
         width: w,
         transform: "translate(-50%, -50%)",
       }}
-      onPointerDown={onPointerDown("move")}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
     >
-      <div className="relative">
+      <div
+        className="relative group cursor-move"
+        onPointerDown={onPointerDown("move")}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+      >
         <img
           src={draft.url}
-          alt="Logo"
+          alt="Custom Logo"
           draggable={false}
-          className="w-full cursor-move object-contain"
-          style={{ pointerEvents: "none" }}
+          className="w-full object-contain pointer-events-none drop-shadow-md"
         />
-        {aktif ? (
+
+        {terpilih ? (
           <>
-            <span className="pointer-events-none absolute -inset-1.5 rounded-md border-2 border-dashed border-white/90" />
+            {/* Bingkai seleksi aktif */}
+            <span className="pointer-events-none absolute -inset-1 rounded-lg border-2 border-dashed border-white shadow-[0_0_8px_rgba(0,0,0,0.8)]" />
+
+            {/* Tombol Hapus Logo (✕) — Hitbox 36px untuk sentuhan jari HP */}
             {onDelete ? (
               <button
                 type="button"
@@ -147,22 +234,33 @@ export function DraggableLogoLayer({
                   e.stopPropagation();
                   onDelete();
                 }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete();
+                }}
                 aria-label="Hapus logo"
                 title="Hapus logo"
-                className="absolute -top-2.5 -right-2.5 grid size-5 place-items-center rounded-full border-2 border-white bg-red-600 text-white shadow-md hover:scale-110 active:scale-95 transition-all cursor-pointer z-30"
+                className="absolute top-0 right-0 translate-x-1/3 -translate-y-1/3 z-40 flex size-9 items-center justify-center cursor-pointer touch-manipulation active:scale-90 transition-transform"
               >
-                <X className="size-3 stroke-[3]" />
+                <span className="grid size-6 place-items-center rounded-full border-2 border-white bg-red-600 text-white shadow-lg">
+                  <X className="size-3.5 stroke-[3]" />
+                </span>
               </button>
             ) : null}
+
+            {/* Tombol Resize — Hitbox 36px untuk sentuhan jari HP */}
             <button
               type="button"
               onPointerDown={onPointerDown("resize")}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
               aria-label="Ubah ukuran logo"
-              className="absolute -bottom-2 -right-2 grid size-5 cursor-nwse-resize place-items-center rounded-full border-2 border-white bg-accent shadow-md"
+              title="Tarik untuk ubah ukuran"
+              className="absolute bottom-0 right-0 translate-x-1/3 translate-y-1/3 z-40 flex size-9 cursor-nwse-resize items-center justify-center touch-manipulation active:scale-95 transition-transform"
             >
-              <span className="size-1 rounded-full bg-white" />
+              <span className="grid size-6 place-items-center rounded-full border-2 border-white bg-accent text-white shadow-lg">
+                <span className="size-2 rounded-full bg-white" />
+              </span>
             </button>
           </>
         ) : null}

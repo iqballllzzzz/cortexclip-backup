@@ -176,7 +176,14 @@ function EditorPage() {
   // custom logo — plus logo draggable di atas preview.
   const [moreDialog, setMoreDialog] = useState<MoreAction | null>(null);
   const [logo, setLogo] = useState<LogoState | null>(null);
+  const [showLogoHint, setShowLogoHint] = useState(false);
   const [wordsOverride, setWordsOverride] = useState<LiveWord[] | null>(null);
+
+  useEffect(() => {
+    if (!showLogoHint) return;
+    const t = setTimeout(() => setShowLogoHint(false), 4000);
+    return () => clearTimeout(t);
+  }, [showLogoHint]);
 
   const cameraTrack = useCameraTrack(clipId, getAccessToken);
 
@@ -1104,30 +1111,25 @@ function EditorPage() {
                 </span>
               </button>
 
-              {/* PETUNJUK CUSTOM LOGO + TOMBOL HAPUS LOGO */}
-              {logo && !sedangDiproses ? (
-                <div
-                  className="pointer-events-auto absolute top-2 left-2 right-2 z-30 flex items-center justify-between gap-1.5 rounded-xl border border-amber-500/40 bg-black/85 px-2.5 py-1.5 shadow-lg backdrop-blur-md"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <p className="flex items-center gap-1.5 text-[10.5px] font-medium text-amber-200 leading-tight">
-                    <span>💡</span>
-                    <span>Logo bisa <strong className="text-white">digerakkan</strong> & <strong className="text-white">diperbesar/kecil</strong></span>
-                  </p>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void handleHapusLogo();
-                    }}
-                    title="Hapus logo custom"
-                    className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-red-500/20 border border-red-500/40 px-2 py-0.5 text-[10px] font-bold text-red-300 hover:bg-red-500/30 active:scale-95 transition-all cursor-pointer"
+              {/* PETUNJUK CUSTOM LOGO (Auto-hide 4 detik, posisi bawah tidak menabrak logo) */}
+              <AnimatePresence>
+                {showLogoHint && logo && !sedangDiproses ? (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 8, scale: 0.95 }}
+                    transition={{ duration: 0.2 }}
+                    className="pointer-events-none absolute bottom-3 inset-x-3 z-30 flex justify-center"
                   >
-                    <Trash2 className="size-3 text-red-400" />
-                    <span>Hapus</span>
-                  </button>
-                </div>
-              ) : null}
+                    <div className="flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-black/85 px-3 py-1 shadow-lg backdrop-blur-md">
+                      <span className="text-xs">💡</span>
+                      <span className="text-[10.5px] font-medium text-amber-200">
+                        Sentuh logo untuk geser & atur ukuran
+                      </span>
+                    </div>
+                  </motion.div>
+                ) : null}
+              </AnimatePresence>
 
               {/* LOGO CUSTOM (premium) — draggable + resize di atas preview.
                   z di atas tombol play supaya bisa dipegang. */}
@@ -1219,6 +1221,33 @@ function EditorPage() {
               />
             </div>
           </div>
+
+          {/* BAR KONTROL CEPAT LOGO (mobile-friendly: tidak menumpuk di preview) */}
+          {logo && !sedangDiproses ? (
+            <div className="flex w-full max-w-[560px] items-center justify-between gap-2 rounded-xl border border-border/70 bg-card/80 px-3 py-1.5 shadow-sm">
+              <div className="flex items-center gap-1.5 truncate">
+                <span className="text-xs">🏷️</span>
+                <span className="text-[11px] font-medium text-foreground truncate">Custom Logo aktif</span>
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setActiveTool("broll")}
+                  className="rounded-lg bg-accent/15 px-2 py-0.5 text-[10px] font-semibold text-accent hover:bg-accent/25 transition-colors"
+                >
+                  Atur Ukuran
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleHapusLogo()}
+                  className="inline-flex items-center gap-1 rounded-lg bg-red-500/15 border border-red-500/30 px-2 py-0.5 text-[10px] font-bold text-red-400 hover:bg-red-500/25 transition-colors active:scale-95 cursor-pointer"
+                >
+                  <Trash2 className="size-3" />
+                  <span>Hapus</span>
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           {/* PITA KATA DIHAPUS (permintaan pengguna: "dibawah progress bar dan
               pause/unpause itu ada transkrip panjang, hapus aja karena menuh
@@ -1330,6 +1359,76 @@ function EditorPage() {
                     </ToolPane>
                   ) : (
                     <ToolPane key="broll">
+                      {/* PENGATURAN LOGO CUSTOM */}
+                      {logo ? (
+                        <div className="mb-2.5 rounded-xl border border-accent/30 bg-accent/5 p-2.5 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <img
+                                src={logo.url}
+                                alt="Logo"
+                                className="size-6 rounded object-contain bg-black/40 border border-white/10 p-0.5"
+                              />
+                              <span className="text-[11.5px] font-bold text-foreground">Custom Logo</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => void handleHapusLogo()}
+                              className="inline-flex items-center gap-1 rounded-md bg-red-500/15 border border-red-500/30 px-2 py-0.5 text-[10px] font-bold text-red-400 hover:bg-red-500/25 transition-colors cursor-pointer"
+                            >
+                              <Trash2 className="size-3" />
+                              <span>Hapus Logo</span>
+                            </button>
+                          </div>
+
+                          {/* Slider Ukuran */}
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                              <span>Ukuran Logo</span>
+                              <span className="font-mono text-foreground font-semibold">
+                                {Math.round(logo.scale * 100)}%
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min={0.08}
+                              max={0.45}
+                              step={0.01}
+                              value={logo.scale}
+                              onChange={(e) => {
+                                const s = parseFloat(e.target.value);
+                                setLogo((prev) => (prev ? { ...prev, scale: s } : null));
+                              }}
+                              className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-border accent-[var(--color-accent)]"
+                            />
+                          </div>
+
+                          {/* Preset Sudut */}
+                          <div className="flex items-center justify-between gap-1 pt-0.5">
+                            <span className="text-[10px] text-muted-foreground">Posisi:</span>
+                            <div className="flex gap-1">
+                              {[
+                                { label: "Kiri Atas", cx: 0.22, cy: 0.16 },
+                                { label: "Kanan Atas", cx: 0.78, cy: 0.16 },
+                                { label: "Kiri Bawah", cx: 0.22, cy: 0.84 },
+                                { label: "Kanan Bawah", cx: 0.78, cy: 0.84 },
+                              ].map((pos) => (
+                                <button
+                                  key={pos.label}
+                                  type="button"
+                                  onClick={() =>
+                                    setLogo((prev) => (prev ? { ...prev, cx: pos.cx, cy: pos.cy } : null))
+                                  }
+                                  className="rounded bg-background border border-border px-1.5 py-0.5 text-[9px] font-medium text-foreground hover:bg-accent hover:text-accent-foreground transition-all active:scale-95 cursor-pointer"
+                                >
+                                  {pos.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
+
                       {/* 4 TOGGLE DALAM GRID 2 KOLOM (permintaan: "biar di satu
                           baris bisa nyimpen 2 tombol toggle dan bikin lebih
                           terlihat semua tombolnya") — semua toggle terlihat
@@ -1545,7 +1644,8 @@ function EditorPage() {
           clipId={clip.id}
           onClose={() => setMoreDialog(null)}
           onAgree={(url) => {
-            setLogo({ url, cx: 0.87, cy: 0.05, scale: 0.18 });
+            setLogo({ url, cx: 0.78, cy: 0.16, scale: 0.18 });
+            setShowLogoHint(true);
             // logo terpasang → preview dirender ulang (logo dibakar di
             // unduhan; layer DOM menunjukkan posisinya di preview)
             setClip((c) => (c ? { ...c, preview_ready: false, preview_url: null } : c));
