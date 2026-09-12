@@ -196,6 +196,18 @@ async def _watermark_aktif_untuk(user_id: str) -> bool:
         return False
     if row.get("watermark_removed") or int(row.get("ads_watched") or 0) >= 4:
         return False
+
+    # 3. Cek tiket bonus referral (1 tiket = 1 unduhan bebas watermark)
+    bonus = int(row.get("bonus_credits") or 0)
+    if bonus > 0:
+        try:
+            from .premium import sb
+            await sb("PATCH", f"profiles?user_id=eq.{user_id}", json_body={"bonus_credits": bonus - 1})
+            print(f"[render] user memakai 1 tiket bonus referral (sisa {bonus - 1}) → tanpa watermark!")
+            return False
+        except Exception as e:
+            print(f"[render] gagal potong tiket bonus referral: {e}")
+
     return True
 
 

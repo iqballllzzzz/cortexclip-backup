@@ -11,12 +11,14 @@ import { useEffect, useRef } from "react";
 export function BrollPip({
   url,
   active,
+  playing = true,
   localTime,
   width,
   top,
 }: {
   url: string;
   active: boolean;
+  playing?: boolean;
   /** detik sejak placement mulai */
   localTime: number;
   width: number;
@@ -27,8 +29,14 @@ export function BrollPip({
   useEffect(() => {
     const v = ref.current;
     if (!v) return;
-    if (!active) {
+    if (!active || !playing) {
       if (!v.paused) v.pause();
+      // tetap sinkronkan frame waktu lokal saat di-pause
+      const dur = v.duration;
+      if (Number.isFinite(dur) && dur > 0.1) {
+        const target = localTime % dur;
+        if (Math.abs(v.currentTime - target) > 0.25) v.currentTime = target;
+      }
       return;
     }
     // sinkron: loop b-roll (mirror -stream_loop -1 di ffmpeg)
@@ -38,7 +46,7 @@ export function BrollPip({
       if (Math.abs(v.currentTime - target) > 0.35) v.currentTime = target;
     }
     if (v.paused) void v.play().catch(() => undefined);
-  }, [active, localTime]);
+  }, [active, playing, localTime]);
 
   return (
     <video

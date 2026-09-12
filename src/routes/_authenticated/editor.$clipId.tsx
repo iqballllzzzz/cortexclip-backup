@@ -610,7 +610,7 @@ function EditorPage() {
 
   const liveStyle: LiveCaptionStyle = {
     fontFamily: preset.cssFontFamily,
-    fontSize: effFontSize * 0.42,
+    fontSize: effFontSize * 0.58,
     ...(preset.style.max_words ? { maxWords: preset.style.max_words } : {}),
     fontColor: preset.style.font_color,
     highlightColor: preset.style.highlight_color,
@@ -1032,6 +1032,7 @@ function EditorPage() {
                           key={`broll-${b0}-${idx}`}
                           url={p.broll_url as string}
                           active={active}
+                          playing={playing}
                           localTime={Math.max(0, time - b0)}
                           width={w}
                           top={fit.h * cy - hgt / 2}

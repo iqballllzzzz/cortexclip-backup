@@ -9,6 +9,7 @@ import {
   Clapperboard,
   Crown,
   Download,
+  Gift,
   Loader2,
   MoreVertical,
   Pencil,
@@ -22,6 +23,7 @@ import {
 } from "lucide-react";
 
 import { PremiumDialog } from "@/components/premium-dialog";
+import { ReferralDialog } from "@/components/referral-dialog";
 import { AppNav } from "@/components/app-nav";
 import { RotatingUrlPlaceholder } from "@/components/rotating-url-placeholder";
 import { NumberTicker } from "@/components/magicui/number-ticker";
@@ -136,6 +138,7 @@ function Dashboard() {
   const [sharing, setSharing] = useState(false);
   const [sharedLink, setSharedLink] = useState<string | null>(null);
   const [premiumOpen, setPremiumOpen] = useState(false);
+  const [referralOpen, setReferralOpen] = useState(false);
   const [filter, setFilter] = useState<Filter>("semua");
   /* BANNER PROJECT (permintaan pengguna): tiap kartu proyek menampilkan
      screenshot otomatis dari salah satu klipnya sebagai background. */
@@ -433,6 +436,14 @@ function Dashboard() {
               >
                 <Crown className="size-3.5 text-amber-400 fill-amber-400/30 animate-pulse" />
                 <span>Upgrade ke Premium</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setReferralOpen(true)}
+                className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-3.5 py-2 text-xs font-semibold text-foreground hover:border-accent/40 hover:bg-surface transition-colors shadow-sm active:scale-[0.98]"
+              >
+                <Gift className="size-3.5 text-accent" />
+                <span>Undang Teman</span>
               </button>
               <Link
                 to="/unduh"
@@ -991,6 +1002,11 @@ function Dashboard() {
           fetchQuota().catch(() => {});
           void reloadAccount();
         }}
+      />
+
+      <ReferralDialog
+        open={referralOpen}
+        onClose={() => setReferralOpen(false)}
       />
     </div>
   );

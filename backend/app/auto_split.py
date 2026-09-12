@@ -27,7 +27,7 @@ import numpy as np
 # --- ambang openshorts (diukur, bukan ditebak) ---
 MIN_COEXISTENCE = 0.50   # >=50% sampel memuat dua wajah bersamaan
 MIN_SEPARATION = 0.20    # jarak dua pusat wajah >=20% lebar frame
-MIN_FACE_FRAC = 0.045    # wajah lebih kecil = extras/penonton
+MIN_FACE_FRAC = 0.060    # wajah lebih kecil = extras/penonton/latar, diabaikan
 MIN_SPLIT_S = 2.5        # split lebih pendek dari ini = glitch, bukan pilihan
 SPLIT_TIGHTNESS = 0.80   # tinggi crop = 80% sumber (bukan 100%, supaya bahu
                          # tetangga tidak ikut terlihat)
@@ -37,7 +37,7 @@ JENDELA_S = 0.40         # satu window = 0.4 detik
 AUDIO_GATE = 0.18        # di bawah ini = tidak ada yang bicara
 MIN_MARGIN = 0.15        # selisih aktivitas <15% = tidak jelas siapa bicara
 MIN_SHARE = 0.20         # kedua pembicara masing-masing >=20% window
-HOLD_WINDOWS = 3         # pembicara baru harus menang 3 window berturut
+HOLD_WINDOWS = 4         # pembicara baru harus menang 4 window berturut (~1.6s)
 MIN_SEG_S = 1.0          # segmen bicara lebih pendek dari ini dilebur
 
 # aktifitas mulut: pakai skor bicara dari face_speak (sudah dinormalisasi

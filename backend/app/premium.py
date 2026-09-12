@@ -69,12 +69,12 @@ PEMBANDING = {
     "menit_sumber_per_bulan": 150,
     "catatan": "harga resmi opus.pro, Juni 2026",
 }
-FREE_LIMITS = {"projects_per_day": 2, "clips_per_video": 10}
+FREE_LIMITS = {"projects_per_day": 1, "clips_per_video": 3}
 PREMIUM_LIMITS = {"projects_per_day": 10, "clips_per_video": 40}
 
 MSG_LIMIT_PROJECT = (
-    "Limit harian tercapai: akun gratis hanya bisa membuat 2 video per hari "
-    "(maks 10 klip per video). Upgrade ke Premium untuk 10 video/hari & 40 klip/video."
+    "Limit harian tercapai: akun gratis dibatasi 1 video per hari (3 klip per video). "
+    "Upgrade ke Premium mulai Rp5.000 untuk 10 video/hari & buka semua 40 klip."
 )
 
 _service_headers = {

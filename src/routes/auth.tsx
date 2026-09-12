@@ -55,6 +55,16 @@ function AuthPage() {
 
   // Sudah login → langsung dashboard (jangan tampilkan halaman auth lagi)
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const p = new URLSearchParams(window.location.search);
+      const r = p.get("ref");
+      if (r) {
+        localStorage.setItem("cortexclip-ref", r.toLowerCase());
+        setMode("signup");
+        toast.info(`Kode referral ${r} terdeteksi! Daftar untuk klaim bonus tiket.`);
+      }
+    }
+
     let cancelled = false;
     supabase.auth.getSession().then(({ data }) => {
       if (!cancelled && data.session) {
@@ -91,6 +101,24 @@ function AuthPage() {
       if (error) throw error;
       toast.success("Email terverifikasi! Selamat datang.");
       void recordLoginEvent();
+
+      // Klaim referral jika ada
+      const refCode = localStorage.getItem("cortexclip-ref");
+      if (refCode) {
+        try {
+          const { getAccessToken } = await import("@/lib/backend-api");
+          const token = await getAccessToken();
+          await fetch("/api/referral/claim", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ code: refCode }),
+          });
+          localStorage.removeItem("cortexclip-ref");
+        } catch {
+          /* ignore */
+        }
+      }
+
       navigate({ to: "/dashboard", replace: true });
     } catch (err) {
       const pesan = err instanceof Error ? err.message : "Kode tidak cocok";

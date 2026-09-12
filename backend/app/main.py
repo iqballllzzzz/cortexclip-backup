@@ -1341,6 +1341,90 @@ async def api_admin_set_free_premium(body: FreePremiumStateIn, request: Request,
         raise HTTPException(400, str(exc))
 
 
+# ---- SISTEM REFERRAL (Komisi & Kuota Tiket Unduh) --------------------------
+
+@app.get("/api/referral/my-code")
+async def api_referral_my_code(request: Request, authorization: str | None = Header(None)):
+    """Ambil kode referral, jumlah teman yang diundang, dan tiket bonus."""
+    user = await get_user(request, authorization)
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            f"{SUPABASE_URL}/rest/v1/profiles?user_id=eq.{user['id']}"
+            "&select=referral_code,referral_count,bonus_credits,referred_by",
+            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
+        )
+        rows = r.json() if r.status_code == 200 else []
+    if not rows:
+        raise HTTPException(404, "Profil tidak ditemukan")
+    prof = rows[0]
+    code = prof.get("referral_code") or str(user["id"])[:8].lower()
+    return {
+        "referral_code": code,
+        "referral_count": int(prof.get("referral_count") or 0),
+        "bonus_credits": int(prof.get("bonus_credits") or 0),
+        "referred_by": prof.get("referred_by"),
+        "share_url": f"https://cortexclip.eu.cc/auth?ref={code}",
+        "reward_info": "1 Tiket Bebas Watermark untukmu setiap 1 teman yang mendaftar!",
+    }
+
+
+class ReferralClaimIn(BaseModel):
+    code: str
+
+
+@app.post("/api/referral/claim")
+async def api_referral_claim(body: ReferralClaimIn, request: Request, authorization: str | None = Header(None)):
+    """Klaim kode referral oleh pengguna baru (hanya bisa 1x klaim)."""
+    user = await get_user(request, authorization)
+    code = body.code.strip().lower()
+    if not code:
+        raise HTTPException(400, "Kode referral tidak valid")
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        r_me = await client.get(
+            f"{SUPABASE_URL}/rest/v1/profiles?user_id=eq.{user['id']}&select=referral_code,referred_by,bonus_credits",
+            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
+        )
+        me_rows = r_me.json() if r_me.status_code == 200 else []
+        if not me_rows:
+            raise HTTPException(404, "Profil tidak ditemukan")
+        me = me_rows[0]
+        if me.get("referred_by"):
+            raise HTTPException(400, "Kamu sudah pernah mengklaim kode referral sebelumnya.")
+        if (me.get("referral_code") or "").lower() == code:
+            raise HTTPException(400, "Tidak dapat menggunakan kode referral milik sendiri.")
+
+        r_ref = await client.get(
+            f"{SUPABASE_URL}/rest/v1/profiles?referral_code=eq.{code}&select=user_id,referral_count,bonus_credits",
+            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
+        )
+        ref_rows = r_ref.json() if r_ref.status_code == 200 else []
+        if not ref_rows:
+            raise HTTPException(404, "Kode referral tidak ditemukan")
+        referrer = ref_rows[0]
+
+        new_ref_count = int(referrer.get("referral_count") or 0) + 1
+        new_ref_bonus = int(referrer.get("bonus_credits") or 0) + 1
+        await client.patch(
+            f"{SUPABASE_URL}/rest/v1/profiles?user_id=eq.{referrer['user_id']}",
+            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
+            json={"referral_count": new_ref_count, "bonus_credits": new_ref_bonus},
+        )
+
+        new_my_bonus = int(me.get("bonus_credits") or 0) + 1
+        await client.patch(
+            f"{SUPABASE_URL}/rest/v1/profiles?user_id=eq.{user['id']}",
+            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"},
+            json={"referred_by": code, "bonus_credits": new_my_bonus},
+        )
+
+    return {
+        "success": True,
+        "message": "Selamat! Kode referral berhasil diklaim. Kamu mendapatkan 1 tiket render bebas watermark!",
+        "bonus_credits": new_my_bonus,
+    }
+
+
 # ---- Admin: Real-Time System & AI Logs ------------------------------------
 
 @app.get("/api/admin/logs/system")

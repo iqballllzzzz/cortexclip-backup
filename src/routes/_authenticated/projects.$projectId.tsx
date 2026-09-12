@@ -10,6 +10,8 @@ import {
   Flame,
   Link2,
   Loader2,
+  Lock,
+  Crown,
   Sparkles,
   Upload,
   Wand2,
@@ -19,6 +21,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppNav } from "@/components/app-nav";
 import { PageLoading } from "@/components/page-loading";
+import { PremiumDialog } from "@/components/premium-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { buildAss, buildSrt, download } from "@/lib/srt";
@@ -127,7 +130,8 @@ function ProjectPage() {
   const { t } = useI18n();
   const { projectId } = Route.useParams();
   const navigate = useNavigate();
-  const { status: account } = useAccountStatus();
+  const { status: account, reload: reloadAccount } = useAccountStatus();
+  const isPremium = account?.quota?.plan === "premium";
 
   const [project, setProject] = useState<Project | null>(null);
   const [clips, setClips] = useState<Clip[]>([]);
@@ -137,6 +141,7 @@ function ProjectPage() {
   const [localFile, setLocalFile] = useState<File | null>(null);
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
   const [renderDoneCount, setRenderDoneCount] = useState(0);
+  const [premiumOpen, setPremiumOpen] = useState(false);
   const seenJobsRef = useRef<Set<string>>(new Set());
 
   /* --- deteksi render yang selesai selagi user pergi --- */
@@ -687,14 +692,57 @@ function ProjectPage() {
               </div>
             </div>
           ) : (
-            <ul className="snap-strip mt-6 flex gap-5 overflow-x-auto pb-5 [scrollbar-width:thin]">
-              {clips.map((clip, i) => (
-                <DeckCard key={clip.id} clip={clip} onSave={saveClip} index={i} />
-              ))}
-            </ul>
+            <>
+              {/* Banner Penawaran Buka Kunci Klip (Cash Flow Booster) */}
+              {!isPremium && clips.length > 3 ? (
+                <div className="mt-6 rounded-2xl border-2 border-amber-500/40 bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/10 p-5 text-center shadow-lg">
+                  <div className="mx-auto grid size-12 place-items-center rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400">
+                    <Crown className="size-6 animate-bounce" />
+                  </div>
+                  <h3 className="mt-3 font-display text-lg font-bold text-foreground sm:text-xl">
+                    Buka Kunci {clips.length - 3} Klip Viral Lainnya
+                  </h3>
+                  <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-muted-foreground sm:text-sm">
+                    AI telah mendeteksi total {clips.length} momen terbaik dari videomu. Akun gratis hanya membuka 3 klip pertama. Upgrade mulai <strong>Rp5.000 (QRIS)</strong> untuk membuka seluruh klip & 100% bebas watermark!
+                  </p>
+                  <Button
+                    variant="accent"
+                    className="mt-4 rounded-xl px-6 py-2.5 text-xs font-bold text-white shadow-md hover:scale-105 active:scale-95 transition-all"
+                    onClick={() => setPremiumOpen(true)}
+                  >
+                    <Crown className="size-4" /> Buka Kunci Semua Klip Sekarang (Rp5.000)
+                  </Button>
+                </div>
+              ) : null}
+
+              <ul className="snap-strip mt-6 flex gap-5 overflow-x-auto pb-5 [scrollbar-width:thin]">
+                {clips.map((clip, i) => {
+                  const isLocked = !isPremium && i >= 3;
+                  return (
+                    <DeckCard
+                      key={clip.id}
+                      clip={clip}
+                      onSave={saveClip}
+                      index={i}
+                      isLocked={isLocked}
+                      onUnlock={() => setPremiumOpen(true)}
+                    />
+                  );
+                })}
+              </ul>
+            </>
           )}
         </section>
       </main>
+
+      <PremiumDialog
+        open={premiumOpen}
+        onClose={() => setPremiumOpen(false)}
+        onUpgraded={() => {
+          void reloadAccount();
+          void load();
+        }}
+      />
     </div>
   );
 }
@@ -715,10 +763,14 @@ function DeckCard({
   clip,
   onSave,
   index,
+  isLocked = false,
+  onUnlock,
 }: {
   clip: Clip;
   onSave: (clip: Clip, patch: Partial<Clip>) => void;
   index: number;
+  isLocked?: boolean;
+  onUnlock?: () => void;
 }) {
   const duration = clip.end_time - clip.start_time;
   const hot = clip.virality_score >= 85;
@@ -732,76 +784,126 @@ function DeckCard({
     >
       <div
         className={`relative flex h-full flex-col overflow-hidden rounded-2xl border bg-card transition-[transform,border-color,box-shadow] duration-300 hover:-translate-y-1.5 hover:shadow-xl hover:shadow-black/10 ${
-          hot ? "border-accent/40 hover:border-accent/70" : "border-border hover:border-accent/40"
+          isLocked
+            ? "border-amber-500/30 bg-amber-500/5"
+            : hot
+            ? "border-accent/40 hover:border-accent/70"
+            : "border-border hover:border-accent/40"
         }`}
       >
         {/* poster 9:16 — GAMBAR potongan klip */}
-        <Link
-          to="/editor/$clipId"
-          params={{ clipId: clip.id }}
-          className="relative block overflow-hidden bg-surface"
-          style={{ aspectRatio: "9/16" }}
-          aria-label={`Buka editor ${clip.title}`}
-        >
-          {clip.thumb_url ? (
-            <img
-              src={clip.thumb_url}
-              alt=""
-              loading="lazy"
-              decoding="async"
-              className="absolute inset-0 size-full object-cover transition-transform duration-500 group-hover:scale-[1.06]"
+        {isLocked ? (
+          <div
+            onClick={onUnlock}
+            className="relative block overflow-hidden bg-surface cursor-pointer group"
+            style={{ aspectRatio: "9/16" }}
+          >
+            {clip.thumb_url ? (
+              <img
+                src={clip.thumb_url}
+                alt=""
+                loading="lazy"
+                className="absolute inset-0 size-full object-cover blur-[4px] opacity-35"
+              />
+            ) : (
+              <span className="absolute inset-0 grid place-items-center bg-border/40">
+                <Clapperboard className="size-6 text-muted-foreground/50" />
+              </span>
+            )}
+
+            {/* Tirai Gembok Kunci */}
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/60 p-3 text-center backdrop-blur-[2px]">
+              <div className="grid size-10 place-items-center rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-400 shadow-md">
+                <Lock className="size-5" />
+              </div>
+              <p className="font-display text-[12px] font-bold text-white">Klip Terkunci</p>
+              <span className="rounded-full bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-1 text-[10px] font-bold text-white shadow-md hover:scale-105 active:scale-95 transition-all">
+                Buka Kunci (Rp5k)
+              </span>
+            </div>
+          </div>
+        ) : (
+          <Link
+            to="/editor/$clipId"
+            params={{ clipId: clip.id }}
+            className="relative block overflow-hidden bg-surface"
+            style={{ aspectRatio: "9/16" }}
+            aria-label={`Buka editor ${clip.title}`}
+          >
+            {clip.thumb_url ? (
+              <img
+                src={clip.thumb_url}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                className="absolute inset-0 size-full object-cover transition-transform duration-500 group-hover:scale-[1.06]"
+              />
+            ) : (
+              /* thumbnail belum jadi: shimmer berbentuk poster, bukan angka */
+              <span className="absolute inset-0 grid animate-pulse place-items-center bg-border/40">
+                <Clapperboard className="size-6 text-muted-foreground/50" />
+              </span>
+            )}
+
+            {/* gradien bawah supaya teks terbaca di atas gambar apa pun */}
+            <span
+              aria-hidden
+              className="absolute inset-x-0 bottom-0 h-[58%] bg-gradient-to-t from-background via-background/75 to-transparent"
             />
-          ) : (
-            /* thumbnail belum jadi: shimmer berbentuk poster, bukan angka */
-            <span className="absolute inset-0 grid animate-pulse place-items-center bg-border/40">
-              <Clapperboard className="size-6 text-muted-foreground/50" />
-            </span>
-          )}
 
-          {/* gradien bawah supaya teks terbaca di atas gambar apa pun */}
-          <span
-            aria-hidden
-            className="absolute inset-x-0 bottom-0 h-[58%] bg-gradient-to-t from-background via-background/75 to-transparent"
-          />
-
-          {hot ? (
-            <span className="absolute left-2.5 top-2.5 rounded-full bg-accent px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-accent-foreground shadow">
-              hot
-            </span>
-          ) : null}
-
-          <span className="absolute inset-x-0 bottom-0 px-3 pb-3">
-            <span className="flex items-center gap-1.5 font-mono text-[11px] text-foreground/80">
-              {formatClock(clip.start_time)} – {formatClock(clip.end_time)}
-              <span className="opacity-40">·</span>
-              {Math.floor(duration)}s
-            </span>
-            {clip.hook_type ? (
-              <Badge variant="secondary" className="mt-1.5 text-[10px]">
-                {clip.hook_type}
-              </Badge>
+            {hot ? (
+              <span className="absolute left-2.5 top-2.5 rounded-full bg-accent px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-accent-foreground shadow">
+                hot
+              </span>
             ) : null}
-          </span>
 
-          {/* isyarat play saat hover/sentuh */}
-          <span className="absolute left-1/2 top-[42%] grid size-11 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-black/45 text-white opacity-0 backdrop-blur transition-all duration-300 group-hover:scale-110 group-hover:opacity-100">
-            <Clapperboard className="size-5" />
-          </span>
-        </Link>
+            <span className="absolute inset-x-0 bottom-0 px-3 pb-3">
+              <span className="flex items-center gap-1.5 font-mono text-[11px] text-foreground/80">
+                {formatClock(clip.start_time)} – {formatClock(clip.end_time)}
+                <span className="opacity-40">·</span>
+                {Math.floor(duration)}s
+              </span>
+              {clip.hook_type ? (
+                <Badge variant="secondary" className="mt-1.5 text-[10px]">
+                  {clip.hook_type}
+                </Badge>
+              ) : null}
+            </span>
+
+            {/* isyarat play saat hover/sentuh */}
+            <span className="absolute left-1/2 top-[42%] grid size-11 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-black/45 text-white opacity-0 backdrop-blur transition-all duration-300 group-hover:scale-110 group-hover:opacity-100">
+              <Clapperboard className="size-5" />
+            </span>
+          </Link>
+        )}
 
         <div className="flex flex-1 flex-col px-3 pb-3 pt-2.5">
           <input
             value={clip.title}
+            disabled={isLocked}
             onChange={(e) => onSave(clip, { title: e.target.value })}
             aria-label="Judul klip"
             title={clip.title}
-            className="min-w-0 bg-transparent text-[12.5px] font-semibold leading-snug tracking-tight outline-none transition-colors focus:text-accent"
+            className={`min-w-0 bg-transparent text-[12.5px] font-semibold leading-snug tracking-tight outline-none transition-colors ${
+              isLocked ? "text-muted-foreground opacity-60 cursor-not-allowed" : "focus:text-accent"
+            }`}
           />
-          <Button variant="outline" size="sm" asChild className="mt-2.5 w-full rounded-full">
-            <Link to="/editor/$clipId" params={{ clipId: clip.id }}>
-              <Clapperboard className="size-4" /> Buka editor
-            </Link>
-          </Button>
+          {isLocked ? (
+            <Button
+              variant="accent"
+              size="sm"
+              onClick={onUnlock}
+              className="mt-2.5 w-full rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-[11px] font-bold text-white shadow-sm hover:from-amber-600 hover:to-orange-600 active:scale-98"
+            >
+              <Lock className="size-3.5" /> Buka Kunci (Rp5k)
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" asChild className="mt-2.5 w-full rounded-full">
+              <Link to="/editor/$clipId" params={{ clipId: clip.id }}>
+                <Clapperboard className="size-4" /> Buka editor
+              </Link>
+            </Button>
+          )}
         </div>
       </div>
     </motion.li>

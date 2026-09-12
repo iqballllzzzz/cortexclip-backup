@@ -139,15 +139,11 @@ def faktor_em_ke_fontsize(font_family: str) -> float:
 def get_em_font_px(base_font_size: int, video_width: int) -> int:
     """Ukuran EM dalam piksel — ANGKA YANG SAMA dengan preview browser.
 
-    Preview: fontSize CSS = base * 0.42 * (containerWidth / 360), dan
+    Preview: fontSize CSS = base * 0.58 * (containerWidth / 360), dan
     containerWidth : lebar video = 1 : 1, jadi rasio terhadap lebar video
     identik di kedua sisi.
-
-    Dipakai untuk apa pun yang harus seukuran huruf: PNG emoji, ikon, tinggi
-    band subtitle. JANGAN dipakai sebagai Fontsize ASS (lihat
-    get_scaled_font_size).
     """
-    em = round(base_font_size * 0.42 * (video_width / 360.0))
+    em = round(base_font_size * 0.58 * (video_width / 360.0))
     return max(10, min(int(video_width * 0.25), em))
 
 

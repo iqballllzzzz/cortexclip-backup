@@ -49,7 +49,7 @@ FACE_L, FACE_R = 234, 454        # pipi kiri & kanan
 
 # ---- parameter (relatif, jadi tidak tergantung resolusi) -------------------
 MAX_FACES = 10            # podcast panel: dukung sampai 10 wajah
-MIN_FACE_RATIO = 0.030    # wajah < 3% lebar frame = latar, bukan kandidat
+MIN_FACE_RATIO = 0.055    # wajah < 5.5% lebar frame = latar/ekstra/lukisan, bukan kandidat
 MATCH_FACE_RATIO = 0.85   # jarak maks pencocokan identitas = 0.85 x lebar wajah
 
 SAMPLE_FPS = 15           # bicara 3-4 suku kata/detik; 5 fps teraliasing
@@ -70,12 +70,12 @@ RECENT_FRAMES = 8         # kandidat tetap dihitung kalau terlihat < 8 frame lal
 
 SPEAK_ON = 0.0060         # simpangan bukaan mulut untuk dianggap bicara
 SPEAK_OFF = 0.0035        # di bawah ini dianggap berhenti bicara
-DOMINANCE = 1.60          # kandidat harus 60% lebih "bicara" dari yang aktif
+DOMINANCE = 1.80          # kandidat harus 80% lebih "bicara" dari yang aktif
 CUT_MIN_SAMPLES = 6       # kandidat baru boleh memicu potong kalau datanya cukup
 EMA_UP = 0.85             # skor naik cepat (pindah pembicara harus responsif)
 EMA_DOWN = 0.30           # turun lambat (jeda antar kata bukan berhenti)
 
-HOLD_FRAMES = 3           # kandidat harus dominan 3 frame (0.20s @15fps)
+HOLD_FRAMES = 5           # kandidat harus dominan 5 frame (~0.35s @15fps)
 COOLDOWN_S = 1.6          # jeda minimal antar potong kamera. Terukur: 0.8s
                           # menghasilkan 15-18 cut/menit dengan 8 cut berjarak
                           # < 1 detik — mata membaca rentetan itu sebagai
