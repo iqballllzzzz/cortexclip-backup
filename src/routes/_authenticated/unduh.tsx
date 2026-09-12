@@ -350,7 +350,23 @@ function DownloadsPage() {
 
                       {/* aksi kanan */}
                       {job.status === "completed" && job.rendered_url ? (
-                        <div className="flex shrink-0 items-center">
+                        <div className="flex shrink-0 flex-wrap items-center gap-2 sm:flex-nowrap">
+                          {job.clip_id ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="rounded-full text-xs"
+                              asChild
+                            >
+                              <Link
+                                to="/editor/$clipId"
+                                params={{ clipId: job.clip_id }}
+                              >
+                                <Film className="size-3.5" />
+                                <span>Lihat klip di editor</span>
+                              </Link>
+                            </Button>
+                          ) : null}
                           <Button
                             variant="accent"
                             size="sm"

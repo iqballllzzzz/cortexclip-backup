@@ -872,18 +872,7 @@ function EditorPage() {
           <span className="hidden items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-amber-300 md:inline-flex">
             <span className="max-w-[120px] truncate">Tanpa watermark 👑</span>
           </span>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setAdPlaying(true)}
-            title="Tonton 4 iklan untuk menghapus watermark"
-            className="inline-flex shrink-0 items-center gap-1 rounded-full bg-accent px-2.5 py-1.5 text-[11px] font-semibold text-accent-foreground transition-transform hover:-translate-y-px sm:gap-1.5 sm:px-3.5 sm:text-[12px]"
-          >
-            <BadgeX className="size-3.5 shrink-0" />
-            <span className="hidden whitespace-nowrap md:inline">Hapus watermark</span>
-            <span className="shrink-0 rounded-full bg-black/15 px-1.5 py-0.5 text-[10px] tabular-nums">{adsWatched}/4</span>
-          </button>
-        )}
+        ) : null}
 
         <Button
           variant="accent"
@@ -1135,8 +1124,27 @@ function EditorPage() {
             </div>
             </div>
 
-            {/* TOMBOL TITIK-TIGA di kanan preview (di luar kotak video) */}
-            <div className="flex shrink-0 flex-col items-center justify-center gap-2">
+            {/* TOMBOL TITIK-TIGA & HAPUS WATERMARK di kanan preview (di luar kotak video) */}
+            <div className="flex shrink-0 flex-col items-center justify-center gap-2.5">
+              {!isWatermarkHidden ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    toast.info("Maaf, saat ini hapus watermark sedang tidak dapat digunakan.");
+                  }}
+                  title="Hapus watermark, perlu nonton 4 iklan"
+                  className="group flex max-w-[84px] flex-col items-center justify-center gap-1 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-2 text-center text-amber-400 shadow-sm transition-all hover:bg-amber-500/20 active:scale-95 cursor-pointer"
+                >
+                  <BadgeX className="size-4 shrink-0 text-amber-400" />
+                  <span className="text-[10px] font-bold leading-tight text-foreground">
+                    Hapus watermark
+                  </span>
+                  <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-semibold text-amber-300">
+                    perlu nonton 4 iklan
+                  </span>
+                </button>
+              ) : null}
+
               <EditorMoreMenu
                 onAction={(a) => {
                   if (a === "manual-track" && !sourceUrl) {
